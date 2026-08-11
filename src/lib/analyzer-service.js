@@ -1,106 +1,129 @@
 /**
- * Analyzer Service — multi-project type analysis dispatcher
+ * Analyzer Service — registry-backed analyzer facade.
  *
- * Detects project type and delegates to the appropriate analyzer.
- * Fallback to .NET analyzer for existing .NET projects.
+ * Keeps routes independent from concrete project types and reuses cached
+ * analysis graphs for search, expand, full graph and agent endpoints.
  */
 
-import { detectProjectType } from '../analyzers/common/analyzer-detection.js';
-import { analyzeDotNetProject } from '../analyzers/dotnet/dotnet-analyzer.js';
-import { analyzeTypeScriptProject, searchSymbols as tsSearch, expandNode as tsExpand } from '../analyzers/typescript/typescript-analyzer.js';
+import { resolveAnalyzer, listAnalyzerCapabilities } from "../analyzers/common/analyzer-registry.js";
+import { getCachedAnalysis } from "./analysis-cache.js";
+import { analyzeImpact, buildContext, buildProjectInsights } from "./graph-intelligence.js";
 
-/**
- * Analysis options
- * @typedef {Object} AnalysisOptions
- * @property {number} [nodeLimit=500] - Maximum nodes to return
- * @property {number} [edgeLimit=1200] - Maximum edges to return
- * @property {string[]} [layers] - Filter by layers
- * @property {string[]} [features] - Filter by features
- */
+export function getAnalyzerCapabilities() {
+  return listAnalyzerCapabilities();
+}
 
-/**
- * Analyze a project based on its detected type
- * @param {object} project - Project object from projects.js
- * @param {AnalysisOptions} [options] - Analysis options
- * @returns {object} Analysis result
- */
 export function analyzeProject(project, options = {}) {
-  const projectType = detectProjectType(project.absolutePath);
+  const { analyzer, projectType } = resolveAnalyzer(project);
 
-  if (projectType === 'dotnet') {
-    return analyzeDotNetProject(project, options);
-  }
-  
-  if (projectType === 'typescript') {
-    return analyzeTypeScriptProject(project, options);
+  if (!analyzer) {
+    return unsupported(projectType, "analyze");
   }
 
-  // Fallback: treat as unknown/unanalyzable
-  return {
-    success: false,
-    projectType,
-    message: `Tipo de projeto não suportado: ${projectType}`,
-    nodes: [],
-    edges: []
-  };
+  return getCachedAnalysis(project, analyzer, options, (cacheOptions) => analyzer.analyze(project, cacheOptions));
 }
 
-/**
- * Search symbols across project types
- * @param {object} project - Project object
- * @param {string} query - Search query
- * @returns {object} Search result
- */
 export function searchSymbols(project, query) {
-  const projectType = detectProjectType(project.absolutePath);
+  const { analyzer, projectType } = resolveAnalyzer(project);
 
-  if (projectType === 'dotnet') {
-    return analyzeDotNetProject(project).search?.(query) || {
-      success: false,
-      message: 'Busca não disponível para .NET neste momento'
-    };
-  }
-  
-  if (projectType === 'typescript') {
-    const analysis = analyzeTypeScriptProject(project);
-    return tsSearch(analysis, query);
+  if (!analyzer?.search) {
+    return unsupported(projectType, "search", { results: [] });
   }
 
+  if (analyzer.searchUsesAnalysis) {
+    return analyzer.search(analyzeProject(project), query);
+  }
+
+  return analyzer.search(project, query);
+}
+
+export function expandNode(project, nodeId, direction = "both") {
+  const { analyzer, projectType } = resolveAnalyzer(project);
+
+  if (!analyzer?.expand) {
+    return unsupported(projectType, "expand", { node: null, dependencies: [] });
+  }
+
+  if (analyzer.expandUsesAnalysis) {
+    return analyzer.expand(analyzeProject(project), nodeId, direction);
+  }
+
+  return analyzer.expand(project, nodeId, direction);
+}
+
+export function getFullGraph(project, options = {}) {
+  const { analyzer, projectType } = resolveAnalyzer(project);
+
+  if (!analyzer) {
+    return unsupported(projectType, "fullGraph");
+  }
+
+  if (analyzer.fullGraph) {
+    return analyzer.fullGraph(project, options);
+  }
+
+  return limitGraph(analyzeProject(project, options), options);
+}
+
+export function getAnalysisGraph(project, options = {}) {
+  const analysis = analyzeProject(project, {
+    ...options,
+    cacheNodeLimit: options.cacheNodeLimit || 10000,
+    cacheEdgeLimit: options.cacheEdgeLimit || 25000
+  });
+
+  if (typeof analysis.fullGraph === "function") {
+    return analysis.fullGraph(options);
+  }
+
+  return analysis;
+}
+
+export function getImpact(project, nodeId, options = {}) {
+  return analyzeImpact(getAnalysisGraph(project, options), nodeId, options);
+}
+
+export function getSymbolContext(project, options = {}) {
+  return buildContext(getAnalysisGraph(project, options), options);
+}
+
+export function getProjectInsights(project, options = {}) {
+  return buildProjectInsights(getAnalysisGraph(project, options), options);
+}
+
+function unsupported(projectType, capability, extra = {}) {
   return {
     success: false,
     projectType,
-    message: `Busca não suportada para tipo: ${projectType}`,
-    results: []
+    message: `${capability} não suportado para tipo: ${projectType}`,
+    nodes: [],
+    edges: [],
+    ...extra
   };
 }
 
-/**
- * Expand a node (symbol) to show dependencies/references
- * @param {object} project - Project object
- * @param {string} nodeId - Node/symbol ID to expand
- * @param {'both'|'in'|'out'} direction - Direction of expansion
- * @returns {object} Expansion result
- */
-export function expandNode(project, nodeId, direction = 'both') {
-  const projectType = detectProjectType(project.absolutePath);
-
-  if (projectType === 'dotnet') {
-    return analyzeDotNetProject(project).expand?.(nodeId, direction) || {
-      success: false,
-      message: 'Expand não disponível para .NET neste momento'
-    };
-  }
-  
-  if (projectType === 'typescript') {
-    const analysis = analyzeTypeScriptProject(project);
-    return tsExpand(analysis, nodeId, direction);
-  }
+function limitGraph(result, options = {}) {
+  const nodeLimit = options.nodeLimit || 500;
+  const edgeLimit = options.edgeLimit || 1200;
+  const layers = new Set((options.layers || []).filter(Boolean));
+  const features = new Set((options.features || []).filter(Boolean));
+  const filteredNodes = (result.nodes || []).filter((node) => {
+    if (layers.size && !layers.has(node.layer)) return false;
+    if (features.size && !features.has(node.feature)) return false;
+    return true;
+  });
+  const limitedNodes = filteredNodes.slice(0, nodeLimit);
+  const nodeIds = new Set(limitedNodes.map((node) => node.id));
+  const limitedEdges = (result.edges || [])
+    .filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to))
+    .slice(0, edgeLimit);
 
   return {
-    success: false,
-    projectType,
-    message: `Expand não suportado para tipo: ${projectType}`,
-    node: null,
-    dependencies: []
+    ...result,
+    nodes: limitedNodes,
+    edges: limitedEdges,
+    limited: limitedNodes.length < (result.nodes || []).length || limitedEdges.length < (result.edges || []).length,
+    originalNodeCount: (result.nodes || []).length,
+    originalEdgeCount: (result.edges || []).length
   };
 }

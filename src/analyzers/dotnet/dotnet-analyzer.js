@@ -11,6 +11,23 @@ import {
   getFullGraphExplorer
 } from '../../lib/symbol-index.js';
 
+export const dotNetAnalyzer = {
+  projectType: 'dotnet',
+  name: '.NET analyzer',
+  fileExtensions: ['.cs', '.csproj', '.sln', '.slnx'],
+  capabilities: {
+    analyze: true,
+    search: true,
+    expand: true,
+    fullGraph: true,
+    metadata: true
+  },
+  analyze: analyzeDotNetProject,
+  search: (project, query) => searchSymbolExplorer(project, query),
+  expand: (project, nodeId, direction) => expandSymbolExplorer(project, nodeId, direction || 'both'),
+  fullGraph: (project, opts) => getFullGraphExplorer(project, opts || {})
+};
+
 /**
  * Analyze a .NET project
  * @param {object} project - Project object
@@ -21,6 +38,10 @@ export function analyzeDotNetProject(project, options = {}) {
   // Return an object that exposes search/expand methods for the analyzer-service
   return {
     projectType: 'dotnet',
+    metadata: {
+      analyzer: dotNetAnalyzer.name,
+      capabilities: dotNetAnalyzer.capabilities
+    },
     
     /**
      * Search symbols in this .NET project

@@ -21,7 +21,10 @@ import {
 import {
   handleSearch,
   handleExpand,
-  handleFullGraph
+  handleFullGraph,
+  handleImpact,
+  handleContext,
+  handleInsights
 } from "./routes/explore.routes.js";
 import { handleIndexProject } from "./routes/index.routes.js";
 import {
@@ -45,6 +48,9 @@ router.add("GET", "/api/projects/:name", handleGetProject);
 router.add("GET", "/api/explore/:project/search", handleSearch);
 router.add("GET", "/api/explore/:project/expand", handleExpand);
 router.add("GET", "/api/explore/:project/full", handleFullGraph);
+router.add("GET", "/api/explore/:project/impact", handleImpact);
+router.add("GET", "/api/explore/:project/context", handleContext);
+router.add("GET", "/api/explore/:project/insights", handleInsights);
 router.add("POST", "/api/index/:project", handleIndexProject);
 router.add("GET", "/api/cache/symbols", handleSymbolCacheStats);
 router.add("DELETE", "/api/cache/symbols", handleClearSymbolCache);

@@ -6,6 +6,7 @@
 
 import { getProjectByName } from "../lib/projects.js";
 import { runScipIndex } from "../lib/indexer.js";
+import { invalidateAnalysisCache } from "../lib/analysis-cache.js";
 import { sendOk, sendError } from "../utils/response.js";
 import { validateProjectName } from "../utils/validation.js";
 
@@ -35,6 +36,7 @@ export async function handleIndexProject(req, res, params) {
   }
 
   const result = await runScipIndex(project);
+  invalidateAnalysisCache(project.name);
 
   if (result.ok) {
     sendOk(res, 200, result, `Indexação de "${params.project}" concluída.`);

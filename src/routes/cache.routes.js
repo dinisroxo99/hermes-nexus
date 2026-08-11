@@ -1,27 +1,25 @@
 /**
- * Cache routes — inspect and clear symbol index cache.
- *
- * GET    /api/cache/symbols
- * DELETE /api/cache/symbols?project=faturas-backend
+ * Cache routes — inspect and clear symbol and analyzer caches.
  */
 
 import {
   clearSymbolIndexCache,
   getSymbolIndexCacheStats
 } from "../lib/symbol-index.js";
+import {
+  getAnalysisCacheStats,
+  invalidateAnalysisCache
+} from "../lib/analysis-cache.js";
 import { sendOk, sendError } from "../utils/response.js";
 import { validateProjectName } from "../utils/validation.js";
 
-/**
- * GET /api/cache/symbols
- */
 export async function handleSymbolCacheStats(req, res) {
-  sendOk(res, 200, getSymbolIndexCacheStats());
+  sendOk(res, 200, {
+    symbols: getSymbolIndexCacheStats(),
+    analysis: getAnalysisCacheStats()
+  });
 }
 
-/**
- * DELETE /api/cache/symbols?project=optionalProjectName
- */
 export async function handleClearSymbolCache(req, res, _params, query) {
   const project = query.get("project");
 
@@ -33,6 +31,7 @@ export async function handleClearSymbolCache(req, res, _params, query) {
     }
   }
 
-  const result = clearSymbolIndexCache(project || null);
-  sendOk(res, 200, result, project ? `Cache limpo para ${project}.` : "Cache de símbolos limpo.");
+  const symbols = clearSymbolIndexCache(project || null);
+  const analysis = invalidateAnalysisCache(project || null);
+  sendOk(res, 200, { symbols, analysis }, project ? `Cache limpo para ${project}.` : "Caches limpos.");
 }

@@ -20,6 +20,27 @@ const IGNORED_DIRS = new Set([
   'public'
 ]);
 
+export const typeScriptAnalyzer = {
+  projectType: 'typescript',
+  name: 'TypeScript analyzer',
+  fileExtensions: ['.ts', '.tsx', '.js', '.jsx', '.json'],
+  searchUsesAnalysis: true,
+  expandUsesAnalysis: true,
+  capabilities: {
+    analyze: true,
+    search: true,
+    expand: true,
+    fullGraph: true,
+    metadata: true,
+    pathAliases: true,
+    reExports: true
+  },
+  analyze: analyzeTypeScriptProject,
+  search: searchSymbols,
+  expand: expandNode
+};
+
+
 export function analyzeTypeScriptProject(project, options = {}) {
   const {
     nodeLimit = 500,
@@ -59,6 +80,8 @@ export function analyzeTypeScriptProject(project, options = {}) {
     const symbolsByName = new Map();
     const fileSymbolsByPath = new Map();
     const defaultSymbolByPath = new Map();
+    const exportAliasesByPath = new Map();
+    const pathAliases = readPathAliases(rootPath);
     const sourceFiles = tsProject.getSourceFiles().filter((sourceFile) => {
       const relativePath = normalizeRelativePath(rootPath, sourceFile.getFilePath());
       return !shouldIgnorePath(relativePath);
@@ -71,7 +94,20 @@ export function analyzeTypeScriptProject(project, options = {}) {
         seenNodeKeys,
         symbolsByName,
         fileSymbolsByPath,
-        defaultSymbolByPath
+        defaultSymbolByPath,
+        exportAliasesByPath,
+        pathAliases,
+        rootPath
+      });
+    }
+
+    for (const sourceFile of sourceFiles) {
+      const relativePath = normalizeRelativePath(rootPath, sourceFile.getFilePath());
+      collectReExportAliases(sourceFile, relativePath, {
+        fileSymbolsByPath,
+        defaultSymbolByPath,
+        exportAliasesByPath,
+        pathAliases
       });
     }
 
@@ -81,7 +117,10 @@ export function analyzeTypeScriptProject(project, options = {}) {
         edges,
         symbolsByName,
         fileSymbolsByPath,
-        defaultSymbolByPath
+        defaultSymbolByPath,
+        exportAliasesByPath,
+        pathAliases,
+        rootPath
       });
     }
 
@@ -103,7 +142,10 @@ export function analyzeTypeScriptProject(project, options = {}) {
       metadata: {
         totalFiles: files.length,
         totalSymbols: nodes.length,
-        totalEdges: edges.length
+        totalEdges: edges.length,
+        analyzer: typeScriptAnalyzer.name,
+        capabilities: typeScriptAnalyzer.capabilities,
+        pathAliasCount: pathAliases.length
       }
     };
   } catch (error) {
@@ -309,6 +351,93 @@ function resolveRelativeImportPath(fromRelativePath, moduleSpecifier, knownPaths
   return candidates.find((candidate) => knownPaths.has(candidate)) || null;
 }
 
+function resolveImportPath(fromRelativePath, moduleSpecifier, context) {
+  const knownPaths = new Set(context.fileSymbolsByPath.keys());
+
+  if (moduleSpecifier.startsWith('.') || moduleSpecifier.startsWith('/')) {
+    return resolveRelativeImportPath(fromRelativePath, moduleSpecifier, knownPaths);
+  }
+
+  for (const alias of context.pathAliases || []) {
+    const match = matchPathAlias(moduleSpecifier, alias);
+    if (!match) continue;
+
+    for (const target of match.targets) {
+      const resolved = resolveFromProjectRoot(target, knownPaths);
+      if (resolved) return resolved;
+    }
+  }
+
+  return null;
+}
+
+function readPathAliases(rootPath) {
+  const tsConfigPath = path.join(rootPath, 'tsconfig.json');
+
+  if (!fs.existsSync(tsConfigPath)) {
+    return [];
+  }
+
+  try {
+    const raw = stripJsonComments(fs.readFileSync(tsConfigPath, 'utf8'));
+    const parsed = JSON.parse(raw);
+    const compilerOptions = parsed.compilerOptions || {};
+    const baseUrl = compilerOptions.baseUrl || '.';
+    const paths = compilerOptions.paths || {};
+
+    return Object.entries(paths).map(([pattern, targets]) => ({
+      pattern,
+      targets: (Array.isArray(targets) ? targets : [targets]).map((target) => {
+        return path.posix.normalize(path.posix.join(baseUrl.replace(/\\/g, '/'), String(target).replace(/\\/g, '/')));
+      })
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function stripJsonComments(value) {
+  return String(value)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|\s)\/\/.*$/gm, '$1');
+}
+
+function matchPathAlias(moduleSpecifier, alias) {
+  const starIndex = alias.pattern.indexOf('*');
+
+  if (starIndex === -1) {
+    return moduleSpecifier === alias.pattern ? { targets: alias.targets } : null;
+  }
+
+  const prefix = alias.pattern.slice(0, starIndex);
+  const suffix = alias.pattern.slice(starIndex + 1);
+
+  if (!moduleSpecifier.startsWith(prefix) || !moduleSpecifier.endsWith(suffix)) {
+    return null;
+  }
+
+  const wildcard = moduleSpecifier.slice(prefix.length, moduleSpecifier.length - suffix.length);
+  return {
+    targets: alias.targets.map((target) => target.replace('*', wildcard))
+  };
+}
+
+function resolveFromProjectRoot(normalizedBase, knownPaths) {
+  const candidates = [
+    normalizedBase,
+    `${normalizedBase}.ts`,
+    `${normalizedBase}.tsx`,
+    `${normalizedBase}.js`,
+    `${normalizedBase}.jsx`,
+    `${normalizedBase}/index.ts`,
+    `${normalizedBase}/index.tsx`,
+    `${normalizedBase}/index.js`,
+    `${normalizedBase}/index.jsx`
+  ];
+
+  return candidates.find((candidate) => knownPaths.has(candidate)) || null;
+}
+
 function inferDefaultExportName(declaration, relativePath) {
   const namedDeclarationName = declaration.getName?.();
 
@@ -382,32 +511,104 @@ function registerSymbol(context, relativePath, node) {
 
 function extractImportEdges(sourceFile, relativePath, context) {
   const sourceSymbols = context.fileSymbolsByPath.get(relativePath) || [];
+  collectReExportAliases(sourceFile, relativePath, context);
 
   if (!sourceSymbols.length) return;
 
+  extractReExportEdges(sourceFile, relativePath, context, sourceSymbols);
+
   for (const importDeclaration of sourceFile.getImportDeclarations()) {
     const moduleSpecifier = importDeclaration.getModuleSpecifierValue();
-
-    if (!moduleSpecifier.startsWith('.') && !moduleSpecifier.startsWith('/')) {
-      continue;
-    }
+    const targetPath = resolveImportPath(relativePath, moduleSpecifier, context);
 
     for (const element of importDeclaration.getNamedImports()) {
-      const importName = element.getName();
-      const targetSymbols = context.symbolsByName.get(importName) || [];
+      const importName = element.getAliasNode()?.getText() || element.getName();
+      const exportedName = element.getName();
+      const targetSymbols = targetPath
+        ? findExportedSymbols(context, targetPath, exportedName)
+        : context.symbolsByName.get(exportedName) || [];
       addImportEdges(context.edges, sourceSymbols, targetSymbols, importName, 'importa');
     }
 
     const defaultImport = importDeclaration.getDefaultImport();
     if (defaultImport) {
       const importName = defaultImport.getText();
-      const knownPaths = new Set(context.fileSymbolsByPath.keys());
-      const targetPath = resolveRelativeImportPath(relativePath, moduleSpecifier, knownPaths);
       const defaultTarget = targetPath ? context.defaultSymbolByPath?.get(targetPath) : null;
       const targetSymbols = defaultTarget ? [defaultTarget] : context.symbolsByName.get(importName) || [];
       addImportEdges(context.edges, sourceSymbols, targetSymbols, importName, 'importa default');
     }
   }
+}
+
+function extractReExportEdges(sourceFile, relativePath, context, sourceSymbols) {
+  for (const exportDeclaration of sourceFile.getExportDeclarations()) {
+    const moduleSpecifier = exportDeclaration.getModuleSpecifierValue?.();
+
+    if (!moduleSpecifier) {
+      continue;
+    }
+
+    const targetPath = resolveImportPath(relativePath, moduleSpecifier, context);
+    if (!targetPath) continue;
+
+    const namedExports = exportDeclaration.getNamedExports();
+
+    if (!namedExports.length) {
+      addImportEdges(context.edges, sourceSymbols, context.fileSymbolsByPath.get(targetPath) || [], moduleSpecifier, 're-exporta');
+      continue;
+    }
+
+    for (const namedExport of namedExports) {
+      const exportedName = namedExport.getName();
+      const alias = namedExport.getAliasNode()?.getText() || exportedName;
+      addImportEdges(context.edges, sourceSymbols, findExportedSymbols(context, targetPath, exportedName), alias, 're-exporta');
+    }
+  }
+}
+
+function collectReExportAliases(sourceFile, relativePath, context) {
+  for (const exportDeclaration of sourceFile.getExportDeclarations()) {
+    const moduleSpecifier = exportDeclaration.getModuleSpecifierValue?.();
+    if (!moduleSpecifier) continue;
+
+    const targetPath = resolveImportPath(relativePath, moduleSpecifier, context);
+    if (!targetPath) continue;
+
+    if (!context.exportAliasesByPath.has(relativePath)) {
+      context.exportAliasesByPath.set(relativePath, new Map());
+    }
+
+    const aliases = context.exportAliasesByPath.get(relativePath);
+    const namedExports = exportDeclaration.getNamedExports();
+
+    if (!namedExports.length) {
+      for (const symbol of context.fileSymbolsByPath.get(targetPath) || []) {
+        aliases.set(symbol.label, symbol);
+      }
+      continue;
+    }
+
+    for (const namedExport of namedExports) {
+      const exportedName = namedExport.getName();
+      const alias = namedExport.getAliasNode()?.getText() || exportedName;
+      const targets = findExportedSymbols(context, targetPath, exportedName);
+      if (targets[0]) aliases.set(alias, targets[0]);
+    }
+  }
+}
+
+function findExportedSymbols(context, targetPath, exportedName) {
+  const alias = context.exportAliasesByPath?.get(targetPath)?.get(exportedName);
+  if (alias) {
+    return [alias];
+  }
+
+  if (exportedName === 'default') {
+    const defaultTarget = context.defaultSymbolByPath?.get(targetPath);
+    return defaultTarget ? [defaultTarget] : [];
+  }
+
+  return (context.fileSymbolsByPath.get(targetPath) || []).filter((node) => node.label === exportedName);
 }
 
 function addImportEdges(edges, sourceSymbols, targetSymbols, importName, label) {

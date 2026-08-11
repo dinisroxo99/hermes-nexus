@@ -6,6 +6,7 @@ const layoutBtn = document.getElementById("layoutBtn");
 const fitBtn = document.getElementById("fitBtn");
 const clearBtn = document.getElementById("clearBtn");
 const loadFullGraphBtn = document.getElementById("loadFullGraphBtn");
+const insightsBtn = document.getElementById("insightsBtn");
 const nodeLimitInput = document.getElementById("nodeLimitInput");
 const edgeLimitInput = document.getElementById("edgeLimitInput");
 const statusEl = document.getElementById("status");
@@ -332,7 +333,7 @@ function initGraph3D() {
   resizeObserver.observe(graph3dEl);
 }
 function sync3DFromCy() {
-  if (!graph3d || !cy) {
+  if (!graph3d || !cy || viewMode !== "3d") {
     return;
   }
 
@@ -370,7 +371,7 @@ function sync3DFromCy() {
 }
 
 function addGraphData(result) {
-  if (!graph3d) {
+  if (!graph3d || viewMode !== "3d") {
     return;
   }
 
@@ -591,6 +592,10 @@ function setViewMode(mode) {
     graph2dEl.classList.add("hidden");
     graph3dEl.classList.remove("hidden");
     threeDControlsEl?.classList.remove("hidden");
+
+    if (!graph3d) {
+      initGraph3D();
+    }
 
     view2dBtn.classList.remove("active-view");
     view3dBtn.classList.add("active-view");
@@ -1032,6 +1037,7 @@ function renderDetails(node) {
 
     <div class="detail-actions">
       <button id="expandSelectedBtn">Expandir</button>
+      <button id="impactSelectedBtn" class="secondary">Impacto</button>
       <button id="focusSelectedBtn" class="secondary">Focar</button>
       <button id="isolateSelectedBtn" class="secondary">Isolar vizinhança</button>
       <button id="restoreGraphBtn" class="secondary">Voltar ao completo</button>
@@ -1052,6 +1058,10 @@ function renderDetails(node) {
 
   document.getElementById("expandSelectedBtn").addEventListener("click", async () => {
     await expandNode(node.id());
+  });
+
+  document.getElementById("impactSelectedBtn").addEventListener("click", async () => {
+    await loadImpact(node.id());
   });
 
   document.getElementById("focusSelectedBtn").addEventListener("click", () => {
@@ -1276,6 +1286,86 @@ async function loadFullGraph() {
     loadFullGraphBtn.disabled = false;
     loadFullGraphBtn.classList.remove("loading");
   }
+}
+
+async function loadImpact(nodeId) {
+  const project = projectSelect.value;
+
+  if (!project || !nodeId) return;
+
+  statusEl.innerHTML = '<span class="spinner"></span>A calcular impacto...';
+
+  try {
+    const result = await fetchJson(`/api/explore/${encodeURIComponent(project)}/impact?nodeId=${encodeURIComponent(nodeId)}&depth=2&limit=80`);
+    const affected = (result.affectedFiles || []).slice(0, 12)
+      .map((file) => `<div class="ref-meta">${escapeHtml(file)}</div>`)
+      .join("");
+
+    detailsEl.insertAdjacentHTML("beforeend", `
+      <div class="detail-section impact-section">
+        <h3>Impacto (${escapeHtml(result.impact?.level || "-")})</h3>
+        <div class="detail-row">
+          <span class="detail-label">Dependentes diretos / transitivos</span>
+          <span class="detail-value">${result.impact?.directDependentCount || 0} / ${result.impact?.transitiveDependentCount || 0}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Ficheiros afetados</span>
+          <span class="detail-value">${result.impact?.affectedFileCount || 0}</span>
+        </div>
+        ${affected || `<div class="empty">Sem ficheiros afetados detetados.</div>`}
+      </div>
+    `);
+    statusEl.textContent = result.message || "Impacto calculado.";
+  } catch (error) {
+    statusEl.textContent = error.message;
+  }
+}
+
+async function loadInsights() {
+  const project = projectSelect.value;
+
+  if (!project) {
+    statusEl.textContent = "Seleciona um projeto.";
+    return;
+  }
+
+  statusEl.innerHTML = '<span class="spinner"></span>A calcular insights...';
+
+  try {
+    const result = await fetchJson(`/api/explore/${encodeURIComponent(project)}/insights?limit=12`);
+    detailsEl.innerHTML = `
+      <div class="detail-title">Insights arquiteturais</div>
+      <div class="detail-row"><span class="detail-label">Grafo</span><span class="detail-value">${result.stats.nodeCount} nós · ${result.stats.edgeCount} ligações · ${result.stats.fileCount} ficheiros</span></div>
+      <div class="detail-section">
+        <h3>Símbolos centrais</h3>
+        ${renderInsightNodes(result.highlyConnected || [])}
+      </div>
+      <div class="detail-section">
+        <h3>Maiores módulos/features</h3>
+        ${(result.largestModules || []).map((item) => `<div class="ref-item"><div class="ref-title">${escapeHtml(item.name)}</div><div class="ref-meta">${item.count} símbolos</div></div>`).join("")}
+      </div>
+      <div class="detail-section">
+        <h3>Potenciais ciclos</h3>
+        ${(result.potentialCycles || []).length ? result.potentialCycles.map((cycle) => `<div class="ref-item"><div class="ref-title">${cycle.nodes.map((node) => escapeHtml(node.label)).join(" ↔ ")}</div></div>`).join("") : `<div class="empty">Nenhum ciclo simples detetado.</div>`}
+      </div>
+    `;
+    statusEl.textContent = result.message || "Insights carregados.";
+  } catch (error) {
+    statusEl.textContent = error.message;
+  }
+}
+
+function renderInsightNodes(nodes) {
+  if (!nodes.length) {
+    return `<div class="empty">Sem dados suficientes.</div>`;
+  }
+
+  return nodes.map((node) => `
+    <div class="ref-item" data-node-id="${escapeAttribute(node.id)}">
+      <div class="ref-title">${escapeHtml(node.label)}</div>
+      <div class="ref-meta">${escapeHtml(node.file || "")} · ${node.dependentCount || 0} dependentes · ${node.dependencyCount || 0} dependências</div>
+    </div>
+  `).join("");
 }
 
 function buildFullGraphQuery({ nodeLimit, edgeLimit }) {
@@ -1588,6 +1678,12 @@ loadFullGraphBtn.addEventListener("click", () => {
   });
 });
 
+insightsBtn?.addEventListener("click", () => {
+  loadInsights().catch((error) => {
+    statusEl.textContent = error.message;
+  });
+});
+
 view2dBtn.addEventListener("click", () => {
   setViewMode("2d");
 });
@@ -1621,7 +1717,6 @@ document.querySelectorAll("[data-3d-axis]").forEach((button) => {
 });
 
 initGraph();
-initGraph3D();
 renderLegend();
 renderCategoryFilters();
 setViewMode("2d");

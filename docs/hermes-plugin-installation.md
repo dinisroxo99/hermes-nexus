@@ -1,0 +1,1191 @@
+# Hermes Project Map plugin installation for Hermes profiles
+
+[← README](../README.md) · [Hermes tool integration](./hermes-tool-integration.md) · [Adding projects](./adding-projects.md)
+
+## Purpose
+
+This guide explains how to install `hermes-project-map` as a local Hermes plugin so Hermes agents can query the project map directly through tools, without using the web UI.
+
+After this setup, a Hermes profile can call tools such as:
+
+- `project_map_health`
+- `project_map_projects`
+- `project_map_structure`
+- `project_map_search`
+- `project_map_expand`
+- `project_map_full_graph`
+- `project_map_index`
+- `project_map_cache_stats`
+- `project_map_clear_cache`
+
+The plugin is intentionally small. It does not reimplement the analyzer. It calls the existing `hermes-project-map` HTTP API.
+
+## Architecture
+
+```txt
+Hermes agent/profile
+  └─ project_map toolset
+      └─ local Python plugin
+          └─ HTTP requests to hermes-project-map
+              ├─ GET  /api/projects
+              ├─ GET  /api/projects/:name/structure
+              ├─ GET  /api/explore/:project/search?q=...
+              ├─ GET  /api/explore/:project/expand?nodeId=...&direction=...
+              ├─ GET  /api/explore/:project/full?nodeLimit=...&edgeLimit=...
+              ├─ POST /api/index/:project
+              ├─ GET  /api/cache/symbols
+              └─ DELETE /api/cache/symbols
+```
+
+## Prerequisites
+
+You need:
+
+1. Hermes Agent installed and working.
+2. `hermes-project-map` running locally or in Docker.
+3. At least one Hermes profile where you want the tools to be available.
+4. Python available in the same environment that runs Hermes.
+
+Check Hermes:
+
+```bash
+hermes --version
+hermes profile list
+```
+
+Check `hermes-project-map`:
+
+```bash
+curl http://localhost:8770/api/health
+```
+
+Expected response shape:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "status": "ok"
+  }
+}
+```
+
+If the service is running in Docker, start it first:
+
+```bash
+docker compose up --build -d
+```
+
+Then verify:
+
+```bash
+curl http://localhost:8770/api/health
+```
+
+## Recommended plugin location
+
+Install the plugin per Hermes profile:
+
+```txt
+~/.hermes/profiles/<profile-name>/plugins/project-map/project-map/
+  plugin.yaml
+  __init__.py
+  tools.py
+```
+
+Example for a profile named `project-map-main`:
+
+```txt
+~/.hermes/profiles/project-map-main/plugins/project-map/project-map/
+  plugin.yaml
+  __init__.py
+  tools.py
+```
+
+Why per profile?
+
+- It avoids changing Hermes core.
+- It lets each profile enable or disable the tool independently.
+- It keeps local workflow-specific tools isolated.
+- It is easy to copy to other project profiles.
+
+## Step 1 — choose the profiles
+
+List profiles:
+
+```bash
+hermes profile list
+```
+
+Example profiles for this project:
+
+```txt
+project-map-main
+project-map-architect
+project-map-coder
+project-map-commenter
+project-map-documenter
+project-map-git-flow
+project-map-reviewer
+project-map-tester
+```
+
+You can install the plugin into one profile first, then copy it to the others.
+
+## Step 2 — create the plugin folder
+
+Replace `<profile-name>` with the profile you want to configure:
+
+```bash
+PROFILE=project-map-main
+PLUGIN_DIR="$HOME/.hermes/profiles/$PROFILE/plugins/project-map/project-map"
+mkdir -p "$PLUGIN_DIR"
+```
+
+On PowerShell, use:
+
+```powershell
+$ProfileName = "project-map-main"
+$PluginDir = "$env:USERPROFILE\.hermes\profiles\$ProfileName\plugins\project-map\project-map"
+New-Item -ItemType Directory -Force -Path $PluginDir
+```
+
+## Step 3 — create `plugin.yaml`
+
+Create:
+
+```txt
+~/.hermes/profiles/<profile-name>/plugins/project-map/project-map/plugin.yaml
+```
+
+Content:
+
+```yaml
+name: project-map
+version: 0.1.0
+description: Hermes Project Map tools for querying project structure, symbol search, graph expansion, and indexing through the local HTTP service.
+provides_tools:
+  - project_map_health
+  - project_map_projects
+  - project_map_structure
+  - project_map_search
+  - project_map_expand
+  - project_map_full_graph
+  - project_map_index
+  - project_map_cache_stats
+  - project_map_clear_cache
+```
+
+PowerShell example:
+
+```powershell
+@'
+name: project-map
+version: 0.1.0
+description: Hermes Project Map tools for querying project structure, symbol search, graph expansion, and indexing through the local HTTP service.
+provides_tools:
+  - project_map_health
+  - project_map_projects
+  - project_map_structure
+  - project_map_search
+  - project_map_expand
+  - project_map_full_graph
+  - project_map_index
+  - project_map_cache_stats
+  - project_map_clear_cache
+'@ | Set-Content -Encoding UTF8 "$PluginDir\plugin.yaml"
+```
+
+## Step 4 — create `__init__.py`
+
+Create:
+
+```txt
+~/.hermes/profiles/<profile-name>/plugins/project-map/project-map/__init__.py
+```
+
+Content:
+
+```python
+"""Hermes Project Map plugin registration."""
+
+from . import tools
+
+
+def register(ctx):
+    for spec in tools.TOOL_SPECS:
+        ctx.register_tool(
+            name=spec["name"],
+            toolset="project_map",
+            schema=spec["schema"],
+            handler=spec["handler"],
+        )
+```
+
+PowerShell example:
+
+```powershell
+@'
+"""Hermes Project Map plugin registration."""
+
+from . import tools
+
+
+def register(ctx):
+    for spec in tools.TOOL_SPECS:
+        ctx.register_tool(
+            name=spec["name"],
+            toolset="project_map",
+            schema=spec["schema"],
+            handler=spec["handler"],
+        )
+'@ | Set-Content -Encoding UTF8 "$PluginDir\__init__.py"
+```
+
+## Step 5 — create `tools.py`
+
+Create:
+
+```txt
+~/.hermes/profiles/<profile-name>/plugins/project-map/project-map/tools.py
+```
+
+Content:
+
+```python
+"""Hermes Project Map tool handlers.
+
+The tools keep hermes-project-map as the source of truth and call its HTTP API.
+Set PROJECT_MAP_URL when the service is not reachable at http://localhost:8770.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import Any
+
+DEFAULT_BASE_URL = "http://localhost:8770"
+DEFAULT_TIMEOUT_SECONDS = 30
+MAX_NODE_LIMIT = 5000
+MAX_EDGE_LIMIT = 10000
+
+
+def _json_response(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _base_url(args: dict[str, Any]) -> str:
+    value = str(args.get("base_url") or os.getenv("PROJECT_MAP_URL") or DEFAULT_BASE_URL).strip()
+    return value.rstrip("/") or DEFAULT_BASE_URL
+
+
+def _int_arg(args: dict[str, Any], name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(args.get(name, default))
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(value, maximum))
+
+
+def _csv(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return ",".join(str(item).strip() for item in value if str(item).strip())
+    return str(value).strip()
+
+
+def _require_string(args: dict[str, Any], name: str) -> str:
+    value = str(args.get(name) or "").strip()
+    if not value:
+        raise ValueError(f"`{name}` is required")
+    return value
+
+
+def _request(
+    args: dict[str, Any],
+    path: str,
+    *,
+    method: str = "GET",
+    query: dict[str, Any] | None = None,
+) -> str:
+    base_url = _base_url(args)
+    query = {key: value for key, value in (query or {}).items() if value not in (None, "", [])}
+    encoded_query = urllib.parse.urlencode(query, doseq=True)
+    url = f"{base_url}{path}"
+    if encoded_query:
+        url = f"{url}?{encoded_query}"
+
+    request = urllib.request.Request(url, method=method)
+
+    try:
+        with urllib.request.urlopen(request, timeout=DEFAULT_TIMEOUT_SECONDS) as response:
+            body = response.read().decode("utf-8")
+            return body or _json_response({"ok": True, "data": None})
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        try:
+            payload = json.loads(body) if body else {}
+        except json.JSONDecodeError:
+            payload = {"message": body}
+        return _json_response({
+            "ok": False,
+            "error": payload.get("error") or "project_map_http_error",
+            "message": payload.get("message") or f"hermes-project-map returned HTTP {exc.code}",
+            "status": exc.code,
+            "base_url": base_url,
+        })
+    except urllib.error.URLError as exc:
+        return _json_response({
+            "ok": False,
+            "error": "project_map_unavailable",
+            "message": (
+                "hermes-project-map is not reachable. Start it with `npm start` "
+                "or `docker compose up -d`, or set PROJECT_MAP_URL."
+            ),
+            "base_url": base_url,
+            "details": str(exc.reason),
+        })
+    except TimeoutError:
+        return _json_response({
+            "ok": False,
+            "error": "project_map_timeout",
+            "message": f"hermes-project-map did not respond within {DEFAULT_TIMEOUT_SECONDS}s",
+            "base_url": base_url,
+        })
+
+
+def _project_path(project: str) -> str:
+    return urllib.parse.quote(project, safe="")
+
+
+def project_map_health(args: dict[str, Any], **_: Any) -> str:
+    """Check whether the hermes-project-map service is reachable."""
+    return _request(args, "/api/health")
+
+
+def project_map_projects(args: dict[str, Any], **_: Any) -> str:
+    """List projects registered in hermes-project-map."""
+    return _request(args, "/api/projects")
+
+
+def project_map_structure(args: dict[str, Any], **_: Any) -> str:
+    """Return structure/layer/feature information for one project."""
+    try:
+        project = _require_string(args, "project")
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": "invalid_input", "message": str(exc)})
+    return _request(args, f"/api/projects/{_project_path(project)}/structure")
+
+
+def project_map_search(args: dict[str, Any], **_: Any) -> str:
+    """Search symbols in one project."""
+    try:
+        project = _require_string(args, "project")
+        query = _require_string(args, "query")
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": "invalid_input", "message": str(exc)})
+    return _request(args, f"/api/explore/{_project_path(project)}/search", query={"q": query})
+
+
+def project_map_expand(args: dict[str, Any], **_: Any) -> str:
+    """Expand dependencies/references around a graph node."""
+    try:
+        project = _require_string(args, "project")
+        node_id = _require_string(args, "nodeId")
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": "invalid_input", "message": str(exc)})
+
+    direction = str(args.get("direction") or "both").strip()
+    if direction not in {"both", "in", "out"}:
+        return _json_response({
+            "ok": False,
+            "error": "invalid_input",
+            "message": "`direction` must be one of: both, in, out",
+        })
+
+    return _request(
+        args,
+        f"/api/explore/{_project_path(project)}/expand",
+        query={"nodeId": node_id, "direction": direction},
+    )
+
+
+def project_map_full_graph(args: dict[str, Any], **_: Any) -> str:
+    """Return a bounded full graph for one project."""
+    try:
+        project = _require_string(args, "project")
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": "invalid_input", "message": str(exc)})
+
+    node_limit = _int_arg(args, "nodeLimit", 500, 1, MAX_NODE_LIMIT)
+    edge_limit = _int_arg(args, "edgeLimit", 1200, 1, MAX_EDGE_LIMIT)
+    return _request(
+        args,
+        f"/api/explore/{_project_path(project)}/full",
+        query={
+            "nodeLimit": node_limit,
+            "edgeLimit": edge_limit,
+            "layers": _csv(args.get("layers")),
+            "features": _csv(args.get("features")),
+        },
+    )
+
+
+def project_map_index(args: dict[str, Any], **_: Any) -> str:
+    """Trigger indexing for one project."""
+    try:
+        project = _require_string(args, "project")
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": "invalid_input", "message": str(exc)})
+    return _request(args, f"/api/index/{_project_path(project)}", method="POST")
+
+
+def project_map_cache_stats(args: dict[str, Any], **_: Any) -> str:
+    """Return symbol cache statistics."""
+    return _request(args, "/api/cache/symbols")
+
+
+def project_map_clear_cache(args: dict[str, Any], **_: Any) -> str:
+    """Clear all symbol cache entries or one project's cache."""
+    query = {}
+    if args.get("project"):
+        query["project"] = str(args.get("project")).strip()
+    return _request(args, "/api/cache/symbols", method="DELETE", query=query)
+
+
+def _base_url_property() -> dict[str, Any]:
+    return {
+        "type": "string",
+        "description": "Optional service URL. Defaults to PROJECT_MAP_URL or http://localhost:8770.",
+    }
+
+
+def _schema(name: str, description: str, properties: dict[str, Any] | None = None, required: list[str] | None = None) -> dict[str, Any]:
+    props = {"base_url": _base_url_property()}
+    props.update(properties or {})
+    return {
+        "name": name,
+        "description": description,
+        "parameters": {
+            "type": "object",
+            "properties": props,
+            "required": required or [],
+        },
+    }
+
+
+TOOL_SPECS = [
+    {
+        "name": "project_map_health",
+        "schema": _schema("project_map_health", "Check whether the Hermes Project Map HTTP service is reachable."),
+        "handler": project_map_health,
+    },
+    {
+        "name": "project_map_projects",
+        "schema": _schema("project_map_projects", "List projects registered in Hermes Project Map."),
+        "handler": project_map_projects,
+    },
+    {
+        "name": "project_map_structure",
+        "schema": _schema(
+            "project_map_structure",
+            "Get structure, layer, and feature information for a registered project.",
+            {"project": {"type": "string", "description": "Registered project name."}},
+            ["project"],
+        ),
+        "handler": project_map_structure,
+    },
+    {
+        "name": "project_map_search",
+        "schema": _schema(
+            "project_map_search",
+            "Search symbols in a registered project.",
+            {
+                "project": {"type": "string", "description": "Registered project name."},
+                "query": {"type": "string", "description": "Symbol or text to search for."},
+            },
+            ["project", "query"],
+        ),
+        "handler": project_map_search,
+    },
+    {
+        "name": "project_map_expand",
+        "schema": _schema(
+            "project_map_expand",
+            "Expand dependencies/references around a node returned by project_map_search or project_map_full_graph.",
+            {
+                "project": {"type": "string", "description": "Registered project name."},
+                "nodeId": {"type": "string", "description": "Graph node id to expand."},
+                "direction": {
+                    "type": "string",
+                    "description": "Expansion direction.",
+                    "enum": ["both", "in", "out"],
+                    "default": "both",
+                },
+            },
+            ["project", "nodeId"],
+        ),
+        "handler": project_map_expand,
+    },
+    {
+        "name": "project_map_full_graph",
+        "schema": _schema(
+            "project_map_full_graph",
+            "Get a bounded full graph for a registered project.",
+            {
+                "project": {"type": "string", "description": "Registered project name."},
+                "nodeLimit": {"type": "integer", "description": "Maximum nodes to return.", "default": 500},
+                "edgeLimit": {"type": "integer", "description": "Maximum edges to return.", "default": 1200},
+                "layers": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional layer filters.",
+                },
+                "features": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional feature filters.",
+                },
+            },
+            ["project"],
+        ),
+        "handler": project_map_full_graph,
+    },
+    {
+        "name": "project_map_index",
+        "schema": _schema(
+            "project_map_index",
+            "Trigger project indexing in Hermes Project Map.",
+            {"project": {"type": "string", "description": "Registered project name."}},
+            ["project"],
+        ),
+        "handler": project_map_index,
+    },
+    {
+        "name": "project_map_cache_stats",
+        "schema": _schema("project_map_cache_stats", "Get Hermes Project Map symbol cache statistics."),
+        "handler": project_map_cache_stats,
+    },
+    {
+        "name": "project_map_clear_cache",
+        "schema": _schema(
+            "project_map_clear_cache",
+            "Clear all symbol cache entries, or one project's cache when project is provided.",
+            {"project": {"type": "string", "description": "Optional registered project name."}},
+        ),
+        "handler": project_map_clear_cache,
+    },
+]
+```
+
+## Step 6 — validate Python syntax
+
+Linux/macOS/WSL:
+
+```bash
+python3 -m py_compile \
+  "$HOME/.hermes/profiles/$PROFILE/plugins/project-map/project-map/tools.py" \
+  "$HOME/.hermes/profiles/$PROFILE/plugins/project-map/project-map/__init__.py"
+```
+
+PowerShell:
+
+```powershell
+python -m py_compile "$PluginDir\tools.py" "$PluginDir\__init__.py"
+```
+
+If `python` is not available on Windows, try:
+
+```powershell
+py -m py_compile "$PluginDir\tools.py" "$PluginDir\__init__.py"
+```
+
+## Step 7 — enable the plugin for the profile
+
+```bash
+hermes -p "$PROFILE" plugins enable project-map
+```
+
+PowerShell:
+
+```powershell
+hermes -p $ProfileName plugins enable project-map
+```
+
+Expected output includes something like:
+
+```txt
+✓ Plugin project-map/project-map enabled. Takes effect on next session.
+```
+
+The plugin does not override built-in tools. If Hermes asks whether to allow built-in tool overrides, choose **no** or leave the default.
+
+## Step 8 — confirm the toolset is visible
+
+```bash
+hermes -p "$PROFILE" plugins list --plain --no-bundled
+hermes -p "$PROFILE" tools list
+```
+
+Expected plugin list includes:
+
+```txt
+enabled  user  0.1.0  project-map
+```
+
+Expected toolset list includes:
+
+```txt
+✓ enabled  project_map  🔌 Project Map
+```
+
+## Step 9 — restart or open a new Hermes session
+
+Plugin changes only apply to new sessions.
+
+If you are inside a Hermes session, run:
+
+```txt
+/reset
+```
+
+Or start a new session:
+
+```bash
+hermes -p "$PROFILE"
+```
+
+PowerShell:
+
+```powershell
+hermes -p $ProfileName
+```
+
+## Step 10 — test the tool from Hermes
+
+In a new Hermes session, ask:
+
+```txt
+Call project_map_health and tell me whether ok is true.
+```
+
+Expected result:
+
+```txt
+true
+```
+
+You can also test non-interactively:
+
+```bash
+hermes -p "$PROFILE" chat --yolo --max-turns 2 -q "Call project_map_health and report only whether ok is true. Do not use terminal."
+```
+
+## Step 11 — copy the plugin to other profiles
+
+After one profile works, copy it to other profiles.
+
+Linux/macOS/WSL example:
+
+```bash
+SOURCE_PROFILE=project-map-main
+for PROFILE in \
+  project-map-architect \
+  project-map-coder \
+  project-map-commenter \
+  project-map-documenter \
+  project-map-git-flow \
+  project-map-reviewer \
+  project-map-tester
+ do
+  mkdir -p "$HOME/.hermes/profiles/$PROFILE/plugins"
+  rm -rf "$HOME/.hermes/profiles/$PROFILE/plugins/project-map"
+  cp -a "$HOME/.hermes/profiles/$SOURCE_PROFILE/plugins/project-map" \
+        "$HOME/.hermes/profiles/$PROFILE/plugins/project-map"
+  hermes -p "$PROFILE" plugins enable project-map
+ done
+```
+
+PowerShell example:
+
+```powershell
+$SourceProfile = "project-map-main"
+$Profiles = @(
+  "project-map-architect",
+  "project-map-coder",
+  "project-map-commenter",
+  "project-map-documenter",
+  "project-map-git-flow",
+  "project-map-reviewer",
+  "project-map-tester"
+)
+
+foreach ($ProfileName in $Profiles) {
+  $Source = "$env:USERPROFILE\.hermes\profiles\$SourceProfile\plugins\project-map"
+  $DestRoot = "$env:USERPROFILE\.hermes\profiles\$ProfileName\plugins"
+  $Dest = "$DestRoot\project-map"
+
+  New-Item -ItemType Directory -Force -Path $DestRoot | Out-Null
+  if (Test-Path $Dest) {
+    Remove-Item -Recurse -Force $Dest
+  }
+  Copy-Item -Recurse -Force $Source $Dest
+  hermes -p $ProfileName plugins enable project-map
+}
+```
+
+Verify all profiles:
+
+```bash
+for PROFILE in \
+  project-map-main \
+  project-map-architect \
+  project-map-coder \
+  project-map-commenter \
+  project-map-documenter \
+  project-map-git-flow \
+  project-map-reviewer \
+  project-map-tester
+ do
+  printf '%s: ' "$PROFILE"
+  hermes -p "$PROFILE" plugins list --plain --no-bundled | grep project-map || true
+ done
+```
+
+## Step 12 — configure `PROJECT_MAP_URL` when needed
+
+By default the plugin uses:
+
+```txt
+http://localhost:8770
+```
+
+Use this when Hermes and `hermes-project-map` run on the same host.
+
+If the service runs elsewhere, set `PROJECT_MAP_URL` before starting Hermes.
+
+### Local shell
+
+```bash
+export PROJECT_MAP_URL="http://localhost:8770"
+hermes -p project-map-main
+```
+
+PowerShell:
+
+```powershell
+$env:PROJECT_MAP_URL="http://localhost:8770"
+hermes -p project-map-main
+```
+
+### Docker service from host Hermes
+
+If `hermes-project-map` is published to the host port `8770`:
+
+```bash
+export PROJECT_MAP_URL="http://localhost:8770"
+```
+
+### Hermes running in another container
+
+If Hermes runs in a container and needs to reach the host Docker service:
+
+```bash
+export PROJECT_MAP_URL="http://host.docker.internal:8770"
+```
+
+If Hermes and `hermes-project-map` run in the same Compose network:
+
+```bash
+export PROJECT_MAP_URL="http://hermes-project-map:8770"
+```
+
+Always verify from the same environment that runs Hermes:
+
+```bash
+curl "$PROJECT_MAP_URL/api/health"
+```
+
+## Tool reference
+
+### `project_map_health`
+
+Checks whether the service is reachable.
+
+Input:
+
+```json
+{}
+```
+
+Optional:
+
+```json
+{
+  "base_url": "http://localhost:8770"
+}
+```
+
+Calls:
+
+```txt
+GET /api/health
+```
+
+### `project_map_projects`
+
+Lists registered projects.
+
+Input:
+
+```json
+{}
+```
+
+Calls:
+
+```txt
+GET /api/projects
+```
+
+### `project_map_structure`
+
+Returns project structure, layers, features, and subdivision information.
+
+Input:
+
+```json
+{
+  "project": "my-project"
+}
+```
+
+Calls:
+
+```txt
+GET /api/projects/:name/structure
+```
+
+### `project_map_search`
+
+Searches for symbols in a project.
+
+Input:
+
+```json
+{
+  "project": "my-project",
+  "query": "InvoiceService"
+}
+```
+
+Calls:
+
+```txt
+GET /api/explore/:project/search?q=InvoiceService
+```
+
+### `project_map_expand`
+
+Expands dependencies/references around a node returned by search or full graph.
+
+Input:
+
+```json
+{
+  "project": "my-project",
+  "nodeId": "ts-abc123",
+  "direction": "both"
+}
+```
+
+Allowed directions:
+
+```txt
+both
+in
+out
+```
+
+Calls:
+
+```txt
+GET /api/explore/:project/expand?nodeId=...&direction=both
+```
+
+### `project_map_full_graph`
+
+Returns a bounded graph.
+
+Input:
+
+```json
+{
+  "project": "my-project",
+  "nodeLimit": 500,
+  "edgeLimit": 1200,
+  "layers": [],
+  "features": []
+}
+```
+
+Limits are clamped in the plugin:
+
+```txt
+nodeLimit: 1..5000
+edgeLimit: 1..10000
+```
+
+Calls:
+
+```txt
+GET /api/explore/:project/full?nodeLimit=500&edgeLimit=1200
+```
+
+### `project_map_index`
+
+Triggers indexing for a project.
+
+Input:
+
+```json
+{
+  "project": "my-project"
+}
+```
+
+Calls:
+
+```txt
+POST /api/index/:project
+```
+
+Use this before symbol search for analyzers that need indexing.
+
+### `project_map_cache_stats`
+
+Returns symbol cache statistics.
+
+Input:
+
+```json
+{}
+```
+
+Calls:
+
+```txt
+GET /api/cache/symbols
+```
+
+### `project_map_clear_cache`
+
+Clears all cache entries or one project cache.
+
+Input for all cache:
+
+```json
+{}
+```
+
+Input for one project:
+
+```json
+{
+  "project": "my-project"
+}
+```
+
+Calls:
+
+```txt
+DELETE /api/cache/symbols
+DELETE /api/cache/symbols?project=my-project
+```
+
+## Example agent prompts
+
+List projects:
+
+```txt
+Use project_map_projects to list the projects available in Hermes Project Map.
+```
+
+Search a symbol:
+
+```txt
+Use project_map_search in project "my-project" to find "InvoiceService".
+```
+
+Expand a symbol after search:
+
+```txt
+Use project_map_search to find "InvoiceService" in "my-project". Then use project_map_expand on the matching node with direction "both".
+```
+
+Get a bounded graph:
+
+```txt
+Use project_map_full_graph for "my-project" with nodeLimit 300 and edgeLimit 800. Summarize the main layers and dependencies.
+```
+
+## Troubleshooting
+
+### `project_map` toolset is not listed
+
+Check plugin location:
+
+```bash
+find "$HOME/.hermes/profiles/<profile-name>/plugins/project-map" -maxdepth 3 -type f
+```
+
+Expected:
+
+```txt
+plugin.yaml
+__init__.py
+tools.py
+```
+
+Check plugin status:
+
+```bash
+hermes -p <profile-name> plugins list --plain --no-bundled
+```
+
+Enable it:
+
+```bash
+hermes -p <profile-name> plugins enable project-map
+```
+
+Start a new Hermes session or run `/reset`.
+
+### `project_map_unavailable`
+
+The plugin cannot reach the HTTP service.
+
+Check service:
+
+```bash
+curl http://localhost:8770/api/health
+```
+
+If that fails, start the project map:
+
+```bash
+npm start
+```
+
+or:
+
+```bash
+docker compose up --build -d
+```
+
+If Hermes runs somewhere else, set:
+
+```bash
+export PROJECT_MAP_URL="http://correct-host:8770"
+```
+
+### Project not found
+
+List projects:
+
+```txt
+Use project_map_projects.
+```
+
+If the project is missing, register it with the project scripts. See [Adding projects](./adding-projects.md).
+
+### Empty search results
+
+Try:
+
+1. Confirm the project exists with `project_map_projects`.
+2. Confirm the structure with `project_map_structure`.
+3. Run `project_map_index` if the analyzer requires indexing.
+4. Search a broader term.
+
+### Response too large
+
+Use lower limits:
+
+```json
+{
+  "nodeLimit": 200,
+  "edgeLimit": 400
+}
+```
+
+### Plugin edits do not take effect
+
+Start a new session:
+
+```bash
+hermes -p <profile-name>
+```
+
+Or inside Hermes:
+
+```txt
+/reset
+```
+
+Tools and plugin changes are loaded at session start.
+
+## Uninstall
+
+Disable the plugin:
+
+```bash
+hermes -p <profile-name> plugins disable project-map
+```
+
+Remove plugin files:
+
+```bash
+rm -rf "$HOME/.hermes/profiles/<profile-name>/plugins/project-map"
+```
+
+PowerShell:
+
+```powershell
+hermes -p $ProfileName plugins disable project-map
+Remove-Item -Recurse -Force "$env:USERPROFILE\.hermes\profiles\$ProfileName\plugins\project-map"
+```
+
+Start a new Hermes session after removing it.
+
+## Maintenance notes
+
+- Keep the plugin as a thin HTTP client.
+- Do not duplicate analyzer logic inside the plugin.
+- Add new tools only when the HTTP API has a stable endpoint.
+- Keep outputs as JSON strings.
+- Keep default graph limits conservative to avoid filling the agent context.
+- Do not put secrets in `plugin.yaml`, `__init__.py`, or `tools.py`.
+- Use `PROJECT_MAP_URL` for environment-specific configuration.
+
+## Acceptance checklist
+
+A profile is correctly configured when all of this is true:
+
+```txt
+[ ] hermes-project-map is running.
+[ ] curl http://localhost:8770/api/health returns ok=true.
+[ ] plugin.yaml exists under the profile plugin folder.
+[ ] __init__.py exists under the profile plugin folder.
+[ ] tools.py exists under the profile plugin folder.
+[ ] python py_compile passes for tools.py and __init__.py.
+[ ] hermes -p <profile> plugins list shows project-map enabled.
+[ ] hermes -p <profile> tools list shows project_map enabled.
+[ ] a new Hermes session can call project_map_health.
+[ ] project_map_projects returns the expected project list.
+```

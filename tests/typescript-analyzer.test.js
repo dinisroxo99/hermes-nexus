@@ -127,3 +127,55 @@ test("analyzeTypeScriptProject connects default import aliases to default export
     edge.label === "importa default"
   ));
 });
+
+test("analyzeTypeScriptProject resolves tsconfig path aliases", () => {
+  const root = makeTempTypeScriptProject();
+  fs.writeFileSync(path.join(root, "tsconfig.json"), JSON.stringify({
+    compilerOptions: {
+      jsx: "react-jsx",
+      baseUrl: ".",
+      paths: {
+        "@features/*": ["src/features/*"]
+      }
+    }
+  }));
+
+  fs.mkdirSync(path.join(root, "src", "features", "invoices"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "src", "features", "invoices", "invoice-service.ts"),
+    "export class InvoiceService {}\n"
+  );
+  fs.writeFileSync(
+    path.join(root, "src", "app.ts"),
+    "import { InvoiceService } from '@features/invoices/invoice-service';\nexport function App() { return InvoiceService; }\n"
+  );
+
+  const result = analyzeTempProject(root);
+  const app = result.nodes.find((node) => node.label === "App");
+  const service = result.nodes.find((node) => node.label === "InvoiceService");
+
+  assert.ok(result.edges.some((edge) => edge.from === app.id && edge.to === service.id));
+});
+
+test("analyzeTypeScriptProject resolves named re-exports through barrel files", () => {
+  const root = makeTempTypeScriptProject();
+  fs.mkdirSync(path.join(root, "src", "components"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "src", "components", "invoice-list.tsx"),
+    "export function InvoiceList() { return null; }\n"
+  );
+  fs.writeFileSync(
+    path.join(root, "src", "components", "index.ts"),
+    "export { InvoiceList } from './invoice-list';\n"
+  );
+  fs.writeFileSync(
+    path.join(root, "src", "app.tsx"),
+    "import { InvoiceList } from './components';\nexport function App() { return InvoiceList; }\n"
+  );
+
+  const result = analyzeTempProject(root);
+  const app = result.nodes.find((node) => node.label === "App");
+  const invoiceList = result.nodes.find((node) => node.label === "InvoiceList");
+
+  assert.ok(result.edges.some((edge) => edge.from === app.id && edge.to === invoiceList.id));
+});

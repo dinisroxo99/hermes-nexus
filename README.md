@@ -10,6 +10,7 @@ The project provides an incremental foundation for supporting multiple project t
 - [Analyzer implementation](./docs/analyzers-implementation.md)
 - [Analyzer execution and troubleshooting](./docs/analyzers-execution.md)
 - [Hermes tool integration](./docs/hermes-tool-integration.md)
+- [Hermes plugin installation for profiles](./docs/hermes-plugin-installation.md)
 
 ## What it does
 
@@ -154,7 +155,13 @@ GET /api/projects/:name/structure
 GET /api/explore/:project/search?q=...
 GET /api/explore/:project/expand?nodeId=...&direction=both|in|out
 GET /api/explore/:project/full?nodeLimit=500&edgeLimit=1200
+GET /api/explore/:project/impact?nodeId=...&depth=2
+GET /api/explore/:project/context?symbol=...&depth=1
+GET /api/explore/:project/insights?limit=20
 ```
+
+The impact, context, and insights endpoints return bounded graph intelligence for Hermes agents and UI workflows.
+TypeScript analysis now resolves default imports, named re-exports/barrel files, and simple `tsconfig.paths` aliases.
 
 ### Indexing and cache
 
@@ -163,6 +170,8 @@ POST /api/index/:project
 GET /api/cache/symbols
 DELETE /api/cache/symbols
 ```
+
+Cache stats include the legacy .NET symbol-index cache and the shared analyzer analysis cache.
 
 ## Usage examples
 
@@ -226,10 +235,9 @@ docker compose up --build
 
 ## Short-term roadmap
 
-- Improve TypeScript import resolution.
-- Support `export default`, reexports, and `tsconfig.paths` aliases.
-- Add tests for `analyzer-service` and `typescript-analyzer`.
-- Create a Hermes tool or plugin that consumes this API directly.
+- Deepen TypeScript references without turning the analyzer into a language server.
+- Add dedicated analyzers for other detected project types only when the value justifies the scope.
+- Create a Hermes tool or plugin that consumes the impact/context API directly.
 
 ## Navigation
 
@@ -237,3 +245,4 @@ docker compose up --build
 - [Analyzer implementation](./docs/analyzers-implementation.md)
 - [Analyzer execution and troubleshooting](./docs/analyzers-execution.md)
 - [Hermes tool integration](./docs/hermes-tool-integration.md)
+- [Hermes plugin installation for profiles](./docs/hermes-plugin-installation.md)
