@@ -4,19 +4,7 @@ import path from "node:path";
 import { detectProjectType } from "../analyzers/common/analyzer-detection.js";
 import { getConfiguredProjectRoots, normalizeRootPath } from "./project-roots.js";
 import { normalizeProjectEntryForRuntime } from "./project-registry.js";
-
-const IGNORED_DIRS = new Set([
-  ".git",
-  ".vs",
-  ".vscode",
-  "node_modules",
-  "bin",
-  "obj",
-  "dist",
-  "build",
-  "coverage",
-  ".next"
-]);
+import { isIgnoredProjectScanDir } from "./project-scan-policy.js";
 
 const DEFAULT_MAX_DEPTH = 3;
 const MAX_MAX_DEPTH = 6;
@@ -126,7 +114,7 @@ export function discoverProjectBoundaries(options = {}) {
     }
 
     const dirName = path.basename(dir);
-    if (dir !== root && IGNORED_DIRS.has(dirName)) {
+    if (dir !== root && isIgnoredProjectScanDir(dirName)) {
       return;
     }
 
@@ -152,7 +140,7 @@ export function discoverProjectBoundaries(options = {}) {
     }
 
     for (const child of readDirEntries(dir)) {
-      if (!child.isDirectory() || child.isSymbolicLink() || IGNORED_DIRS.has(child.name)) {
+      if (!child.isDirectory() || child.isSymbolicLink() || isIgnoredProjectScanDir(child.name)) {
         continue;
       }
 
@@ -330,7 +318,7 @@ function expandSimpleWorkspacePattern(projectPath, pattern) {
   }
 
   return readDirEntries(parentDir)
-    .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && !IGNORED_DIRS.has(entry.name))
+    .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && !isIgnoredProjectScanDir(entry.name))
     .map((entry) => path.join(parentDir, entry.name))
     .filter((moduleDir) => fs.existsSync(path.join(moduleDir, "package.json")))
     .sort((a, b) => normalizeRelative(path.relative(projectPath, a)).localeCompare(normalizeRelative(path.relative(projectPath, b))));
@@ -338,7 +326,7 @@ function expandSimpleWorkspacePattern(projectPath, pattern) {
 
 function* walkFiles(dir) {
   for (const entry of readDirEntries(dir)) {
-    if (entry.isSymbolicLink() || IGNORED_DIRS.has(entry.name)) {
+    if (entry.isSymbolicLink() || isIgnoredProjectScanDir(entry.name)) {
       continue;
     }
 
