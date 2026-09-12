@@ -86,6 +86,13 @@ export function mergeProjectRegistries(manualProjects = [], discoveredProjects =
   return { projects, warnings };
 }
 
+export function readEffectiveProjectRegistry({ manualProjectsFile, discoveredProjectsFile } = {}) {
+  const manualProjects = readManualProjectRegistry(manualProjectsFile);
+  const discoveredProjects = readDiscoveredProjectRegistry(discoveredProjectsFile);
+
+  return mergeProjectRegistries(manualProjects, discoveredProjects);
+}
+
 export function writeDiscoveredProjectRegistryAtomic(filePath, projects) {
   if (path.basename(filePath) !== "discovered-projects.json") {
     throw new Error("Discovered registry writer only writes discovered-projects.json.");

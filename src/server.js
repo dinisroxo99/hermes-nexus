@@ -31,6 +31,7 @@ import {
   handleClearSymbolCache,
   handleSymbolCacheStats
 } from "./routes/cache.routes.js";
+import { registerIntelligenceRoutes } from "./routes/intelligence.routes.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,6 +55,7 @@ router.add("GET", "/api/explore/:project/insights", handleInsights);
 router.add("POST", "/api/index/:project", handleIndexProject);
 router.add("GET", "/api/cache/symbols", handleSymbolCacheStats);
 router.add("DELETE", "/api/cache/symbols", handleClearSymbolCache);
+registerIntelligenceRoutes(router);
 
 // --- Static file serving ---
 function getMime(filePath) {
