@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { detectProjectType } from "../analyzers/common/analyzer-detection.js";
+import { getConfiguredProjectRoots, normalizeRootPath } from "./project-roots.js";
+import { normalizeProjectEntryForRuntime } from "./project-registry.js";
 
 const IGNORED_DIRS = new Set([
   ".git",
@@ -16,9 +18,100 @@ const IGNORED_DIRS = new Set([
   ".next"
 ]);
 
+const DEFAULT_MAX_DEPTH = 3;
+const MAX_MAX_DEPTH = 6;
+const DEFAULT_LIMIT = 100;
+const MAX_LIMIT = 500;
+const WARNING_LIMIT = 20;
+
+export function discoverProjects(options = {}) {
+  const maxDepth = clampInteger(options.maxDepth, {
+    defaultValue: DEFAULT_MAX_DEPTH,
+    min: 1,
+    max: MAX_MAX_DEPTH
+  });
+  const limit = clampInteger(options.limit, {
+    defaultValue: DEFAULT_LIMIT,
+    min: 1,
+    max: MAX_LIMIT
+  });
+  const roots = (options.roots || getConfiguredProjectRoots())
+    .map((root, index) => normalizeDiscoveryRoot(root, index));
+  const registry = createRegisteredProjectIndex(options.registeredProjects || []);
+  const includeRegistered = options.includeRegistered === true;
+  const warnings = [];
+  const candidates = [];
+  let truncated = false;
+
+  for (const root of roots) {
+    if (truncated) {
+      break;
+    }
+
+    const rootStat = getRootStat(root);
+
+    if (!rootStat.exists) {
+      addWarning(warnings, { code: "root_missing", rootId: root.id });
+      continue;
+    }
+
+    if (!rootStat.isDirectory) {
+      addWarning(warnings, { code: "root_not_directory", rootId: root.id });
+      continue;
+    }
+
+    const remaining = limit + 1 - candidates.length;
+    if (remaining <= 0) {
+      truncated = true;
+      break;
+    }
+
+    const result = discoverProjectBoundaries({
+      rootPath: root.path,
+      rootId: root.id,
+      maxDepth,
+      limit: remaining,
+      mapCandidate: (candidate) => {
+        const registered = isRegisteredCandidate(candidate, registry);
+
+        if (registered && !includeRegistered) {
+          return null;
+        }
+
+        return {
+          ...candidate,
+          registered
+        };
+      }
+    });
+
+    for (const candidate of result.candidates) {
+      candidates.push(candidate);
+
+      if (candidates.length > limit) {
+        truncated = true;
+        break;
+      }
+    }
+  }
+
+  return {
+    schemaVersion: 1,
+    bounded: true,
+    limits: { maxDepth, limit },
+    roots: roots.map((root) => ({ id: root.id })),
+    candidates: candidates.slice(0, limit),
+    truncated,
+    warnings
+  };
+}
+
 export function discoverProjectBoundaries(options = {}) {
   const rootPath = options.rootPath;
   const rootId = options.rootId || "default";
+  const maxDepth = Number.isFinite(options.maxDepth) ? Math.max(0, Math.floor(options.maxDepth)) : Infinity;
+  const limit = Number.isFinite(options.limit) ? Math.max(0, Math.floor(options.limit)) : Infinity;
+  const mapCandidate = typeof options.mapCandidate === "function" ? options.mapCandidate : (candidate) => candidate;
   const candidates = [];
 
   if (!rootPath || !fs.existsSync(rootPath)) {
@@ -27,7 +120,11 @@ export function discoverProjectBoundaries(options = {}) {
 
   const root = path.resolve(rootPath);
 
-  function visit(dir, inheritedSkipDirs = []) {
+  function visit(dir, depth = 0, inheritedSkipDirs = []) {
+    if (depth > maxDepth || candidates.length >= limit) {
+      return;
+    }
+
     const dirName = path.basename(dir);
     if (dir !== root && IGNORED_DIRS.has(dirName)) {
       return;
@@ -42,8 +139,16 @@ export function discoverProjectBoundaries(options = {}) {
     const boundary = classifyProjectBoundary({ rootPath: root, projectPath: dir, rootId });
 
     if (boundary) {
-      candidates.push(boundary);
+      const candidate = mapCandidate(boundary);
+      if (candidate) {
+        candidates.push(candidate);
+      }
+
       skipDirs.push(...boundary.modules.map((module) => moduleDirectory(root, boundary.relativePath, module)));
+    }
+
+    if (depth >= maxDepth || candidates.length >= limit) {
+      return;
     }
 
     for (const child of readDirEntries(dir)) {
@@ -56,11 +161,15 @@ export function discoverProjectBoundaries(options = {}) {
         continue;
       }
 
-      visit(childPath, skipDirs);
+      visit(childPath, depth + 1, skipDirs);
+
+      if (candidates.length >= limit) {
+        return;
+      }
     }
   }
 
-  visit(root);
+  visit(root, 0);
 
   return {
     candidates: candidates
@@ -286,4 +395,83 @@ function signalRank(signal) {
   if (signal.toLowerCase().endsWith(".csproj")) return 5;
   if (signal.toLowerCase() === "directory.build.props") return 6;
   return 7;
+}
+
+function normalizeDiscoveryRoot(root, index) {
+  const id = typeof root?.id === "string" && root.id.trim() ? root.id.trim() : `root-${index + 1}`;
+  const rootPath = typeof root?.path === "string" ? normalizeRootPath(root.path) : null;
+
+  return {
+    id,
+    path: rootPath
+  };
+}
+
+function getRootStat(root) {
+  if (!root.path) {
+    return { exists: false, isDirectory: false };
+  }
+
+  try {
+    const stat = fs.lstatSync(root.path);
+    return {
+      exists: true,
+      isDirectory: stat.isDirectory() && !stat.isSymbolicLink()
+    };
+  } catch (error) {
+    if (error && error.code === "ENOENT") {
+      return { exists: false, isDirectory: false };
+    }
+
+    return { exists: true, isDirectory: false };
+  }
+}
+
+function createRegisteredProjectIndex(projects) {
+  const byPath = new Set();
+  const byRootAndName = new Set();
+
+  for (const entry of projects) {
+    const project = normalizeProjectEntryForRuntime(entry, {
+      registrySource: entry?.registrySource || entry?.source || "manual"
+    });
+
+    if (!project) {
+      continue;
+    }
+
+    byPath.add(projectIdentityKey(project));
+    byRootAndName.add(projectNameKey(project));
+  }
+
+  return { byPath, byRootAndName };
+}
+
+function isRegisteredCandidate(candidate, registry) {
+  return registry.byPath.has(projectIdentityKey(candidate))
+    || registry.byRootAndName.has(projectNameKey(candidate));
+}
+
+function projectIdentityKey(project) {
+  return `${project.rootId || "default"}:${project.relativePath}`;
+}
+
+function projectNameKey(project) {
+  return `${project.rootId || "default"}:${project.name}`;
+}
+
+function clampInteger(value, { defaultValue, min, max }) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return defaultValue;
+  }
+
+  return Math.min(max, Math.max(min, Math.floor(number)));
+}
+
+function addWarning(warnings, warning) {
+  if (warnings.length < WARNING_LIMIT) {
+    warnings.push(warning);
+  }
 }
