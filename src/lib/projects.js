@@ -6,70 +6,25 @@ import {
   isSupportedProjectType
 } from "../analyzers/common/analyzer-detection.js";
 import { resolveProjectConfig } from "./project-config.js";
+import {
+  mergeProjectRegistries,
+  readDiscoveredProjectRegistry,
+  readManualProjectRegistry
+} from "./project-registry.js";
 
 const PROJECT_CONFIG = resolveProjectConfig();
 const DATA_DIR = PROJECT_CONFIG.dataDir;
 const PROJECTS_ROOT_CONTAINER = PROJECT_CONFIG.legacyProjectsRootContainer;
 
 const PROJECTS_FILE = path.join(DATA_DIR, "projects.json");
+const DISCOVERED_PROJECTS_FILE = path.join(DATA_DIR, "discovered-projects.json");
 
 function readProjectsFile() {
-  if (!fs.existsSync(PROJECTS_FILE)) {
-    return [];
-  }
+  const manualProjects = readManualProjectRegistry(PROJECTS_FILE);
+  const discoveredProjects = readDiscoveredProjectRegistry(DISCOVERED_PROJECTS_FILE);
+  const { projects } = mergeProjectRegistries(manualProjects, discoveredProjects);
 
-  const raw = fs.readFileSync(PROJECTS_FILE, "utf8").trim();
-
-  if (!raw) {
-    return [];
-  }
-
-  const parsed = JSON.parse(raw);
-
-  if (!Array.isArray(parsed)) {
-    return [];
-  }
-
-  return parsed
-    .map(normalizeProjectEntry)
-    .filter(Boolean);
-}
-
-function normalizeProjectEntry(project) {
-  if (!project || typeof project !== "object" || Array.isArray(project)) {
-    return null;
-  }
-
-  const name = typeof project.name === "string" ? project.name.trim() : "";
-  const relativePath = normalizeRelativePath(project.relativePath);
-
-  if (!name || !relativePath) {
-    return null;
-  }
-
-  return {
-    ...project,
-    name,
-    relativePath
-  };
-}
-
-function normalizeRelativePath(value) {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const normalized = value
-    .trim()
-    .replace(/\\/g, "/")
-    .replace(/^\/+/, "")
-    .replace(/\/+$/, "");
-
-  if (!normalized || normalized.split("/").includes("..")) {
-    return null;
-  }
-
-  return normalized;
+  return projects.map(toLegacyProjectView);
 }
 
 export function getProjectAbsolutePath(project) {
@@ -177,4 +132,9 @@ function* walk(dir) {
       yield fullPath;
     }
   }
+}
+
+function toLegacyProjectView(project) {
+  const { registrySource, rootId, ...legacyProject } = project;
+  return legacyProject;
 }
