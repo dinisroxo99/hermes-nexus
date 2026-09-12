@@ -4,16 +4,22 @@
 
 ## Purpose
 
-Turn `hermes-project-map` into a capability that Hermes Agent can use directly, so the agent can query project graphs without depending on the UI.
+Expose `hermes-project-map` as an independent Project Intelligence HTTP service that Hermes Agent can use directly, so agents can query project graphs without depending on the UI or duplicating repository analysis logic.
+
+Architecture boundary:
+
+- `hermes-project-map` owns project analysis, project configuration, registry reading/merging, and future discovery/overview APIs.
+- Hermes should remain a thin client/consumer that calls this HTTP service.
+- The future Hermes Agent OS owns orchestration, policy enforcement, and agent execution. This service may resolve project intelligence; it does not enforce agent policy or run agents.
 
 The integration can be implemented in two ways:
 
-1. **Local/core Hermes tool** — a Python tool registered in Hermes.
-2. **Separate plugin/MCP** — recommended if `hermes-project-map` continues to run as an independent service.
+1. **Local Hermes plugin/tool** — a thin Python client registered in Hermes.
+2. **MCP wrapper** — useful if the same HTTP service should be consumed by multiple clients.
 
 ## Recommended option
 
-For this project, the cleanest option is to keep `hermes-project-map` as an HTTP service and create a Hermes tool that calls the existing endpoints.
+For this project, the cleanest option is to keep `hermes-project-map` as an HTTP service and create a Hermes plugin/tool that calls the existing endpoints.
 
 Reasons:
 
@@ -22,6 +28,28 @@ Reasons:
 - allows the UI and API to evolve independently;
 - keeps the Hermes tool small and easy to maintain;
 - lets the same backend serve the UI, CLI, Hermes, and future integrations.
+
+Do not duplicate analyzer, registry, path-safety, or future discovery logic inside Hermes. Add that logic to this service and keep Hermes integration code limited to request/response handling, input validation, limits, and timeouts.
+
+## Current Project Intelligence foundation status
+
+Implemented in Phase 0:
+
+- centralized project configuration for `DATA_DIR`, `PROJECTS_ROOT`, `PROJECTS_ROOT_CONTAINER`, and JSON-only `PROJECTS_ROOTS`;
+- trusted configured-root normalization and untrusted relative project-path validation;
+- manual/discovered/effective registry separation;
+- existing project lookup/listing over the effective runtime registry;
+- atomic persistence helper for the future machine-managed discovered registry.
+
+Not yet implemented:
+
+- automatic project discovery;
+- `/api/intelligence/*` endpoints;
+- project overview, task context, task routing, ICM, or impact v2;
+- high-level Hermes `project_discover`, `project_overview`, `project_task_context`, `project_route_task`, `project_impact`, or `project_refresh` tools;
+- Hermes Agent OS orchestration or policy enforcement.
+
+The currently available integration surface is still the existing low-level project map HTTP API documented below.
 
 ## Endpoints used by the tool
 
@@ -38,7 +66,9 @@ GET /api/cache/symbols
 DELETE /api/cache/symbols
 ```
 
-## Suggested Hermes tools
+## Currently suggested low-level Hermes tools
+
+These are low-level graph/project-map tools for the existing endpoints. They are distinct from planned future high-level Project Intelligence tools.
 
 ### `project_map_projects`
 
@@ -272,6 +302,21 @@ tools/search_symbols
 tools/expand_symbol
 tools/full_graph
 ```
+
+## Planned future high-level tools
+
+After the corresponding HTTP endpoints exist, Hermes can add thin high-level tools such as:
+
+```txt
+project_discover
+project_overview
+project_task_context
+project_route_task
+project_impact
+project_refresh
+```
+
+These tools are planned only. They are not available from this service yet and should not be documented as installed Hermes tools until the HTTP contracts are implemented.
 
 ## Important rules for the tool
 

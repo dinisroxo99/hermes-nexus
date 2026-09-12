@@ -10,7 +10,7 @@ This operational guide explains how to run, validate, and diagnose `hermes-proje
 
 - A Node.js version compatible with the project.
 - Dependencies installed with `npm install`.
-- Projects configured in `data/projects.json`.
+- Projects configured through the effective runtime registry. Today that means human-managed `data/projects.json` plus optional machine-managed `data/discovered-projects.json` when present.
 - When running with Docker, the container must include the new dependencies (`ts-morph` and `typescript`).
 
 ## Local installation
@@ -46,11 +46,13 @@ node --check src/server.js && node --check src/public/app.js && node --check src
 npm test
 ```
 
-Expected result in the current state:
+Required result:
 
 ```txt
-15/15 tests passing
+fail 0
 ```
+
+Phase 0 currently completes with 61 passing tests, but the exact total may increase as more coverage is added.
 
 ### Validate the `analyzer-service` import
 
