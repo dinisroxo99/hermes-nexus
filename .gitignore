@@ -1,1 +1,3 @@
 node_modules/
+.hermes/plans/
+.hermes/skills/
