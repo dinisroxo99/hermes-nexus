@@ -5,54 +5,13 @@ import {
   getProjectTypeLabel,
   isSupportedProjectType
 } from "../analyzers/common/analyzer-detection.js";
+import { resolveProjectConfig } from "./project-config.js";
 
-const REPO_ROOT = process.cwd();
-const ENV_FILE_VALUES = readEnvFile(path.join(REPO_ROOT, ".env"));
-const DATA_DIR = process.env.DATA_DIR || ENV_FILE_VALUES.DATA_DIR || path.join(REPO_ROOT, "data");
-const PROJECTS_ROOT_CONTAINER = process.env.PROJECTS_ROOT_CONTAINER
-  || ENV_FILE_VALUES.PROJECTS_ROOT_CONTAINER
-  || toRuntimePath(ENV_FILE_VALUES.PROJECTS_ROOT)
-  || "/projects";
+const PROJECT_CONFIG = resolveProjectConfig();
+const DATA_DIR = PROJECT_CONFIG.dataDir;
+const PROJECTS_ROOT_CONTAINER = PROJECT_CONFIG.legacyProjectsRootContainer;
 
 const PROJECTS_FILE = path.join(DATA_DIR, "projects.json");
-
-function readEnvFile(envPath) {
-  if (!fs.existsSync(envPath)) {
-    return {};
-  }
-
-  const values = {};
-  const lines = fs.readFileSync(envPath, "utf8").split(String.fromCharCode(10));
-
-  for (const line of lines) {
-    const trimmed = line.replace(/\r$/, "").trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-
-    const separator = trimmed.indexOf("=");
-    if (separator < 0) continue;
-
-    const key = trimmed.slice(0, separator).trim();
-    const value = trimmed.slice(separator + 1).trim().replace(/^['\"]|['\"]$/g, "");
-    values[key] = value;
-  }
-
-  return values;
-}
-
-function toRuntimePath(value) {
-  if (!value) {
-    return null;
-  }
-
-  const normalized = String(value).replace(/\\/g, "/");
-  const windowsDriveMatch = normalized.match(/^([a-zA-Z]):\/(.*)$/);
-
-  if (process.platform === "linux" && windowsDriveMatch) {
-    return `/mnt/${windowsDriveMatch[1].toLowerCase()}/${windowsDriveMatch[2]}`;
-  }
-
-  return normalized;
-}
 
 function readProjectsFile() {
   if (!fs.existsSync(PROJECTS_FILE)) {
