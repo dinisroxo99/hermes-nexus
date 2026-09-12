@@ -1,8 +1,10 @@
 import path from "node:path";
 
 import { discoverProjects as discoverProjectsDefault } from "../lib/project-discovery.js";
+import { buildProjectOverview as buildProjectOverviewDefault } from "../lib/project-overview.js";
 import { resolveProjectConfig } from "../lib/project-config.js";
 import { getConfiguredProjectRoots, validateRelativeProjectPath } from "../lib/project-roots.js";
+import { getProjectByNameForIntelligence as getProjectByNameDefault } from "../lib/projects.js";
 import {
   mergeProjectRegistries,
   readDiscoveredProjectRegistry,
@@ -13,6 +15,7 @@ import {
 } from "../lib/project-registry.js";
 import { readJsonBody } from "../utils/request-body.js";
 import { sendOk, sendError } from "../utils/response.js";
+import { parseLimit, validateProjectName } from "../utils/validation.js";
 
 const MAX_REGISTRATION_PROJECTS = 100;
 const DEFAULT_BODY_LIMIT_BYTES = 64 * 1024;
@@ -20,6 +23,7 @@ const DEFAULT_BODY_LIMIT_BYTES = 64 * 1024;
 export function registerIntelligenceRoutes(router, dependencies = {}) {
   router.add("GET", "/api/intelligence/discover", createDiscoverProjectsHandler(dependencies));
   router.add("POST", "/api/intelligence/discover/register", createRegisterDiscoveredProjectsHandler(dependencies));
+  router.add("GET", "/api/intelligence/projects/:name/overview", createProjectOverviewHandler(dependencies));
 }
 
 export function createDiscoverProjectsHandler(dependencies = {}) {
@@ -112,6 +116,37 @@ export function createRegisterDiscoveredProjectsHandler(dependencies = {}) {
   };
 }
 
+export function createProjectOverviewHandler(dependencies = {}) {
+  const getProjectByName = dependencies.getProjectByName || getProjectByNameDefault;
+  const buildProjectOverview = dependencies.buildProjectOverview || buildProjectOverviewDefault;
+
+  return async function handleProjectOverview(_req, res, params, query) {
+    const validation = validateProjectName(params.name);
+    if (!validation.valid) {
+      sendError(res, 400, "invalid_project_name", validation.error);
+      return;
+    }
+
+    let project;
+    try {
+      project = getProjectByName(params.name);
+    } catch (error) {
+      const { status, code, message } = classifyProjectLookupError(error, params.name);
+      sendError(res, status, code, message);
+      return;
+    }
+
+    try {
+      const overview = buildProjectOverview(project, {
+        graphLimit: parseLimit(query.get("graphLimit"), 20, 1, 100)
+      });
+      sendOk(res, 200, overview, "Resumo do projeto construído");
+    } catch (error) {
+      sendError(res, 500, "overview_failed", error.message || "Falha ao construir resumo do projeto.");
+    }
+  };
+}
+
 function getEffectiveProjectRegistry() {
   const config = resolveProjectConfig();
   const { projects } = readEffectiveProjectRegistry({
@@ -161,4 +196,22 @@ function parseRegistrationRequest(body) {
   }
 
   return { valid: true, projects };
+}
+
+function classifyProjectLookupError(error, projectName) {
+  const message = error?.message || `Projeto não encontrado: ${projectName}`;
+
+  if (message.includes("Pasta do projeto")) {
+    return {
+      status: 404,
+      code: "project_unavailable",
+      message: `Projeto indisponível: ${projectName}`
+    };
+  }
+
+  return {
+    status: 404,
+    code: "project_not_found",
+    message
+  };
 }

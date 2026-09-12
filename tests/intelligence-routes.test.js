@@ -25,6 +25,27 @@ function makeTypeScriptProject(parent, name) {
   return project;
 }
 
+function makeOverviewTypeScriptProject(parent, name) {
+  const project = path.join(parent, name);
+  fs.mkdirSync(path.join(project, "src"), { recursive: true });
+  writeJson(path.join(project, "package.json"), {
+    name,
+    type: "module",
+    scripts: {
+      start: "node src/server.js",
+      test: "node --test",
+      check: "node --check src/server.js"
+    },
+    dependencies: {
+      express: "^5.0.0"
+    }
+  });
+  fs.writeFileSync(path.join(project, "package-lock.json"), "{}\n");
+  writeJson(path.join(project, "tsconfig.json"), { compilerOptions: {} });
+  fs.writeFileSync(path.join(project, "src", "server.ts"), "export function start() {}\n");
+  return project;
+}
+
 function createFakeResponse() {
   return {
     status: null,
@@ -106,6 +127,39 @@ function createJsonRequest(method, url, body) {
     "content-type": "application/json"
   };
   return req;
+}
+
+async function dispatchOverview({
+  project,
+  url,
+  extraDependencies = {}
+} = {}) {
+  const router = createRouter();
+  registerIntelligenceRoutes(router, {
+    getProjectByName: (name) => {
+      if (!project || name !== project.name) {
+        throw new Error(`Projeto não encontrado: ${name}`);
+      }
+
+      return project;
+    },
+    ...extraDependencies
+  });
+
+  const req = {
+    method: "GET",
+    url,
+    headers: { host: "localhost" }
+  };
+  const res = createFakeResponse();
+  const matched = await router.dispatch(req, res);
+
+  assert.equal(matched, true);
+  return {
+    status: res.status,
+    headers: res.headers,
+    payload: JSON.parse(res.body)
+  };
 }
 
 function registryFixture() {
@@ -242,7 +296,7 @@ test("unexpected discovery errors use the existing error envelope", async () => 
   });
 });
 
-test("registers only the GET discovery and POST explicit registration intelligence routes", () => {
+test("registers discovery, explicit registration and bounded overview intelligence routes", () => {
   const router = createRouter();
   registerIntelligenceRoutes(router, {
     getConfiguredProjectRoots: () => [],
@@ -251,7 +305,143 @@ test("registers only the GET discovery and POST explicit registration intelligen
 
   assert.ok(router.match("GET", "/api/intelligence/discover"));
   assert.ok(router.match("POST", "/api/intelligence/discover/register"));
+  assert.ok(router.match("GET", "/api/intelligence/projects/sample-service/overview"));
   assert.equal(router.match("POST", "/api/intelligence/discover"), null);
+});
+
+test("GET /api/intelligence/projects/:name/overview returns high-level overview without absolute paths", async () => {
+  const root = makeRoot();
+  const absolutePath = makeOverviewTypeScriptProject(root, "sample-service");
+  const project = {
+    name: "sample-service",
+    rootId: "default",
+    relativePath: "sample-service",
+    registrySource: "manual",
+    absolutePath
+  };
+
+  const { status, headers, payload } = await dispatchOverview({
+    project,
+    url: "/api/intelligence/projects/sample-service/overview"
+  });
+
+  assert.equal(status, 200);
+  assert.equal(headers["content-type"], "application/json; charset=utf-8");
+  assert.equal(payload.ok, true);
+  assert.equal(payload.data.schemaVersion, 1);
+  assert.equal(payload.data.bounded, true);
+  assert.deepEqual(payload.data.project, {
+    name: "sample-service",
+    rootId: "default",
+    relativePath: "sample-service",
+    projectType: "typescript",
+    typeLabel: "TypeScript",
+    supported: true,
+    registrySource: "manual"
+  });
+  assert.deepEqual(payload.data.stack.frameworks, ["express"]);
+  assert.equal(payload.data.stack.packageManager, "npm");
+  assert.deepEqual(payload.data.architecture.entryPoints, ["src/server.ts"]);
+  assert.equal(payload.data.analysis.status, "not_analyzed");
+  assert.equal(payload.data.statistics.nodeCount, null);
+  assert.equal(payload.data.statistics.edgeCount, null);
+  assert.equal(JSON.stringify(payload).includes(root), false);
+  assert.equal(JSON.stringify(payload).includes(absolutePath), false);
+});
+
+test("GET overview returns 404 error envelope for unknown projects", async () => {
+  const { status, payload } = await dispatchOverview({
+    url: "/api/intelligence/projects/missing-service/overview"
+  });
+
+  assert.equal(status, 404);
+  assert.deepEqual(payload, {
+    ok: false,
+    error: "project_not_found",
+    message: "Projeto não encontrado: missing-service"
+  });
+});
+
+test("GET overview validates project name and unavailable paths without absolute leaks", async () => {
+  const invalid = await dispatchOverview({
+    url: "/api/intelligence/projects/..bad/overview"
+  });
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.payload.error, "invalid_project_name");
+
+  const unavailable = await dispatchOverview({
+    url: "/api/intelligence/projects/sample-service/overview",
+    project: null,
+    extraDependencies: {
+      getProjectByName: () => {
+        throw new Error("Pasta do projeto não encontrada no runtime: /tmp/secret-project");
+      }
+    }
+  });
+
+  assert.equal(unavailable.status, 404);
+  assert.equal(unavailable.payload.error, "project_unavailable");
+  assert.equal(JSON.stringify(unavailable.payload).includes("/tmp/secret-project"), false);
+});
+
+test("GET overview clamps graphLimit before calling the overview builder", async () => {
+  const root = makeRoot();
+  const absolutePath = makeOverviewTypeScriptProject(root, "sample-service");
+  const project = {
+    name: "sample-service",
+    rootId: "default",
+    relativePath: "sample-service",
+    registrySource: "discovered",
+    absolutePath
+  };
+  const seenOptions = [];
+
+  const tooHigh = await dispatchOverview({
+    project,
+    url: "/api/intelligence/projects/sample-service/overview?graphLimit=500",
+    extraDependencies: {
+      buildProjectOverview: (resolvedProject, options) => {
+        seenOptions.push({ resolvedProject, options });
+        return {
+          schemaVersion: 1,
+          bounded: true,
+          limits: { graphLimit: options.graphLimit },
+          project: { name: resolvedProject.name },
+          stack: {},
+          architecture: {},
+          statistics: {},
+          analysis: {},
+          analyzers: [],
+          warnings: []
+        };
+      }
+    }
+  });
+  assert.equal(tooHigh.status, 200);
+  assert.equal(tooHigh.payload.data.limits.graphLimit, 100);
+
+  await dispatchOverview({
+    project,
+    url: "/api/intelligence/projects/sample-service/overview?graphLimit=0",
+    extraDependencies: {
+      buildProjectOverview: (_resolvedProject, options) => {
+        seenOptions.push({ options });
+        return {
+          schemaVersion: 1,
+          bounded: true,
+          limits: { graphLimit: options.graphLimit },
+          project: { name: "sample-service" },
+          stack: {},
+          architecture: {},
+          statistics: {},
+          analysis: {},
+          analyzers: [],
+          warnings: []
+        };
+      }
+    }
+  });
+  assert.equal(seenOptions[1].options.graphLimit, 20);
 });
 
 test("POST registration is disabled by default and does not write registries", async () => {

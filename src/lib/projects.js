@@ -6,6 +6,7 @@ import {
   isSupportedProjectType
 } from "../analyzers/common/analyzer-detection.js";
 import { resolveProjectConfig } from "./project-config.js";
+import { getConfiguredProjectRoots } from "./project-roots.js";
 import {
   mergeProjectRegistries,
   readDiscoveredProjectRegistry,
@@ -40,6 +41,28 @@ export function getProjectByName(name) {
   }
 
   const absolutePath = getProjectAbsolutePath(project);
+
+  if (!fs.existsSync(absolutePath)) {
+    throw new Error(`Pasta do projeto não encontrada no runtime: ${absolutePath}`);
+  }
+
+  return {
+    ...project,
+    absolutePath
+  };
+}
+
+export function getProjectByNameForIntelligence(name, options = {}) {
+  const manualProjects = readManualProjectRegistry(options.manualProjectsFile || PROJECTS_FILE);
+  const discoveredProjects = readDiscoveredProjectRegistry(options.discoveredProjectsFile || DISCOVERED_PROJECTS_FILE);
+  const { projects } = mergeProjectRegistries(manualProjects, discoveredProjects);
+  const project = projects.find((item) => item.name === name);
+
+  if (!project) {
+    throw new Error(`Projeto não encontrado: ${name}`);
+  }
+
+  const absolutePath = getProjectAbsolutePathForIntelligence(project, options.roots);
 
   if (!fs.existsSync(absolutePath)) {
     throw new Error(`Pasta do projeto não encontrada no runtime: ${absolutePath}`);
@@ -98,6 +121,16 @@ function countFiles(root, extensions) {
   }
 
   return count;
+}
+
+function getProjectAbsolutePathForIntelligence(project, roots = getConfiguredProjectRoots()) {
+  const root = roots.find((item) => item.id === (project.rootId || "default"));
+
+  if (root) {
+    return path.join(root.path, project.relativePath || "");
+  }
+
+  return getProjectAbsolutePath(project);
 }
 
 function* walk(dir) {
