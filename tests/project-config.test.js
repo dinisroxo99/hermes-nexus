@@ -79,3 +79,23 @@ test("PROJECTS_ROOTS rejects duplicate ids", () => {
     /duplicate/i
   );
 });
+
+test("INTELLIGENCE_REGISTRY_WRITES_ENABLED defaults off and accepts explicit true values", () => {
+  assert.equal(resolveProjectConfig({ env: {}, envFileValues: {} }).intelligenceRegistryWritesEnabled, false);
+  assert.equal(resolveProjectConfig({
+    env: { INTELLIGENCE_REGISTRY_WRITES_ENABLED: "true" },
+    envFileValues: {}
+  }).intelligenceRegistryWritesEnabled, true);
+  assert.equal(resolveProjectConfig({
+    env: { INTELLIGENCE_REGISTRY_WRITES_ENABLED: "1" },
+    envFileValues: {}
+  }).intelligenceRegistryWritesEnabled, true);
+  assert.equal(resolveProjectConfig({
+    env: { INTELLIGENCE_REGISTRY_WRITES_ENABLED: "yes" },
+    envFileValues: {}
+  }).intelligenceRegistryWritesEnabled, true);
+  assert.equal(resolveProjectConfig({
+    env: { INTELLIGENCE_REGISTRY_WRITES_ENABLED: "false" },
+    envFileValues: { INTELLIGENCE_REGISTRY_WRITES_ENABLED: "true" }
+  }).intelligenceRegistryWritesEnabled, false);
+});

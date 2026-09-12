@@ -93,6 +93,112 @@ export function readEffectiveProjectRegistry({ manualProjectsFile, discoveredPro
   return mergeProjectRegistries(manualProjects, discoveredProjects);
 }
 
+export function upsertDiscoveredProjects({
+  manualProjects = [],
+  discoveredProjects = [],
+  candidates = [],
+  requestedProjects = [],
+  now = new Date().toISOString()
+} = {}) {
+  const manualKeys = new Set(manualProjects
+    .map((entry) => normalizeProjectEntryForRuntime(entry, { registrySource: "manual" }))
+    .filter(Boolean)
+    .map(projectPathKey));
+  const manualNames = new Set(manualProjects
+    .map((entry) => normalizeProjectEntryForRuntime(entry, { registrySource: "manual" }))
+    .filter(Boolean)
+    .map(projectNameKey));
+  const discoveredByKey = new Map();
+
+  for (const entry of discoveredProjects) {
+    const project = normalizeProjectEntryForRuntime(entry, { registrySource: "discovered" });
+    if (project && !discoveredByKey.has(projectPathKey(project))) {
+      discoveredByKey.set(projectPathKey(project), project);
+    }
+  }
+
+  const candidatesByKey = new Map();
+  for (const entry of candidates) {
+    const candidate = normalizeProjectEntryForRuntime(entry, { registrySource: "discovered" });
+    if (candidate && !candidatesByKey.has(projectPathKey(candidate))) {
+      candidatesByKey.set(projectPathKey(candidate), candidate);
+    }
+  }
+
+  const results = [];
+  let registeredCount = 0;
+  let updatedCount = 0;
+  let skippedCount = 0;
+
+  for (const requested of requestedProjects) {
+    const normalizedRequest = normalizeProjectEntryForRuntime({
+      name: requested.relativePath,
+      rootId: requested.rootId,
+      relativePath: requested.relativePath
+    }, { registrySource: "discovered" });
+    const key = normalizedRequest ? projectPathKey(normalizedRequest) : null;
+
+    if (!key || !candidatesByKey.has(key)) {
+      return {
+        ok: false,
+        error: "unknown_discovery_candidate",
+        result: null,
+        projects: Array.from(discoveredByKey.values())
+      };
+    }
+
+    const candidate = candidatesByKey.get(key);
+    const identity = {
+      rootId: candidate.rootId,
+      relativePath: candidate.relativePath
+    };
+
+    if (manualKeys.has(key) || manualNames.has(projectNameKey(candidate))) {
+      skippedCount += 1;
+      results.push({ ...identity, status: "already_registered" });
+      continue;
+    }
+
+    const existing = discoveredByKey.get(key);
+    const discoveredAt = existing?.discoveredAt || existing?.addedAt || now;
+    const addedAt = existing?.addedAt;
+    const nextProject = {
+      ...existing,
+      ...toDiscoveredRegistryEntry(candidate, { discoveredAt, now })
+    };
+
+    if (addedAt) {
+      nextProject.addedAt = addedAt;
+    }
+
+    discoveredByKey.set(key, nextProject);
+
+    if (existing) {
+      updatedCount += 1;
+      results.push({ ...identity, status: "updated" });
+    } else {
+      registeredCount += 1;
+      results.push({ ...identity, status: "registered" });
+    }
+  }
+
+  return {
+    ok: true,
+    result: {
+      schemaVersion: 1,
+      bounded: true,
+      requestedCount: requestedProjects.length,
+      registeredCount,
+      updatedCount,
+      skippedCount,
+      results,
+      warnings: []
+    },
+    projects: Array.from(discoveredByKey.values())
+      .sort((a, b) => projectPathKey(a).localeCompare(projectPathKey(b)))
+  };
+}
+
 export function writeDiscoveredProjectRegistryAtomic(filePath, projects) {
   if (path.basename(filePath) !== "discovered-projects.json") {
     throw new Error("Discovered registry writer only writes discovered-projects.json.");
@@ -156,6 +262,10 @@ function projectPathKey(project) {
   return `${project.rootId}:${project.relativePath}`;
 }
 
+function projectNameKey(project) {
+  return `${project.rootId}:${project.name}`;
+}
+
 function toPersistedDiscoveredEntry(entry) {
   const normalized = normalizeProjectEntryForRuntime(entry, { registrySource: "discovered" });
 
@@ -168,6 +278,23 @@ function toPersistedDiscoveredEntry(entry) {
   return {
     ...persistedEntry,
     source: "discovered"
+  };
+}
+
+function toDiscoveredRegistryEntry(candidate, { discoveredAt, now }) {
+  return {
+    name: candidate.name,
+    rootId: candidate.rootId,
+    relativePath: candidate.relativePath,
+    boundaryKind: candidate.boundaryKind,
+    projectType: candidate.projectType,
+    signals: Array.isArray(candidate.signals) ? [...candidate.signals] : [],
+    modules: Array.isArray(candidate.modules)
+      ? candidate.modules.map((module) => ({ ...module }))
+      : [],
+    discoveredAt,
+    lastSeenAt: now,
+    registrySource: "discovered"
   };
 }
 

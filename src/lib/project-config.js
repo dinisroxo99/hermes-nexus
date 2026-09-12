@@ -111,6 +111,18 @@ export function resolveProjectConfig(options = {}) {
     dataDir,
     legacyProjectsRoot,
     legacyProjectsRootContainer,
-    projectRoots
+    projectRoots,
+    intelligenceRegistryWritesEnabled: parseBoolean(
+      env.INTELLIGENCE_REGISTRY_WRITES_ENABLED ?? envFileValues.INTELLIGENCE_REGISTRY_WRITES_ENABLED,
+      false
+    )
   };
+}
+
+function parseBoolean(value, defaultValue) {
+  if (value === undefined || value === null || value === "") {
+    return defaultValue;
+  }
+
+  return ["true", "1", "yes"].includes(String(value).trim().toLowerCase());
 }
