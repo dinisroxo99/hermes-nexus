@@ -52,7 +52,7 @@ Required result:
 fail 0
 ```
 
-Phase 0 currently completes with 61 passing tests, but the exact total may increase as more coverage is added.
+Phase 1 completed with 109 passing tests. Treat `fail 0` as the durable requirement because the exact passing count will grow as coverage is added.
 
 ### Validate the `analyzer-service` import
 
@@ -97,6 +97,20 @@ docker compose up --build
 If the project uses a bind mount and the dependencies have already been installed inside the container, a restart may be enough. A rebuild is safer because it prevents missing-module errors.
 
 ## Main endpoints
+
+### Project Intelligence
+
+```bash
+curl "http://localhost:8770/api/intelligence/discover?maxDepth=3&limit=100"
+curl -X POST http://localhost:8770/api/intelligence/discover/register \
+  -H "content-type: application/json" \
+  -d '{"projects":[{"rootId":"default","relativePath":"sample-service"}]}'
+curl http://localhost:8770/api/intelligence/projects/<projectName>/overview
+```
+
+Discovery is dry-run and non-mutating. Explicit registration writes only `data/discovered-projects.json`, is disabled unless `INTELLIGENCE_REGISTRY_WRITES_ENABLED` is `true`, `1`, or `yes`, validates requested identities against current discovery results, and never writes manual `data/projects.json`.
+
+Overview is cheap and bounded. It reports project identity, stack, architecture, statistics, analysis/cache state, analyzer capabilities, and warnings without returning absolute paths by default or triggering a full analyzer/index run.
 
 ### List projects
 

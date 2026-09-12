@@ -20,6 +20,8 @@ After this setup, a Hermes profile can call tools such as:
 
 The plugin is intentionally small. It does not reimplement the analyzer. It calls the existing `hermes-project-map` HTTP API.
 
+The currently documented plugin tools are the low-level `project_map_*` compatibility/specialist tools. Future high-level Hermes `project_*` tools may consume the Project Intelligence endpoints (`/api/intelligence/discover`, `/api/intelligence/discover/register`, and `/api/intelligence/projects/:name/overview`), but those high-level tools are not implemented in this plugin yet.
+
 ## Architecture
 
 ```txt

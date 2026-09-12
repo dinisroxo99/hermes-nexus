@@ -123,9 +123,92 @@ docker compose up --build
 
 The `PROJECTS_ROOT` folder is mounted inside the container at `/projects`.
 
-## Project Intelligence foundation
+## Project Intelligence API
 
-Phase 0 adds the shared foundation for future Project Intelligence features without adding discovery or new HTTP routes yet.
+Project Intelligence endpoints are bounded, deterministic, agent-oriented contracts for Hermes and future orchestrators. They are separate from the existing UI/specialist graph endpoints and do not change `/api/projects` or `/api/explore` payloads.
+
+Currently implemented:
+
+```txt
+GET  /api/intelligence/discover
+POST /api/intelligence/discover/register
+GET  /api/intelligence/projects/:name/overview
+```
+
+Not implemented yet: ICM parsing, task context, task routing, impact v2, Hermes high-level `project_*` tools, and Hermes Agent OS orchestration.
+
+### Discovery dry run
+
+`GET /api/intelligence/discover` scans configured roots without mutating registry files. It is multi-root, boundary-aware, and hides configured absolute root paths by default.
+
+Query parameters:
+
+- `maxDepth`: default `3`, clamped to `1..6`.
+- `limit`: default `100`, clamped to `1..500`; applied globally across all roots.
+- `includeRegistered=true`: includes effective-registry matches; absent or any other value excludes them.
+
+Results are ordered by configured root order, then candidate `relativePath`. `truncated` is true only when an additional returnable candidate exists beyond the global limit. Root problems are returned as structured warnings bounded to `20`, such as `{ "code": "root_missing", "rootId": "default" }`. Registered matching uses `rootId + relativePath`, with same-root name compatibility for legacy entries.
+
+### Explicit discovered-project registration
+
+`POST /api/intelligence/discover/register` writes only machine-managed discovery state and is disabled by default. Enable it explicitly with:
+
+```env
+INTELLIGENCE_REGISTRY_WRITES_ENABLED=true
+```
+
+Accepted true values are exactly `true`, `1`, and `yes` after trimming and lowercasing; all other values are false.
+
+Request body is bounded JSON, max `64 KiB`, with at most `100` requested projects:
+
+```json
+{
+  "projects": [
+    {
+      "rootId": "default",
+      "relativePath": "sample-service"
+    }
+  ]
+}
+```
+
+The client supplies candidate identity only. The server re-runs current discovery from configured roots, validates requested identities against current candidates, and persists server-derived metadata. Unknown or stale candidates are rejected. Repeated registration is idempotent/update-oriented. Manual `data/projects.json` is never written; machine state is persisted atomically to `data/discovered-projects.json`.
+
+### Bounded project overview
+
+`GET /api/intelligence/projects/:name/overview` returns a compact high-level summary for registered manual or discovered projects. It uses root IDs and relative paths by default and does not expose `absolutePath`.
+
+Returned categories:
+
+- project identity, project type/support, and registry source;
+- stack languages, frameworks, package manager, runtime, and scripts;
+- architecture layers, features, entry points, and test commands;
+- source/graph statistics;
+- analysis cache state and analyzer capabilities;
+- bounded warnings.
+
+Bounds: `scripts <= 50`, `frameworks <= 20`, `layers <= 20`, `features <= 20`, `entryPoints <= 20`, `testCommands <= 20`, `warnings <= 20`. `graphLimit` defaults to `20` and is clamped to `1..100`.
+
+Package-manager precedence is: `package.json.packageManager`, `pnpm-lock.yaml`, `yarn.lock`, `package-lock.json`, `bun.lock`/`bun.lockb`, `package.json` without evidence as `"unknown"`, and no package metadata as `null`.
+
+Overview does not trigger a full analyzer/index run. It uses current structure/cache information. If no analysis exists, `analysis.status` is `"not_analyzed"` and `statistics.nodeCount`/`edgeCount` are `null`. If an analyzed cached graph exists and contains zero nodes or edges, those values are `0`.
+
+### Phase status
+
+Completed:
+
+- Phase 0: centralized config, safe roots/path handling, registry ownership, atomic discovered-registry persistence.
+- Phase 1: boundary classification, bounded deterministic discovery, discovery dry-run HTTP API, explicit guarded registration, bounded project overview.
+
+Next:
+
+- Phase 2: canonical ICM parser and Workspace Index.
+
+Future:
+
+- task context, routing, impact v2, Hermes high-level tools, and Hermes Agent OS.
+
+Future ICM contract: `PROJECT.md` stores project identity/context, `AGENTS.md` stores Hermes/LLM instructions, `AGENT.md` stores the machine-readable workspace contract plus Markdown context, `CONTEXT.md` stores workspace/domain knowledge, ADR files store architecture decisions, and `AGENT.md` YAML front matter is machine-authoritative.
 
 ### Project root configuration
 
@@ -159,11 +242,7 @@ Runtime normalization may add fields such as `registrySource` and default `rootI
 
 Trusted configured roots and untrusted project-relative paths are validated separately. Trusted roots may be absolute POSIX paths such as `/home/user/projects` or `/projects`, and trusted Windows roots such as `C:\Users\Example\Projects` may normalize to `/mnt/c/Users/Example/Projects` on Linux/WSL. Untrusted project-relative paths reject traversal and absolute forms such as `../secret`, `/absolute`, `C:\secret`, `C:/secret`, and UNC paths.
 
-Future writes to the machine-managed discovered registry use an atomic helper that writes a complete sibling temporary file, fsyncs it, closes it, and renames it over `data/discovered-projects.json`. That helper is intentionally scoped to `discovered-projects.json` and never writes `data/projects.json`.
-
-The service currently assumes localhost or trusted-network operation. Registry mutation endpoints are not implemented yet; if they are added later, they should be gated appropriately before exposure beyond a trusted environment.
-
-Implemented in Phase 0: central configuration, safe root/path helpers, split manual/discovered/effective registry ownership, effective registry consumption by existing project lookup, and atomic discovered-registry persistence. Not yet implemented: automatic project discovery, Project Intelligence HTTP endpoints, project overview, ICM, task context, task routing, impact v2, high-level Hermes `project_*` tools, or the future Hermes Agent OS.
+Machine-managed discovered registry writes use an atomic helper that writes a complete sibling temporary file, fsyncs it, closes it, and renames it over `data/discovered-projects.json`. That helper is intentionally scoped to `discovered-projects.json` and never writes `data/projects.json`.
 
 ## Adding projects
 

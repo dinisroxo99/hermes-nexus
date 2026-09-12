@@ -31,7 +31,7 @@ Reasons:
 
 Do not duplicate analyzer, registry, path-safety, or future discovery logic inside Hermes. Add that logic to this service and keep Hermes integration code limited to request/response handling, input validation, limits, and timeouts.
 
-## Current Project Intelligence foundation status
+## Current Project Intelligence status
 
 Implemented in Phase 0:
 
@@ -39,17 +39,85 @@ Implemented in Phase 0:
 - trusted configured-root normalization and untrusted relative project-path validation;
 - manual/discovered/effective registry separation;
 - existing project lookup/listing over the effective runtime registry;
-- atomic persistence helper for the future machine-managed discovered registry.
+- atomic persistence helper for the machine-managed discovered registry.
 
-Not yet implemented:
+Implemented in Phase 1:
 
-- automatic project discovery;
-- `/api/intelligence/*` endpoints;
-- project overview, task context, task routing, ICM, or impact v2;
-- high-level Hermes `project_discover`, `project_overview`, `project_task_context`, `project_route_task`, `project_impact`, or `project_refresh` tools;
-- Hermes Agent OS orchestration or policy enforcement.
+- project boundary classification;
+- bounded deterministic multi-root discovery;
+- `GET /api/intelligence/discover`;
+- guarded explicit discovered-project registration at `POST /api/intelligence/discover/register`;
+- bounded project overview at `GET /api/intelligence/projects/:name/overview`.
 
-The currently available integration surface is still the existing low-level project map HTTP API documented below.
+Next implementation phase:
+
+- Phase 2: canonical ICM parser and Workspace Index.
+
+Future work:
+
+- task context, task routing, impact v2, high-level Hermes `project_*` tools, and Hermes Agent OS orchestration.
+
+The service does not run agents and does not enforce future Hermes Agent OS policy. Hermes remains a thin HTTP consumer; `hermes-project-map` remains the Project Intelligence source of truth.
+
+## Project Intelligence HTTP API implemented today
+
+```txt
+GET  /api/intelligence/discover
+POST /api/intelligence/discover/register
+GET  /api/intelligence/projects/:name/overview
+```
+
+### `GET /api/intelligence/discover`
+
+Dry-run, non-mutating, bounded, deterministic, multi-root project discovery. The scan is repository/project/module/workspace boundary-aware and hides configured absolute root paths by default.
+
+Query parameters:
+
+- `maxDepth`: default `3`, clamped to `1..6`.
+- `limit`: default `100`, clamped to `1..500`, applied globally across all configured roots.
+- `includeRegistered=true`: includes registered candidates; absent or any other value excludes registered candidates.
+
+Ordering is configured root order, then candidate `relativePath`. `truncated` means a real additional returnable candidate exists beyond the global limit; exact-limit results are not marked truncated. Root failures are returned as structured warnings bounded to `20`, such as `{ "code": "root_missing", "rootId": "default" }`. Registered matching uses `rootId + relativePath`, with same-root name compatibility for legacy registry entries.
+
+### `POST /api/intelligence/discover/register`
+
+Explicit discovered-project registration. Mutation is disabled by default and controlled by `INTELLIGENCE_REGISTRY_WRITES_ENABLED`. Accepted true values are exactly `true`, `1`, and `yes` after trimming and lowercasing; any other value is false.
+
+Request body limit: `64 KiB`. Maximum requested projects: `100`.
+
+Request shape:
+
+```json
+{
+  "projects": [
+    {
+      "rootId": "default",
+      "relativePath": "sample-service"
+    }
+  ]
+}
+```
+
+The client supplies candidate identity only. The service re-runs current discovery against configured roots, validates requested identities against current allowed candidates, and persists server-derived discovery metadata. Unknown or stale candidates are rejected. Repeated registration updates existing discovered entries instead of duplicating them. Human-managed `data/projects.json` is never written; machine-managed state uses `data/discovered-projects.json` and the existing atomic writer.
+
+### `GET /api/intelligence/projects/:name/overview`
+
+Returns a compact bounded project summary for registered manual or discovered projects. The default response uses `rootId` and `relativePath`; it does not include `absolutePath`.
+
+Returned categories:
+
+- project identity, type/support, and registry source;
+- stack languages, frameworks, package manager, runtime, and scripts;
+- architecture layers, features, entry points, and test commands;
+- statistics: `sourceFileCount`, `nodeCount`, `edgeCount`;
+- analysis cache state and analyzer capabilities;
+- warnings.
+
+Bounds: `scripts <= 50`, `frameworks <= 20`, `layers <= 20`, `features <= 20`, `entryPoints <= 20`, `testCommands <= 20`, `warnings <= 20`. `graphLimit` defaults to `20` and clamps to `1..100`.
+
+Package-manager precedence: `package.json.packageManager`, `pnpm-lock.yaml`, `yarn.lock`, `package-lock.json`, `bun.lock`/`bun.lockb`, `package.json` without evidence as `"unknown"`, and no package metadata as `null`.
+
+Overview does not trigger a full analyzer/index run. It uses current structure/cache information. If no analysis exists, `analysis.status` is `"not_analyzed"` and `nodeCount`/`edgeCount` are `null`. If a cached analyzed graph exists and contains zero nodes or edges, those values are `0`.
 
 ## Endpoints used by the tool
 
@@ -303,9 +371,9 @@ tools/expand_symbol
 tools/full_graph
 ```
 
-## Planned future high-level tools
+## Future high-level Hermes tools
 
-After the corresponding HTTP endpoints exist, Hermes can add thin high-level tools such as:
+Hermes high-level `project_*` tools are not implemented yet. When added, they should be thin HTTP clients over this service.
 
 ```txt
 project_discover
@@ -316,7 +384,7 @@ project_impact
 project_refresh
 ```
 
-These tools are planned only. They are not available from this service yet and should not be documented as installed Hermes tools until the HTTP contracts are implemented.
+Underlying HTTP support exists today for discovery, discovery registration, and overview. HTTP support does not yet exist for task context, task routing, impact v2, refresh, or ICM-backed workspace indexing. Existing low-level `project_map_*` tools remain the current specialist/compatibility tool tier.
 
 ## Important rules for the tool
 
