@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 import { validateRelativeProjectPath } from "./project-roots.js";
 
@@ -85,6 +86,45 @@ export function mergeProjectRegistries(manualProjects = [], discoveredProjects =
   return { projects, warnings };
 }
 
+export function writeDiscoveredProjectRegistryAtomic(filePath, projects) {
+  if (path.basename(filePath) !== "discovered-projects.json") {
+    throw new Error("Discovered registry writer only writes discovered-projects.json.");
+  }
+
+  const persistedProjects = projects.map(toPersistedDiscoveredEntry);
+  const contents = `${JSON.stringify(persistedProjects, null, 2)}\n`;
+  const dir = path.dirname(filePath);
+  const tempPath = path.join(dir, `.discovered-projects.json.tmp-${process.pid}-${randomUUID()}`);
+  let fd = null;
+
+  try {
+    fd = fs.openSync(tempPath, "wx");
+    fs.writeFileSync(fd, contents, "utf8");
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = null;
+    fs.renameSync(tempPath, filePath);
+  } catch (error) {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        // Ignore close errors while preserving the original failure.
+      }
+    }
+
+    if (fs.existsSync(tempPath)) {
+      try {
+        fs.unlinkSync(tempPath);
+      } catch {
+        // Ignore cleanup errors while preserving the original failure.
+      }
+    }
+
+    throw error;
+  }
+}
+
 function readRegistryArray(filePath) {
   if (!filePath || !fs.existsSync(filePath)) {
     return [];
@@ -107,6 +147,21 @@ function readRegistryArray(filePath) {
 
 function projectPathKey(project) {
   return `${project.rootId}:${project.relativePath}`;
+}
+
+function toPersistedDiscoveredEntry(entry) {
+  const normalized = normalizeProjectEntryForRuntime(entry, { registrySource: "discovered" });
+
+  if (!normalized) {
+    throw new Error(`Invalid discovered project registry entry: ${describeEntry(entry)}`);
+  }
+
+  const { registrySource, source, ...persistedEntry } = normalized;
+
+  return {
+    ...persistedEntry,
+    source: "discovered"
+  };
 }
 
 function describeEntry(entry) {

@@ -8,7 +8,8 @@ import {
   mergeProjectRegistries,
   normalizeProjectEntryForRuntime,
   readDiscoveredProjectRegistry,
-  readManualProjectRegistry
+  readManualProjectRegistry,
+  writeDiscoveredProjectRegistryAtomic
 } from "../src/lib/project-registry.js";
 
 function makeTempRoot(prefix) {
@@ -144,3 +145,156 @@ test("invalid discovered entries do not corrupt manual state", () => {
   assert.equal(result.warnings.length, 1);
   assert.match(result.warnings[0], /bad-discovered/);
 });
+
+test("writeDiscoveredProjectRegistryAtomic writes a valid discovered registry", () => {
+  const dir = makeTempRoot("project-map-write-discovered-");
+  const discoveredFile = path.join(dir, "discovered-projects.json");
+
+  writeDiscoveredProjectRegistryAtomic(discoveredFile, [{
+    name: "auto-service",
+    rootId: "default",
+    relativePath: "auto-service",
+    registrySource: "discovered"
+  }]);
+
+  assert.equal(fs.existsSync(discoveredFile), true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(discoveredFile, "utf8")), [{
+    name: "auto-service",
+    rootId: "default",
+    relativePath: "auto-service",
+    source: "discovered"
+  }]);
+});
+
+test("writeDiscoveredProjectRegistryAtomic leaves the manual registry untouched", () => {
+  const dir = makeTempRoot("project-map-write-manual-safe-");
+  const manualFile = path.join(dir, "projects.json");
+  const discoveredFile = path.join(dir, "discovered-projects.json");
+  const manualContents = '[{"name":"manual-service","relativePath":"manual-service"}]\n';
+
+  fs.writeFileSync(manualFile, manualContents);
+
+  writeDiscoveredProjectRegistryAtomic(discoveredFile, [{
+    name: "auto-service",
+    rootId: "default",
+    relativePath: "auto-service"
+  }]);
+
+  assert.equal(fs.readFileSync(manualFile, "utf8"), manualContents);
+});
+
+test("writeDiscoveredProjectRegistryAtomic atomically replaces existing discovered state", () => {
+  const dir = makeTempRoot("project-map-write-replace-");
+  const discoveredFile = path.join(dir, "discovered-projects.json");
+
+  fs.writeFileSync(discoveredFile, JSON.stringify([
+    { name: "old-service", rootId: "default", relativePath: "old-service", source: "discovered" }
+  ]));
+
+  writeDiscoveredProjectRegistryAtomic(discoveredFile, [{
+    name: "new-service",
+    rootId: "default",
+    relativePath: "new-service"
+  }]);
+
+  const contents = fs.readFileSync(discoveredFile, "utf8");
+  assert.deepEqual(JSON.parse(contents), [{
+    name: "new-service",
+    rootId: "default",
+    relativePath: "new-service",
+    source: "discovered"
+  }]);
+  assert.equal(contents.includes("old-service"), false);
+});
+
+test("writeDiscoveredProjectRegistryAtomic removes temporary sibling files after success", () => {
+  const dir = makeTempRoot("project-map-write-temp-cleanup-");
+  const discoveredFile = path.join(dir, "discovered-projects.json");
+
+  writeDiscoveredProjectRegistryAtomic(discoveredFile, [{
+    name: "auto-service",
+    rootId: "default",
+    relativePath: "auto-service"
+  }]);
+
+  assert.deepEqual(findDiscoveredTempFiles(dir), []);
+});
+
+test("writeDiscoveredProjectRegistryAtomic supports repeated deterministic replacement writes", () => {
+  const dir = makeTempRoot("project-map-write-repeat-");
+  const discoveredFile = path.join(dir, "discovered-projects.json");
+
+  writeDiscoveredProjectRegistryAtomic(discoveredFile, [{
+    name: "first-service",
+    rootId: "default",
+    relativePath: "first-service"
+  }]);
+  assert.equal(JSON.parse(fs.readFileSync(discoveredFile, "utf8"))[0].name, "first-service");
+
+  writeDiscoveredProjectRegistryAtomic(discoveredFile, [{
+    name: "second-service",
+    rootId: "default",
+    relativePath: "second-service"
+  }]);
+
+  const parsed = JSON.parse(fs.readFileSync(discoveredFile, "utf8"));
+  assert.deepEqual(parsed, [{
+    name: "second-service",
+    rootId: "default",
+    relativePath: "second-service",
+    source: "discovered"
+  }]);
+});
+
+test("writeDiscoveredProjectRegistryAtomic writes an empty discovered registry", () => {
+  const dir = makeTempRoot("project-map-write-empty-");
+  const manualFile = path.join(dir, "projects.json");
+  const discoveredFile = path.join(dir, "discovered-projects.json");
+  const manualContents = '[{"name":"manual-service","relativePath":"manual-service"}]\n';
+
+  fs.writeFileSync(manualFile, manualContents);
+  writeDiscoveredProjectRegistryAtomic(discoveredFile, []);
+
+  assert.deepEqual(JSON.parse(fs.readFileSync(discoveredFile, "utf8")), []);
+  assert.equal(fs.readFileSync(manualFile, "utf8"), manualContents);
+});
+
+test("writeDiscoveredProjectRegistryAtomic does not mutate caller input objects", () => {
+  const dir = makeTempRoot("project-map-write-input-safe-");
+  const discoveredFile = path.join(dir, "discovered-projects.json");
+  const input = [{
+    name: "auto-service",
+    rootId: "default",
+    relativePath: "auto-service",
+    registrySource: "discovered"
+  }];
+
+  writeDiscoveredProjectRegistryAtomic(discoveredFile, input);
+
+  assert.deepEqual(input, [{
+    name: "auto-service",
+    rootId: "default",
+    relativePath: "auto-service",
+    registrySource: "discovered"
+  }]);
+});
+
+test("writeDiscoveredProjectRegistryAtomic refuses manual registry targets", () => {
+  const dir = makeTempRoot("project-map-write-refuse-manual-");
+  const manualFile = path.join(dir, "projects.json");
+  const manualContents = '[{"name":"manual-service","relativePath":"manual-service"}]\n';
+
+  fs.writeFileSync(manualFile, manualContents);
+
+  assert.throws(
+    () => writeDiscoveredProjectRegistryAtomic(manualFile, []),
+    /discovered-projects\.json/
+  );
+  assert.equal(fs.readFileSync(manualFile, "utf8"), manualContents);
+});
+
+function findDiscoveredTempFiles(dir) {
+  return fs.readdirSync(dir)
+    .filter((entry) => entry.startsWith(".discovered-projects.json.tmp-"))
+    .sort();
+}
