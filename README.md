@@ -11,6 +11,7 @@ The project provides an incremental foundation for supporting multiple project t
 - [Analyzer execution and troubleshooting](./docs/analyzers-execution.md)
 - [Hermes tool integration](./docs/hermes-tool-integration.md)
 - [Hermes plugin installation for profiles](./docs/hermes-plugin-installation.md)
+- [Project ICM architecture](./docs/project-icm.md)
 
 ## What it does
 
@@ -45,6 +46,10 @@ src/
     project-config.js               # DATA_DIR and project-root configuration
     project-roots.js                # trusted root normalization and relative-path safety
     project-registry.js             # manual/discovered/effective registry helpers
+    agent-manifest.js               # canonical AGENT.md schema v1 parser
+    workspace-index.js              # canonical workspace index from AGENT.md manifests
+    icm-documents.js                # contextual ICM document index
+    icm-index.js                    # combined Project ICM Index
     projects.js                     # existing project listing/lookup API over the effective registry
     symbol-index.js                 # existing .NET analyzer
   analyzers/
@@ -135,7 +140,19 @@ POST /api/intelligence/discover/register
 GET  /api/intelligence/projects/:name/overview
 ```
 
-Not implemented yet: ICM parsing, task context, task routing, impact v2, Hermes high-level `project_*` tools, and Hermes Agent OS orchestration.
+Implemented ICM support is on-demand and bounded: a canonical `AGENT.md` parser, Workspace Index, contextual ICM Document Index, combined Project ICM Index, and compact overview ICM summary. Not implemented yet: task context, task routing, impact v2, Hermes high-level `project_*` tools, and Hermes Agent OS orchestration.
+
+### Canonical Project ICM
+
+Project ICM separates machine-authoritative workspace contracts from contextual project knowledge:
+
+- `AGENT.md` YAML front matter is the canonical machine-readable workspace execution contract.
+- `AGENT.md` Markdown body is context only.
+- `PROJECT.md`, `AGENTS.md`, `CONTEXT.md`, and ADR Markdown are context only.
+
+Contextual prose cannot override executor, owner, reviewers, permissions, scope, preconditions, or routing metadata. The service can describe those fields but does not enforce them; future Hermes Agent OS policy enforcement remains responsible for ALLOW/DENY/REROUTE decisions.
+
+The combined Project ICM Index composes the Workspace Index and contextual document index in memory. It does not write a persistent ICM cache/index and does not expose a dedicated ICM HTTP endpoint. See [Project ICM architecture](./docs/project-icm.md) for schema, bounds, and validity semantics.
 
 ### Discovery dry run
 
@@ -184,10 +201,32 @@ Returned categories:
 - stack languages, frameworks, package manager, runtime, and scripts;
 - architecture layers, features, entry points, and test commands;
 - source/graph statistics;
+- compact ICM availability/health/count metadata;
 - analysis cache state and analyzer capabilities;
 - bounded warnings.
 
 Bounds: `scripts <= 50`, `frameworks <= 20`, `layers <= 20`, `features <= 20`, `entryPoints <= 20`, `testCommands <= 20`, `warnings <= 20`. `graphLimit` defaults to `20` and is clamped to `1..100`.
+
+The overview `icm` field contains only:
+
+```json
+{
+  "status": "available",
+  "valid": true,
+  "workspaceCount": 1,
+  "documentCount": 3,
+  "errorCount": 0,
+  "warningCount": 0,
+  "truncated": {
+    "workspaces": false,
+    "documents": false
+  }
+}
+```
+
+`status` is `not_configured` for a valid empty ICM index, `available` for valid ICM with workspace/document content or bounded issues/truncation, and `invalid` when the machine-authoritative Project ICM Index is invalid. Overview ICM bounds are `maxWorkspaces: 50`, `maxDocuments: 100`, scan depth `8`, with `includeInstructions: false` and `includeContent: false`.
+
+Project Overview deliberately does not return `AGENT.md` Markdown instructions, contextual document content, executor IDs, owner/reviewer identities, routing maps, permission contracts, or scope patterns.
 
 Package-manager precedence is: `package.json.packageManager`, `pnpm-lock.yaml`, `yarn.lock`, `package-lock.json`, `bun.lock`/`bun.lockb`, `package.json` without evidence as `"unknown"`, and no package metadata as `null`.
 
@@ -199,16 +238,15 @@ Completed:
 
 - Phase 0: centralized config, safe roots/path handling, registry ownership, atomic discovered-registry persistence.
 - Phase 1: boundary classification, bounded deterministic discovery, discovery dry-run HTTP API, explicit guarded registration, bounded project overview.
+- Phase 2: canonical `AGENT.md` parser, Workspace Index, contextual ICM Document Index, combined Project ICM Index, compact overview ICM summary.
 
 Next:
 
-- Phase 2: canonical ICM parser and Workspace Index.
+- Phase 3: bounded Task Context / `project_task_context` functionality that uses the Project ICM Index to select bounded relevant context for a task.
 
 Future:
 
-- task context, routing, impact v2, Hermes high-level tools, and Hermes Agent OS.
-
-Future ICM contract: `PROJECT.md` stores project identity/context, `AGENTS.md` stores Hermes/LLM instructions, `AGENT.md` stores the machine-readable workspace contract plus Markdown context, `CONTEXT.md` stores workspace/domain knowledge, ADR files store architecture decisions, and `AGENT.md` YAML front matter is machine-authoritative.
+- task routing, impact v2, Hermes high-level tools, and Hermes Agent OS / Policy Engine.
 
 ### Project root configuration
 
@@ -371,3 +409,4 @@ docker compose up --build
 - [Analyzer execution and troubleshooting](./docs/analyzers-execution.md)
 - [Hermes tool integration](./docs/hermes-tool-integration.md)
 - [Hermes plugin installation for profiles](./docs/hermes-plugin-installation.md)
+- [Project ICM architecture](./docs/project-icm.md)

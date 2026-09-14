@@ -1,6 +1,6 @@
 # Integration as a Hermes tool
 
-[← README](../README.md) · [Adding projects](./adding-projects.md) · [Implementation](./analyzers-implementation.md) · [Execution](./analyzers-execution.md)
+[← README](../README.md) · [Adding projects](./adding-projects.md) · [Implementation](./analyzers-implementation.md) · [Execution](./analyzers-execution.md) · [Project ICM](./project-icm.md)
 
 ## Purpose
 
@@ -8,7 +8,7 @@ Expose `hermes-project-map` as an independent Project Intelligence HTTP service 
 
 Architecture boundary:
 
-- `hermes-project-map` owns project analysis, project configuration, registry reading/merging, and future discovery/overview APIs.
+- `hermes-project-map` owns project analysis, project configuration, registry reading/merging, Project Intelligence APIs, and canonical Project ICM indexing.
 - Hermes should remain a thin client/consumer that calls this HTTP service.
 - The future Hermes Agent OS owns orchestration, policy enforcement, and agent execution. This service may resolve project intelligence; it does not enforce agent policy or run agents.
 
@@ -29,7 +29,7 @@ Reasons:
 - keeps the Hermes tool small and easy to maintain;
 - lets the same backend serve the UI, CLI, Hermes, and future integrations.
 
-Do not duplicate analyzer, registry, path-safety, or future discovery logic inside Hermes. Add that logic to this service and keep Hermes integration code limited to request/response handling, input validation, limits, and timeouts.
+Do not duplicate analyzer, registry, path-safety, discovery, overview, or ICM indexing logic inside Hermes. Add that logic to this service and keep Hermes integration code limited to request/response handling, input validation, limits, and timeouts.
 
 ## Current Project Intelligence status
 
@@ -49,15 +49,25 @@ Implemented in Phase 1:
 - guarded explicit discovered-project registration at `POST /api/intelligence/discover/register`;
 - bounded project overview at `GET /api/intelligence/projects/:name/overview`.
 
+Implemented in Phase 2:
+
+- canonical `AGENT.md` schema v1 parser;
+- canonical Workspace Index from `AGENT.md` manifests;
+- contextual ICM Document Index from `PROJECT.md`, `AGENTS.md`, `CONTEXT.md`, and ADR Markdown;
+- combined Project ICM Index;
+- compact `icm` summary in Project Overview.
+
 Next implementation phase:
 
-- Phase 2: canonical ICM parser and Workspace Index.
+- Phase 3: bounded Task Context / `project_task_context` functionality that uses the Project ICM Index to select bounded relevant context for a task.
 
 Future work:
 
-- task context, task routing, impact v2, high-level Hermes `project_*` tools, and Hermes Agent OS orchestration.
+- task routing, impact v2, high-level Hermes `project_*` tools, and Hermes Agent OS orchestration/policy enforcement.
 
 The service does not run agents and does not enforce future Hermes Agent OS policy. Hermes remains a thin HTTP consumer; `hermes-project-map` remains the Project Intelligence source of truth.
+
+The canonical ICM authority rule is: `AGENT.md` YAML front matter is machine-authoritative; `AGENT.md` Markdown body plus `PROJECT.md`, `AGENTS.md`, `CONTEXT.md`, and ADR Markdown are context only. Contextual prose cannot override executor, owner, reviewers, permissions, scope, preconditions, or routing metadata. Detailed schema and bounds are documented in [Project ICM architecture](./project-icm.md).
 
 ## Project Intelligence HTTP API implemented today
 
@@ -110,10 +120,32 @@ Returned categories:
 - stack languages, frameworks, package manager, runtime, and scripts;
 - architecture layers, features, entry points, and test commands;
 - statistics: `sourceFileCount`, `nodeCount`, `edgeCount`;
+- compact `icm` availability/health/count metadata;
 - analysis cache state and analyzer capabilities;
 - warnings.
 
 Bounds: `scripts <= 50`, `frameworks <= 20`, `layers <= 20`, `features <= 20`, `entryPoints <= 20`, `testCommands <= 20`, `warnings <= 20`. `graphLimit` defaults to `20` and clamps to `1..100`.
+
+The overview `icm` object is summary-only:
+
+```json
+{
+  "status": "available",
+  "valid": true,
+  "workspaceCount": 1,
+  "documentCount": 3,
+  "errorCount": 0,
+  "warningCount": 0,
+  "truncated": {
+    "workspaces": false,
+    "documents": false
+  }
+}
+```
+
+Status values are `not_configured`, `available`, and `invalid`. Overview ICM scanning uses workspace `maxDepth: 8`, `maxWorkspaces: 50`, `includeInstructions: false`, and document `maxDepth: 8`, `maxDocuments: 100`, `includeContent: false`.
+
+The overview does not return `AGENT.md` Markdown instructions, contextual document content, workspace executor IDs, owner/reviewer identities, routing maps, permission contracts, or scope patterns.
 
 Package-manager precedence: `package.json.packageManager`, `pnpm-lock.yaml`, `yarn.lock`, `package-lock.json`, `bun.lock`/`bun.lockb`, `package.json` without evidence as `"unknown"`, and no package metadata as `null`.
 
@@ -384,7 +416,9 @@ project_impact
 project_refresh
 ```
 
-Underlying HTTP support exists today for discovery, discovery registration, and overview. HTTP support does not yet exist for task context, task routing, impact v2, refresh, or ICM-backed workspace indexing. Existing low-level `project_map_*` tools remain the current specialist/compatibility tool tier.
+Underlying HTTP support exists today for discovery, discovery registration, and overview. Overview includes a compact ICM summary, but there is no dedicated ICM endpoint. HTTP support does not yet exist for task context, task routing, impact v2, or refresh. Existing low-level `project_map_*` tools remain the current specialist/compatibility tool tier.
+
+There is no `GET /api/intelligence/projects/:name/icm`, no task-context endpoint, and no route-task endpoint yet.
 
 ## Important rules for the tool
 

@@ -1,6 +1,6 @@
 # Execution — Project analyzers
 
-[← README](../README.md) · [Adding projects](./adding-projects.md) · [Implementation](./analyzers-implementation.md) · [Hermes integration](./hermes-tool-integration.md)
+[← README](../README.md) · [Adding projects](./adding-projects.md) · [Implementation](./analyzers-implementation.md) · [Hermes integration](./hermes-tool-integration.md) · [Project ICM](./project-icm.md)
 
 ## Purpose
 
@@ -25,6 +25,8 @@ The relevant dependencies for the TypeScript analyzer are:
 ts-morph
 typescript
 ```
+
+The canonical `AGENT.md` parser also uses the `yaml` package. Rebuild containers after dependency changes.
 
 ## Quick validation
 
@@ -52,7 +54,7 @@ Required result:
 fail 0
 ```
 
-Phase 1 completed with 109 passing tests. Treat `fail 0` as the durable requirement because the exact passing count will grow as coverage is added.
+Phase 2 completed with 176 passing tests. Treat `fail 0` as the durable requirement because the exact passing count will grow as coverage is added.
 
 ### Validate the `analyzer-service` import
 
@@ -110,7 +112,9 @@ curl http://localhost:8770/api/intelligence/projects/<projectName>/overview
 
 Discovery is dry-run and non-mutating. Explicit registration writes only `data/discovered-projects.json`, is disabled unless `INTELLIGENCE_REGISTRY_WRITES_ENABLED` is `true`, `1`, or `yes`, validates requested identities against current discovery results, and never writes manual `data/projects.json`.
 
-Overview is cheap and bounded. It reports project identity, stack, architecture, statistics, analysis/cache state, analyzer capabilities, and warnings without returning absolute paths by default or triggering a full analyzer/index run.
+Overview is cheap and bounded. It reports project identity, stack, architecture, statistics, compact ICM availability/health/count metadata, analysis/cache state, analyzer capabilities, and warnings without returning absolute paths by default or triggering a full analyzer/index run.
+
+The overview `icm` summary is health/count metadata only. It does not return `AGENT.md` Markdown instructions, contextual document content, executor IDs, owner/reviewer identities, routing maps, permission contracts, or scope patterns. There is no dedicated `/api/intelligence/projects/:name/icm` endpoint, no task-context endpoint, and no route-task endpoint yet.
 
 ### List projects
 

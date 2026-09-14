@@ -1,6 +1,6 @@
 # Hermes Project Map plugin installation for Hermes profiles
 
-[← README](../README.md) · [Hermes tool integration](./hermes-tool-integration.md) · [Adding projects](./adding-projects.md)
+[← README](../README.md) · [Hermes tool integration](./hermes-tool-integration.md) · [Project ICM](./project-icm.md) · [Adding projects](./adding-projects.md)
 
 ## Purpose
 
@@ -20,7 +20,9 @@ After this setup, a Hermes profile can call tools such as:
 
 The plugin is intentionally small. It does not reimplement the analyzer. It calls the existing `hermes-project-map` HTTP API.
 
-The currently documented plugin tools are the low-level `project_map_*` compatibility/specialist tools. Future high-level Hermes `project_*` tools may consume the Project Intelligence endpoints (`/api/intelligence/discover`, `/api/intelligence/discover/register`, and `/api/intelligence/projects/:name/overview`), but those high-level tools are not implemented in this plugin yet.
+The currently documented plugin tools are the low-level `project_map_*` compatibility/specialist tools. Future high-level Hermes `project_*` tools may consume the Project Intelligence endpoints (`/api/intelligence/discover`, `/api/intelligence/discover/register`, and `/api/intelligence/projects/:name/overview`). The overview endpoint now includes only a compact Project ICM summary. High-level `project_*` tools are not implemented in this plugin yet, and there is no dedicated ICM, task-context, or route-task endpoint yet.
+
+Canonical ICM indexing stays inside `hermes-project-map`. Hermes plugins should remain thin HTTP clients and must not duplicate AGENT.md parsing, Workspace Index scanning, contextual document indexing, task routing, or policy enforcement. See [Project ICM architecture](./project-icm.md).
 
 ## Architecture
 
