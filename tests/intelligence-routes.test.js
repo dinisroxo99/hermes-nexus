@@ -46,6 +46,26 @@ function makeOverviewTypeScriptProject(parent, name) {
   return project;
 }
 
+function writeOverviewIcmFixture(projectPath) {
+  fs.writeFileSync(path.join(projectPath, "PROJECT.md"), "# Sample Service\n\nSUPER_SECRET_CONTEXT_SENTINEL project context.\n");
+  fs.writeFileSync(path.join(projectPath, "AGENTS.md"), "# Agents\n\nSUPER_SECRET_CONTEXT_SENTINEL agents context.\n");
+  fs.mkdirSync(path.join(projectPath, "engineering", "backend"), { recursive: true });
+  fs.writeFileSync(path.join(projectPath, "engineering", "backend", "AGENT.md"), `---
+schemaVersion: 1
+workspace:
+  id: sample-backend
+  project: sample-service
+executor:
+  required: sample-backend-engineer
+---
+
+# Backend
+
+SUPER_SECRET_CONTEXT_SENTINEL agent instructions.
+`);
+  fs.writeFileSync(path.join(projectPath, "engineering", "backend", "CONTEXT.md"), "# Backend Context\n\nSUPER_SECRET_CONTEXT_SENTINEL context.\n");
+}
+
 function createFakeResponse() {
   return {
     status: null,
@@ -307,11 +327,13 @@ test("registers discovery, explicit registration and bounded overview intelligen
   assert.ok(router.match("POST", "/api/intelligence/discover/register"));
   assert.ok(router.match("GET", "/api/intelligence/projects/sample-service/overview"));
   assert.equal(router.match("POST", "/api/intelligence/discover"), null);
+  assert.equal(router.match("GET", "/api/intelligence/projects/sample-service/icm"), null);
 });
 
 test("GET /api/intelligence/projects/:name/overview returns high-level overview without absolute paths", async () => {
   const root = makeRoot();
   const absolutePath = makeOverviewTypeScriptProject(root, "sample-service");
+  writeOverviewIcmFixture(absolutePath);
   const project = {
     name: "sample-service",
     rootId: "default",
@@ -345,8 +367,23 @@ test("GET /api/intelligence/projects/:name/overview returns high-level overview 
   assert.equal(payload.data.analysis.status, "not_analyzed");
   assert.equal(payload.data.statistics.nodeCount, null);
   assert.equal(payload.data.statistics.edgeCount, null);
+  assert.deepEqual(payload.data.icm, {
+    status: "available",
+    valid: true,
+    workspaceCount: 1,
+    documentCount: 3,
+    errorCount: 0,
+    warningCount: 0,
+    truncated: {
+      workspaces: false,
+      documents: false
+    }
+  });
   assert.equal(JSON.stringify(payload).includes(root), false);
   assert.equal(JSON.stringify(payload).includes(absolutePath), false);
+  assert.equal(JSON.stringify(payload).includes("SUPER_SECRET_CONTEXT_SENTINEL"), false);
+  assert.equal(JSON.stringify(payload).includes("sample-backend-engineer"), false);
+  assert.equal(JSON.stringify(payload).includes("engineering/backend/AGENT.md"), false);
 });
 
 test("GET overview returns 404 error envelope for unknown projects", async () => {

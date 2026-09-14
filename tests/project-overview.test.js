@@ -16,6 +16,41 @@ function writeJson(file, value) {
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+function writeText(project, relativePath, contents) {
+  const filePath = path.join(project.absolutePath, relativePath);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, contents);
+}
+
+function writeAgent(project, relativePath = "engineering/backend/AGENT.md", workspaceId = "sample-backend") {
+  writeText(project, relativePath, `---
+schemaVersion: 1
+workspace:
+  id: ${workspaceId}
+  project: ${project.name}
+executor:
+  required: sample-backend-engineer
+owner:
+  agent: sample-backend-architect
+reviewers:
+  - sample-review
+permissions:
+  read: true
+  write: true
+scope:
+  include:
+    - src/backend/**
+routing:
+  success:
+    agent: sample-review
+---
+
+# Backend Workspace
+
+SUPER_SECRET_CONTEXT_SENTINEL from AGENT instructions.
+`);
+}
+
 function makeProject(root, name, extra = {}) {
   const absolutePath = path.join(root, name);
   fs.mkdirSync(absolutePath, { recursive: true });
@@ -196,6 +231,115 @@ test("buildProjectOverview keeps malformed package.json warnings bounded and avo
   assert.deepEqual(overview.stack.scripts, []);
   assert.ok(overview.warnings.some((warning) => warning.code === "malformed_package_json"));
   assert.ok(overview.warnings.length <= 20);
+});
+
+test("buildProjectOverview summarizes valid ICM without returning ICM content or machine contracts", () => {
+  const root = makeTempRoot();
+  const project = makeProject(root, "sample-project");
+  writeJson(path.join(project.absolutePath, "package.json"), { name: "sample-project" });
+  writeText(project, "PROJECT.md", "# Sample Project\n\nSUPER_SECRET_CONTEXT_SENTINEL project context.\n");
+  writeText(project, "AGENTS.md", "# Agents\n\nSUPER_SECRET_CONTEXT_SENTINEL agents context.\n");
+  writeAgent(project);
+  writeText(project, "engineering/backend/CONTEXT.md", "# Context\n\nSUPER_SECRET_CONTEXT_SENTINEL domain context.\n");
+
+  const overview = buildProjectOverview(project);
+
+  assert.deepEqual(overview.icm, {
+    status: "available",
+    valid: true,
+    workspaceCount: 1,
+    documentCount: 3,
+    errorCount: 0,
+    warningCount: 0,
+    truncated: {
+      workspaces: false,
+      documents: false
+    }
+  });
+  const serialized = JSON.stringify(overview);
+  assert.equal(serialized.includes("SUPER_SECRET_CONTEXT_SENTINEL"), false);
+  assert.equal(serialized.includes("sample-backend-engineer"), false);
+  assert.equal(serialized.includes("engineering/backend/AGENT.md"), false);
+  assert.equal(Object.hasOwn(overview.icm, "workspaces"), false);
+  assert.equal(Object.hasOwn(overview.icm, "documents"), false);
+});
+
+test("buildProjectOverview reports not_configured when no ICM files exist", () => {
+  const root = makeTempRoot();
+  const project = makeProject(root, "sample-project");
+  writeJson(path.join(project.absolutePath, "package.json"), { name: "sample-project" });
+
+  const overview = buildProjectOverview(project);
+
+  assert.deepEqual(overview.icm, {
+    status: "not_configured",
+    valid: true,
+    workspaceCount: 0,
+    documentCount: 0,
+    errorCount: 0,
+    warningCount: 0,
+    truncated: {
+      workspaces: false,
+      documents: false
+    }
+  });
+});
+
+test("buildProjectOverview reports invalid when authoritative workspace ICM is invalid", () => {
+  const root = makeTempRoot();
+  const project = makeProject(root, "sample-project");
+  writeJson(path.join(project.absolutePath, "package.json"), { name: "sample-project" });
+  writeAgent(project, "engineering/backend/AGENT.md", "sample-backend");
+  writeAgent(project, "engineering/frontend/AGENT.md", "sample-backend");
+
+  const overview = buildProjectOverview(project);
+
+  assert.equal(overview.icm.status, "invalid");
+  assert.equal(overview.icm.valid, false);
+  assert.equal(overview.icm.workspaceCount, 0);
+  assert.equal(overview.icm.errorCount, 1);
+  assert.equal(JSON.stringify(overview).includes("sample-backend-engineer"), false);
+});
+
+test("buildProjectOverview keeps context document issues non-fatal when Project ICM remains valid", () => {
+  const root = makeTempRoot();
+  const project = makeProject(root, "sample-project");
+  writeJson(path.join(project.absolutePath, "package.json"), { name: "sample-project" });
+  writeAgent(project);
+  writeText(project, "CONTEXT.md", "# Oversized\n" + "x".repeat(128 * 1024 + 1));
+
+  const overview = buildProjectOverview(project);
+
+  assert.equal(overview.icm.status, "available");
+  assert.equal(overview.icm.valid, true);
+  assert.equal(overview.icm.workspaceCount, 1);
+  assert.equal(overview.icm.documentCount, 0);
+  assert.equal(overview.icm.errorCount, 1);
+});
+
+test("buildProjectOverview uses conservative ICM options and reports independent truncation", () => {
+  const root = makeTempRoot();
+  const project = makeProject(root, "sample-project");
+  writeJson(path.join(project.absolutePath, "package.json"), { name: "sample-project" });
+  writeAgent(project, "a/AGENT.md", "sample-a");
+  writeAgent(project, "b/AGENT.md", "sample-b");
+  writeText(project, "a/AGENTS.md", "# A\nSUPER_SECRET_CONTEXT_SENTINEL\n");
+  writeText(project, "b/AGENTS.md", "# B\nSUPER_SECRET_CONTEXT_SENTINEL\n");
+
+  const overview = buildProjectOverview(project, {
+    icmOptions: {
+      workspace: { maxWorkspaces: 1 },
+      documents: { maxDocuments: 1 }
+    }
+  });
+
+  assert.equal(overview.icm.workspaceCount, 1);
+  assert.equal(overview.icm.documentCount, 1);
+  assert.deepEqual(overview.icm.truncated, {
+    workspaces: true,
+    documents: true
+  });
+  assert.equal(JSON.stringify(overview).includes("SUPER_SECRET_CONTEXT_SENTINEL"), false);
 });
 
 test("getProjectByNameForIntelligence resolves discovered entries with runtime registry metadata", () => {

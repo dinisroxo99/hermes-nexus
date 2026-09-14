@@ -8,6 +8,7 @@ import {
 } from "../analyzers/common/analyzer-detection.js";
 import { listAnalyzerCapabilities } from "../analyzers/common/analyzer-registry.js";
 import { getAnalysisCacheStats as getAnalysisCacheStatsDefault } from "./analysis-cache.js";
+import { buildProjectIcmIndex } from "./icm-index.js";
 import { analyzeProjectStructure } from "./project-structure.js";
 
 export const PROJECT_OVERVIEW_LIMITS = Object.freeze({
@@ -19,7 +20,11 @@ export const PROJECT_OVERVIEW_LIMITS = Object.freeze({
   testCommands: 20,
   warnings: 20,
   graphLimitDefault: 20,
-  graphLimitMax: 100
+  graphLimitMax: 100,
+  icmWorkspaceMaxDepth: 8,
+  icmMaxWorkspaces: 50,
+  icmDocumentMaxDepth: 8,
+  icmMaxDocuments: 100
 });
 
 const FRAMEWORK_PACKAGES = [
@@ -62,7 +67,8 @@ export function buildProjectOverview(project, options = {}) {
     entryPoints: options.entryPointLimit || PROJECT_OVERVIEW_LIMITS.entryPoints,
     testCommands: options.testCommandLimit || PROJECT_OVERVIEW_LIMITS.testCommands,
     warnings: options.warningLimit || PROJECT_OVERVIEW_LIMITS.warnings,
-    graphLimit: normalizeGraphLimit(options.graphLimit)
+    graphLimit: normalizeGraphLimit(options.graphLimit),
+    icm: buildIcmOverviewLimits(options.icmOptions)
   };
 
   const projectType = detectProjectType(project.absolutePath);
@@ -71,6 +77,7 @@ export function buildProjectOverview(project, options = {}) {
   const structure = readProjectStructure(project, warnings);
   const analysis = readAnalysisState(project, projectType, options.getAnalysisCacheStats || getAnalysisCacheStatsDefault);
   const sourceFileCount = inferSourceFileCount(project, structure);
+  const icmIndex = buildProjectIcmIndex(project, limits.icm);
 
   if (!supported) {
     addWarning(warnings, "unsupported_project_type", `Project type is not supported for analysis: ${projectType}`);
@@ -87,7 +94,11 @@ export function buildProjectOverview(project, options = {}) {
       entryPoints: limits.entryPoints,
       testCommands: limits.testCommands,
       warnings: limits.warnings,
-      graphLimit: limits.graphLimit
+      graphLimit: limits.graphLimit,
+      icm: {
+        workspace: limits.icm.workspace,
+        documents: limits.icm.documents
+      }
     },
     project: {
       name: project.name,
@@ -120,9 +131,59 @@ export function buildProjectOverview(project, options = {}) {
       status: analysis.status,
       lastAnalyzedAt: null
     },
+    icm: summarizeIcmIndex(icmIndex),
     analyzers: listProjectAnalyzers(projectType),
     warnings: warnings.slice(0, limits.warnings)
   };
+}
+
+function buildIcmOverviewLimits(icmOptions = {}) {
+  return {
+    maxErrors: icmOptions.maxErrors,
+    maxWarnings: icmOptions.maxWarnings,
+    workspace: {
+      maxDepth: icmOptions.workspace?.maxDepth ?? PROJECT_OVERVIEW_LIMITS.icmWorkspaceMaxDepth,
+      maxWorkspaces: icmOptions.workspace?.maxWorkspaces ?? PROJECT_OVERVIEW_LIMITS.icmMaxWorkspaces,
+      includeInstructions: false
+    },
+    documents: {
+      maxDepth: icmOptions.documents?.maxDepth ?? PROJECT_OVERVIEW_LIMITS.icmDocumentMaxDepth,
+      maxDocuments: icmOptions.documents?.maxDocuments ?? PROJECT_OVERVIEW_LIMITS.icmMaxDocuments,
+      includeContent: false
+    }
+  };
+}
+
+function summarizeIcmIndex(icmIndex) {
+  const workspaceCount = icmIndex.workspaces.length;
+  const documentCount = icmIndex.documents.length;
+  const errorCount = icmIndex.errors.length;
+  const warningCount = icmIndex.warnings.length;
+
+  return {
+    status: icmStatus(icmIndex, { workspaceCount, documentCount, errorCount, warningCount }),
+    valid: icmIndex.valid,
+    workspaceCount,
+    documentCount,
+    errorCount,
+    warningCount,
+    truncated: {
+      workspaces: icmIndex.truncated.workspaces,
+      documents: icmIndex.truncated.documents
+    }
+  };
+}
+
+function icmStatus(icmIndex, { workspaceCount, documentCount, errorCount, warningCount }) {
+  if (!icmIndex.valid) {
+    return "invalid";
+  }
+
+  if (workspaceCount > 0 || documentCount > 0 || errorCount > 0 || warningCount > 0 || icmIndex.truncated.workspaces || icmIndex.truncated.documents) {
+    return "available";
+  }
+
+  return "not_configured";
 }
 
 function normalizeGraphLimit(value) {
