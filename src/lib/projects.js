@@ -6,7 +6,8 @@ import {
   isSupportedProjectType
 } from "../analyzers/common/analyzer-detection.js";
 import { resolveProjectConfig } from "./project-config.js";
-import { resolveProjectLocation } from "./project-roots.js";
+import { resolveProjectLocation, validateRelativeProjectPath } from "./project-roots.js";
+import { readProjectRevision, isLinkedProjectWorktree } from "./project-revision.js";
 import {
   mergeProjectRegistries,
   readDiscoveredProjectRegistry,
@@ -50,6 +51,29 @@ export function getProjectByNameForIntelligence(name, options = {}) {
 export function getProjectByIdForIntelligence(projectId, options = {}) {
   validateProjectId(projectId);
   return resolveIntelligenceProject(selectProject("projectId", projectId, options), options);
+}
+
+export function resolveProjectWorktree(projectId, locator, options = {}) {
+  if (projectId === undefined || projectId === null) {
+    const error = new Error("A persisted parent projectId is required.");
+    error.code = "project_identity_required";
+    throw error;
+  }
+  const parent = getProjectByIdForIntelligence(projectId, options);
+  const absolutePath = resolveProjectLocation(locator, options.roots);
+  const candidate = { ...parent, absolutePath };
+  if (!isLinkedProjectWorktree(readProjectRevision(parent), readProjectRevision(candidate))) {
+    const error = new Error("Worktree does not match the registered parent project.");
+    error.code = "worktree_parent_mismatch";
+    throw error;
+  }
+  return {
+    ...candidate,
+    rootId: locator.rootId || "default",
+    relativePath: validateRelativeProjectPath(locator.relativePath).relativePath,
+    parentProjectId: parent.projectId,
+    canonicalLocation: { rootId: parent.rootId, relativePath: parent.relativePath }
+  };
 }
 
 function selectProject(field, value, options) {

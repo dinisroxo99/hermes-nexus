@@ -83,3 +83,29 @@ test("revision bounds subprocesses and ignores inherited Git location overrides"
   assert.ok(commands.length > 0);
   assert.equal(commands.some((args) => args.includes("config") || args.includes("remote")), false);
 });
+
+test("worktrees share repository evidence but have separate revision and dirty state", async (t) => {
+  const read = await reader();
+  const f = gitFixture(t);
+  const linked = { ...f.project, absolutePath: f.worktree() };
+  const parent = read(f.project);
+  const child = read(linked);
+  assert.equal(child.isLinkedWorktree, true);
+  assert.equal(child.repositoryIdentity, parent.repositoryIdentity);
+  assert.notEqual(child.worktreeId, parent.worktreeId);
+  f.write("src/source.ts", "export const childOnly = true;\n", linked.absolutePath);
+  assert.equal(read(linked).dirty, true);
+  assert.equal(read(f.project).dirty, false);
+  f.commit("child", linked.absolutePath);
+  assert.notEqual(read(linked).commitSha, read(f.project).commitSha);
+});
+
+test("a separate Git directory with a .git file is not a linked worktree", async (t) => {
+  const read = await reader();
+  const f = gitFixture(t);
+  const separate = path.join(f.root, "separate");
+  f.git(["init", "--initial-branch=main", "--separate-git-dir", path.join(f.root, "metadata"), separate]);
+  const revision = read({ absolutePath: separate });
+  assert.equal(revision.status, "unborn");
+  assert.equal(revision.isLinkedWorktree, false);
+});

@@ -4,6 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as projects from "../src/lib/projects.js";
+import { gitFixture } from "./helpers/git-fixture.js";
 
 function fixture(t, entries) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "project-map-lookup-"));
@@ -87,4 +88,48 @@ test("missing project remains listable but cannot be resolved or assigned a new 
   assert.throws(() => projects.getProjectByIdForIntelligence("PrJ_A", options), { code: "project_unavailable" });
   assert.equal(projects.listProjects(options)[0].absolutePath, path.join(dir, "default", "api"));
   assert.equal(JSON.parse(fs.readFileSync(options.manualProjectsFile))[0].projectId, "PrJ_A");
+});
+
+test("linked worktree resolves under its parent's persisted identity without registry writes", (t) => {
+  const f = gitFixture(t);
+  const linked = f.worktree();
+  const manualProjectsFile = path.join(f.root, "projects.json");
+  const contents = JSON.stringify([{ name: "parent", rootId: "test", relativePath: "main", projectId: "PrJ_Parent" }]);
+  fs.writeFileSync(manualProjectsFile, contents);
+  const options = { roots: [{ id: "test", path: f.root }], manualProjectsFile, discoveredProjectsFile: path.join(f.root, "discovered-projects.json") };
+  assert.equal(typeof projects.resolveProjectWorktree, "function");
+  const result = projects.resolveProjectWorktree("PrJ_Parent", { rootId: "test", relativePath: "linked" }, options);
+  assert.equal(result.projectId, "PrJ_Parent");
+  assert.equal(result.parentProjectId, "PrJ_Parent");
+  assert.equal(result.name, "parent");
+  assert.equal(result.absolutePath, linked);
+  assert.deepEqual(result.canonicalLocation, { rootId: "test", relativePath: "main" });
+  assert.equal(fs.readFileSync(manualProjectsFile, "utf8"), contents);
+  assert.equal(fs.existsSync(options.discoveredProjectsFile), false);
+  fs.mkdirSync(path.join(f.root, "imposter"));
+  fs.copyFileSync(path.join(linked, ".git"), path.join(f.root, "imposter", ".git"));
+  assert.throws(() => projects.resolveProjectWorktree("PrJ_Parent", { rootId: "test", relativePath: "imposter" }, options), { code: "worktree_parent_mismatch" });
+  assert.throws(() => projects.resolveProjectWorktree("PrJ_Missing", { rootId: "test", relativePath: "linked" }, options), { code: "project_not_found" });
+  assert.throws(() => projects.resolveProjectWorktree("PrJ_Parent", { rootId: "outside", relativePath: "linked" }, options), { code: "project_unavailable" });
+  assert.throws(() => projects.resolveProjectWorktree(undefined, { relativePath: "linked" }, options), { code: "project_identity_required" });
+});
+
+test("worktree binding rejects separate clones and preserves logical project subdirectories", (t) => {
+  const f = gitFixture(t);
+  f.write("packages/one/package.json", "{}\n");
+  f.write("packages/two/package.json", "{}\n");
+  f.commit();
+  f.worktree();
+  f.git(["clone", "--no-hardlinks", f.repo, path.join(f.root, "clone")]);
+  const manualProjectsFile = path.join(f.root, "projects.json");
+  fs.writeFileSync(manualProjectsFile, JSON.stringify([
+    { name: "one", rootId: "test", relativePath: "main/packages/one", projectId: "PrJ_One" },
+    { name: "two", rootId: "test", relativePath: "main/packages/two", projectId: "PrJ_Two" }
+  ]));
+  const options = { roots: [{ id: "test", path: f.root }], manualProjectsFile, discoveredProjectsFile: path.join(f.root, "discovered-projects.json") };
+  assert.equal(typeof projects.resolveProjectWorktree, "function");
+  assert.equal(projects.resolveProjectWorktree("PrJ_One", { rootId: "test", relativePath: "linked/packages/one" }, options).projectId, "PrJ_One");
+  for (const relativePath of ["linked/packages/two", "clone/packages/one", "main/packages/one"]) {
+    assert.throws(() => projects.resolveProjectWorktree("PrJ_One", { rootId: "test", relativePath }, options), { code: "worktree_parent_mismatch" });
+  }
 });

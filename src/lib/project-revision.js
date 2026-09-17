@@ -59,6 +59,19 @@ export function readProjectRevision(project, options = {}) {
   }
 }
 
+export function isLinkedProjectWorktree(parent, candidate, options = {}) {
+  const a = parent.evidence;
+  const b = candidate.evidence;
+  if (!a || !b || !candidate.isLinkedWorktree || a.gitCommonDir !== b.gitCommonDir
+    || a.projectSubdirectory !== b.projectSubdirectory || a.gitRoot === b.gitRoot) return false;
+  const listed = runGit(a.gitRoot, ["worktree", "list", "--porcelain", "-z"], options);
+  if (listed.error) return false;
+  return listed.output.split("\0").some((field) => {
+    if (!field.startsWith("worktree ")) return false;
+    try { return fs.realpathSync(field.slice(9)) === b.gitRoot; } catch { return false; }
+  });
+}
+
 function runGit(absolutePath, args, options) {
   const env = Object.fromEntries(Object.entries(options.env || process.env).filter(([key]) => !key.startsWith("GIT_")));
   env.GIT_OPTIONAL_LOCKS = "0";
