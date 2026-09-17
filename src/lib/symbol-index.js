@@ -163,8 +163,8 @@ export function expandSymbolExplorer(project, nodeId, direction = "both") {
 
 function createSymbolIndex(project, sourceFiles) {
   const snapshot = sourceFiles === undefined ? null : normalizeContextSources(sourceFiles);
-  const files = snapshot ? snapshot.filter((file) => file.path.endsWith(".cs")).map((file) => path.join(project.absolutePath, file.path)) : findFiles(project.absolutePath, ".cs");
-  const csprojs = snapshot ? snapshot.filter((file) => file.path.endsWith(".csproj")).map((file) => path.join(project.absolutePath, file.path)) : findFiles(project.absolutePath, ".csproj");
+  const files = snapshot ? snapshot.filter((file) => file.path.toLowerCase().endsWith(".cs")).map((file) => path.join(project.absolutePath, file.path)) : findFiles(project.absolutePath, ".cs");
+  const csprojs = snapshot ? snapshot.filter((file) => file.path.toLowerCase().endsWith(".csproj")).map((file) => path.join(project.absolutePath, file.path)) : findFiles(project.absolutePath, ".csproj");
 
   const projectDirs = csprojs
     .map((file) => ({

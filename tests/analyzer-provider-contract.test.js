@@ -40,3 +40,9 @@ test("provider revision projection rejects internal metadata paths", async () =>
     assert.throws(() => createProviderSnapshot({ projectId: "PrJ_A" }, [], revision), { code: "invalid_analyzer_snapshot" });
   }
 });
+
+test("polyglot symbol labels are bounded data without path or control forms", async () => {
+  const { isAnalyzerSymbolLabel } = await api();
+  for (const label of ["Get-Thing", "C::Thing", "operator+", "Thing.method(int)"]) assert.equal(isAnalyzerSymbolLabel(label), true);
+  for (const label of ["", "a".repeat(129), "x\ncommand", "/private/.git", "file:///private", "C:relative", "../outside"]) assert.equal(isAnalyzerSymbolLabel(label), false);
+});

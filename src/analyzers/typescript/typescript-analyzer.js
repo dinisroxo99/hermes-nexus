@@ -56,7 +56,7 @@ export function analyzeTypeScriptProject(project, options = {}) {
     return emptyResult(`Caminho do projeto não encontrado: ${rootPath}`);
   }
 
-  const files = snapshot ? snapshot.filter((file) => /\.(ts|tsx|js|jsx)$/.test(file.path)).map((file) => path.join(rootPath, file.path)) : findAllSourceFiles(rootPath);
+  const files = snapshot ? snapshot.filter((file) => /\.(ts|tsx|js|jsx)$/i.test(file.path)).map((file) => path.join(rootPath, file.path)) : findAllSourceFiles(rootPath);
 
   if (!files.length) {
     return emptyResult('Nenhum ficheiro .ts/.tsx/.js/.jsx encontrado');

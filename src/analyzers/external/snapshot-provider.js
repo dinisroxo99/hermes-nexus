@@ -1,4 +1,4 @@
-import { assertProviderFields, normalizeProviderDescriptor, PROVIDER_LIMITS, providerError, detectSnapshotLanguages } from "../common/analyzer-provider-contract.js";
+import { assertProviderFields, normalizeProviderDescriptor, PROVIDER_LIMITS, providerError, detectSnapshotLanguages, isAnalyzerSymbolLabel } from "../common/analyzer-provider-contract.js";
 import { contextDigest, compareContextStrings as compare } from "../../lib/project-context-files.js";
 
 const invalid = () => providerError("invalid_external_evidence");
@@ -17,7 +17,8 @@ export function createExternalSnapshotRequest(snapshot, inputProvider) {
     limits: PROVIDER_LIMITS, files: files.map(({ path, text, sha256 }) => ({ path, text, sha256 })) };
 }
 
-export function readExternalSnapshotResponse(snapshot, provider, response, limits = {}) {
+export function readExternalSnapshotResponse(snapshot, inputProvider, response, limits = {}) {
+  const provider = normalizeProviderDescriptor(inputProvider);
   const request = createExternalSnapshotRequest(snapshot, provider);
   if (typeof response !== "string" || Buffer.byteLength(response) > PROVIDER_LIMITS.responseBytes) throw invalid();
   let raw;
@@ -43,7 +44,7 @@ export function readExternalSnapshotResponse(snapshot, provider, response, limit
   const ids = new Map();
   const nodes = raw.nodes.map((node) => {
     fields(node, ["id", "label", "file", "kind", "line"]);
-    if (!key(node.id) || ids.has(node.id) || !files.has(node.file) || typeof node.label !== "string" || node.label.length > 128 || !/^[\p{L}_$][\p{L}\p{N}_$]*$/u.test(node.label)) throw invalid();
+    if (!key(node.id) || ids.has(node.id) || !files.has(node.file) || !isAnalyzerSymbolLabel(node.label)) throw invalid();
     if (node.line != null) location({ path: node.file, line: node.line, column: 1 });
     const id = `symbol_${contextDigest(JSON.stringify([snapshot.projectId, provider.id, node.id]))}`;
     ids.set(node.id, id);

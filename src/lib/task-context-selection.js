@@ -2,6 +2,7 @@ import path from "node:path";
 import { normalizeContextSources, compareContextStrings as compare, contextDigest, isContextPathAllowed } from "./project-context-files.js";
 import { matchWorkspaceScopes } from "./workspace-scope.js";
 import { boundedContextText as text, contextError } from "./task-context-policy.js";
+import { isAnalyzerSymbolLabel } from "../analyzers/common/analyzer-provider-contract.js";
 
 const within = (file, directory) => directory === "." || file === directory || file.startsWith(`${directory}/`);
 const isTest = (file) => /\.(?:tsx?|jsx?|cs|py|go|rs|java)$/i.test(file) && /(?:^|\/)(?:__tests__|tests?|specs?)(?:\/|$)|\.(?:test|spec)\.|Tests?\.cs$|(?:^|\/)test_|_test\.go$/i.test(file);
@@ -48,8 +49,9 @@ export function selectTaskContext(request, { sourceFiles, graph = { nodes: [], e
   const nodeCounts = new Map();
   for (const node of graph.nodes) nodeCounts.set(node?.id, (nodeCounts.get(node?.id) || 0) + 1);
   const nodes = graph.nodes.filter((node) => typeof node?.id === "string" && node.id.length <= 4096 && nodeCounts.get(node.id) === 1
-    && byPath.has(node.file) && typeof node.label === "string" && node.label.length <= 128 && /^[\p{L}_$][\p{L}\p{N}_$]*$/u.test(node.label))
+    && byPath.has(node.file) && isAnalyzerSymbolLabel(node.label))
     .map((node) => ({ rawId: node.id, id: `symbol_${contextDigest(JSON.stringify([projectId, node.id]))}`,
+      line: Number.isInteger(node.line) && node.line >= 1 && node.line <= byPath.get(node.file).text.split("\n").length ? node.line : null,
       name: node.label, kind: ["class", "function", "hook", "interface", "type", "record", "struct", "enum", "component"].includes(node.kind) ? node.kind : "symbol", path: node.file }));
   const byId = new Map(nodes.map((node) => [node.rawId, node]));
   const seeds = new Set(nodes.filter((node) => explicit(node.path) || task.symbols.includes(node.name)
@@ -110,7 +112,7 @@ export function selectTaskContext(request, { sourceFiles, graph = { nodes: [], e
     documents: section("documents", documentItems, "untrusted_repository_text", "icm-index"),
     constraints: section("constraints", constraintItems, "canonical_fact", "agent-manifest"),
     files: section("files", fileItems, "untrusted_repository_text", "context-source-observation"),
-    symbols: section("symbols", selectedNodes.map(({ rawId, ...node }) => ({ ...node, line: null, provenance: source(byPath.get(node.path), "derived_analysis", seeds.has(rawId) ? "task_target" : "direct_reference") })), "derived_analysis", "analyzer-service"),
+    symbols: section("symbols", selectedNodes.map(({ rawId, ...node }) => ({ ...node, provenance: source(byPath.get(node.path), "derived_analysis", seeds.has(rawId) ? "task_target" : "direct_reference") })), "derived_analysis", "analyzer-service"),
     references: section("references", [...referenceMap.entries()].sort(([a], [b]) => compare(a, b)).map(([, value]) => value), "derived_analysis", "analyzer-service"),
     tests: section("tests", testItems, "derived_analysis", "context-test-candidates"),
     diagnostics: section("diagnostics", diagnostics, "derived_analysis", "icm-validation")

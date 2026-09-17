@@ -6,6 +6,12 @@ export const ANALYZER_OPERATIONS = Object.freeze(["boundedSourceAnalysis", "defi
 export const PROVIDER_LIMITS = Object.freeze({ providers: 8, nodes: 2000, edges: 4000, locations: 256, diagnostics: 40, responseBytes: 256 * 1024 });
 export const providerError = (code = "invalid_analyzer_provider") => Object.assign(new Error("Invalid or unavailable analyzer provider evidence."), { code });
 export const providerRecord = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+export function isAnalyzerSymbolLabel(value) {
+  return typeof value === "string" && value.length <= 128 && value.trim().length > 0
+    && !/[\u0000-\u001f\u007f]/.test(value)
+    && !/^(?:[\\/]|\.\.[\\/]|[A-Za-z]:(?!:)|[A-Za-z][A-Za-z0-9+.-]*:\/\/)/.test(value)
+    && !/(?:^|[\\/])\.git(?:[\\/]|$)/.test(value);
+}
 const identifier = (value, max = 128) => typeof value === "string" && value.length <= max && /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(value);
 export function assertProviderFields(value, keys, code = "invalid_analyzer_provider") {
   if (!providerRecord(value) || Object.keys(value).some((key) => !keys.includes(key))) throw providerError(code);
@@ -30,7 +36,7 @@ export function normalizeProviderDescriptor(value) {
 
 const LANGUAGES = Object.freeze({ ".cs": "csharp", ".csproj": "csharp", ".ts": "typescript", ".tsx": "typescript", ".js": "javascript", ".jsx": "javascript", ".py": "python", ".go": "go", ".rs": "rust", ".java": "java", ".sh": "bash", ".bash": "bash", ".ps1": "powershell", ".psm1": "powershell", ".psd1": "powershell" });
 export function detectSnapshotLanguages(sourceFiles) {
-  return [...new Set(normalizeContextSources(sourceFiles).map((file) => LANGUAGES[path.posix.extname(file.path)]).filter(Boolean))].sort();
+  return [...new Set(normalizeContextSources(sourceFiles).map((file) => LANGUAGES[path.posix.extname(file.path).toLowerCase()]).filter(Boolean))].sort();
 }
 
 export function createProviderSnapshot(project, sourceFiles, revision = {}) {

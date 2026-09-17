@@ -50,3 +50,15 @@ test("mixed snapshots select a single native provider with explicit partial cove
   const precise = analyzeProviderSnapshot(project, files, { requiredCapabilities: ["definitions"] });
   assert.equal(precise.status, "unsupported");
 });
+
+test("accepted uppercase extensions remain visible and native snapshots actually analyze them", async () => {
+  const { analyzeProviderSnapshot } = await api();
+  const mixed = analyzeProviderSnapshot(project, [{ path: "a.ts", text: "export class One {}" }, { path: "b.PY", text: "class Two: pass" }]);
+  assert.equal(mixed.status, "partial");
+  assert.deepEqual(mixed.coverage.uncovered, ["python"]);
+  for (const [file, text] of [["a.CS", "public class One {}"], ["a.TS", "export class One {}"], ["a.JS", "export function One() {}"]]) {
+    const result = analyzeProviderSnapshot(project, [{ path: file, text }]);
+    assert.equal(result.status, "available");
+    assert.ok(result.nodes.some((node) => node.label === "One" && node.file === file));
+  }
+});

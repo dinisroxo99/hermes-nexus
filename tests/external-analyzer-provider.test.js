@@ -61,8 +61,12 @@ test("fallback order is deterministic, rejects invalid evidence and never merges
 
 test("external operations cannot exceed declared capabilities", async () => {
   const { readExternalSnapshotResponse } = await api(); const snapshot = createProviderSnapshot(project, sources);
-  const provider = normalizeProviderDescriptor({ ...descriptor, capabilities: { symbols: "structural", boundedSourceAnalysis: "structural" } });
-  assert.throws(() => readExternalSnapshotResponse(snapshot, provider, response(snapshot)), { code: "invalid_external_evidence" });
+  const rawProvider = { ...descriptor, capabilities: { symbols: "structural", boundedSourceAnalysis: "structural" } };
+  const requestToken = externalApi.createExternalSnapshotRequest(snapshot, rawProvider).requestToken;
+  for (const provider of [rawProvider, normalizeProviderDescriptor(rawProvider)]) {
+    assert.throws(() => readExternalSnapshotResponse(snapshot, provider, response(snapshot, { requestToken })), { code: "invalid_external_evidence" });
+    assert.throws(() => readExternalSnapshotResponse(snapshot, provider, response(snapshot, { requestToken, definitions: [], diagnostics: [{ code: "fixture", severity: "warning" }] })), { code: "invalid_external_evidence" });
+  }
   assert.throws(() => listAnalyzerProviders([{ ...descriptor, analyze() { throw new Error("must never run"); } }]), { code: "invalid_analyzer_provider" });
 });
 
@@ -86,4 +90,17 @@ test("providers cannot claim evidence for undeclared languages and callers can r
   const result = analyzeProviderSnapshot(project, mixed, { requiredLanguages: ["python"], externalProviders: [descriptor], externalResponses: { "external.a": response(snapshot) } });
   assert.equal(result.provider.id, "external.a");
   assert.deepEqual(result.coverage.uncovered, ["typescript"]);
+});
+
+test("normalized symbols and Context Pack selection accept non-JavaScript symbol names", async () => {
+  const { createExternalSnapshotRequest, readExternalSnapshotResponse } = await api();
+  const { selectTaskContext } = await import("../src/lib/task-context-selection.js");
+  const { normalizeTaskContextRequest } = await import("../src/lib/task-context-policy.js");
+  const files = [{ path: "script.ps1", text: "function Get-Thing {}\n" }];
+  const snapshot = createProviderSnapshot(project, files);
+  const provider = { ...descriptor, languages: ["powershell"] };
+  const requestToken = createExternalSnapshotRequest(snapshot, provider).requestToken;
+  const graph = readExternalSnapshotResponse(snapshot, provider, response(snapshot, { requestToken, nodes: [{ id: "one", label: "Get-Thing", file: "script.ps1", kind: "function", line: 1 }], definitions: [] }));
+  const request = normalizeTaskContextRequest({ projectId: project.projectId, task: { title: "Inspect script", paths: ["script.ps1"] } });
+  assert.equal(selectTaskContext(request, { sourceFiles: files, graph }).symbols.items[0].name, "Get-Thing");
 });

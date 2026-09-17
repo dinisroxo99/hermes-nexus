@@ -1,5 +1,5 @@
 import { getAnalyzer, listAnalyzerProviders } from "./analyzer-registry.js";
-import { ANALYZER_OPERATIONS, PROVIDER_LIMITS, createProviderSnapshot, providerError } from "./analyzer-provider-contract.js";
+import { ANALYZER_OPERATIONS, PROVIDER_LIMITS, createProviderSnapshot, providerError, isAnalyzerSymbolLabel } from "./analyzer-provider-contract.js";
 import { contextDigest, compareContextStrings as compare } from "../../lib/project-context-files.js";
 import { readExternalSnapshotResponse } from "../external/snapshot-provider.js";
 
@@ -16,7 +16,7 @@ function nativeEvidence(provider, snapshot, limits) {
   for (const node of raw.nodes || []) counts.set(node.id, (counts.get(node.id) || 0) + 1);
   const ids = new Map();
   const nodes = (raw.nodes || []).filter((node) => typeof node?.id === "string" && node.id.length <= 4096 && counts.get(node.id) === 1
-    && files.has(node.file) && typeof node.label === "string" && node.label.length <= 128 && /^[\p{L}_$][\p{L}\p{N}_$]*$/u.test(node.label))
+    && files.has(node.file) && isAnalyzerSymbolLabel(node.label))
     .map((node) => {
       const id = `symbol_${contextDigest(JSON.stringify([snapshot.projectId, provider.id, node.id]))}`;
       ids.set(node.id, id);
