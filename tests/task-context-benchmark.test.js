@@ -1,0 +1,38 @@
+import fs from "node:fs";
+import path from "node:path";
+import { performance } from "node:perf_hooks";
+import test from "node:test";
+import assert from "node:assert/strict";
+import { gitFixture } from "./helpers/git-fixture.js";
+import { getAnalysisGraph } from "../src/lib/analyzer-service.js";
+import { buildProjectIcmIndex } from "../src/lib/icm-index.js";
+import { buildProjectTaskContext } from "../src/lib/task-context.js";
+
+test("task-to-pack fixture measures bounded output against whole graph plus ICM", (t) => {
+  const f = gitFixture(t, { committed: false });
+  f.write("package.json", "{}");
+  f.write("tsconfig.json", "{}");
+  f.write("PROJECT.md", "# Fixture\nProject description.\n");
+  for (let i = 0; i < 40; i++) f.write(`src/feature${i}.ts`, `export function Feature${i}() { return ${i}; }\n`);
+  f.commit();
+  const manualProjectsFile = path.join(f.root, "projects.json");
+  fs.writeFileSync(manualProjectsFile, JSON.stringify([{ name: "fixture", projectId: "PrJ_Fixture", rootId: "test", relativePath: "main" }]));
+  const options = { registry: { roots: [{ id: "test", path: f.root }], manualProjectsFile, discoveredProjectsFile: path.join(f.root, "discovered.json") } };
+  const before = performance.now();
+  const graph = getAnalysisGraph(f.project);
+  const icm = buildProjectIcmIndex(f.project);
+  const baselineMs = performance.now() - before;
+  const request = { projectId: "PrJ_Fixture", task: { title: "Change Feature10", paths: ["src/feature10.ts"] } };
+  const start = performance.now();
+  const pack = buildProjectTaskContext(request, options);
+  const packMs = performance.now() - start;
+  const baselineBytes = Buffer.byteLength(JSON.stringify(graph)) + Buffer.byteLength(JSON.stringify(icm));
+  const packBytes = Buffer.byteLength(JSON.stringify(pack));
+  assert.equal(graph.nodes.length, 40);
+  assert.deepEqual(pack.sections.symbols.items.map((symbol) => symbol.name), ["Feature10"]);
+  assert.deepEqual(pack.sections.files.items.map((file) => file.path), ["src/feature10.ts"]);
+  assert.equal(JSON.stringify(pack), JSON.stringify(buildProjectTaskContext(request, options)));
+  assert.ok(packBytes < baselineBytes);
+  assert.ok(packBytes <= pack.limits.maxBytes);
+  t.diagnostic(JSON.stringify({ fixture: "40-independent-functions", baselineFacadeCalls: 2, packFacadeCalls: 1, baselineBytes, packBytes, baselineMs: Math.round(baselineMs), packMs: Math.round(packMs) }));
+});

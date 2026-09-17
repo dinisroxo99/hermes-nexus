@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import http from "node:http";
 import { Readable } from "node:stream";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -51,4 +52,19 @@ test("task context route sanitizes failures and reports observation conflicts", 
     assert.equal(result.status, status);
     assert.equal(JSON.stringify(result.payload).includes("/private"), false);
   }
+});
+
+test("task context is served over a real loopback HTTP connection", async (t) => {
+  const f = taskContextFixture(t);
+  const router = createRouter();
+  registerIntelligenceRoutes(router, { getProjectConfig: () => ({ dataDir: f.root }), getConfiguredProjectRoots: () => f.options.registry.roots });
+  const server = http.createServer((req, res) => { router.dispatch(req, res).catch(() => { res.writeHead(500); res.end(); }); });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/intelligence/projects/PrJ_Context/task-context`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ task: f.request.task }) });
+  assert.equal(response.status, 200);
+  const { data } = await response.json();
+  assert.equal(data.projectId, "PrJ_Context");
+  assert.equal(data.revision.commitSha, f.git(["rev-parse", "HEAD"]));
+  assert.ok(data.sections.symbols.items.some((symbol) => symbol.name === "One"));
 });
