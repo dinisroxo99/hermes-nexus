@@ -4,6 +4,7 @@ import path from "node:path";
 import { parseAgentManifest } from "./agent-manifest.js";
 import { isPathInsideRoot } from "./project-roots.js";
 import { isIgnoredProjectScanDir } from "./project-scan-policy.js";
+import { normalizeContextSources } from "./project-context-files.js";
 
 export const WORKSPACE_INDEX_LIMITS = Object.freeze({
   defaultMaxDepth: 8,
@@ -79,12 +80,15 @@ export function buildWorkspaceIndex(project, options = {}) {
     return index;
   }
 
-  const manifests = findAgentManifestPaths(absolutePath, { maxDepth });
+  const sources = options.sourceFiles === undefined ? null : new Map(normalizeContextSources(options.sourceFiles).map((file) => [file.path, file]));
+  const manifests = sources
+    ? [...sources.keys()].filter((file) => path.posix.basename(file) === "AGENT.md" && file.split("/").length - 1 <= maxDepth).map((file) => path.join(absolutePath, file))
+    : findAgentManifestPaths(absolutePath, { maxDepth });
   let includedInstructionsBytes = 0;
 
   for (const manifestPath of manifests) {
     const relativeManifestPath = normalizeRelative(path.relative(absolutePath, manifestPath));
-    const contents = readManifestFile(manifestPath);
+    const contents = sources ? { ok: true, text: sources.get(relativeManifestPath).text } : readManifestFile(manifestPath);
 
     if (!contents.ok) {
       addError(errors, {

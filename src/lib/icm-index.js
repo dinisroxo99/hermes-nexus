@@ -25,8 +25,9 @@ export function buildProjectIcmIndex(project, options = {}) {
     max: ICM_INDEX_LIMITS.maxMaxWarnings
   });
 
-  const workspaceIndex = buildWorkspaceIndex(project, options.workspace || {});
-  const documentIndex = buildIcmDocumentIndex(project, options.documents || {});
+  const sources = options.sourceFiles === undefined ? {} : { sourceFiles: options.sourceFiles };
+  const workspaceIndex = buildWorkspaceIndex(project, { ...options.workspace, ...sources });
+  const documentIndex = buildIcmDocumentIndex(project, { ...options.documents, ...sources });
   const errors = [];
   const warnings = [];
 

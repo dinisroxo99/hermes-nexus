@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { isPathInsideRoot } from "./project-roots.js";
 import { isIgnoredProjectScanDir } from "./project-scan-policy.js";
+import { normalizeContextSources } from "./project-context-files.js";
 
 export const ICM_DOCUMENT_INDEX_LIMITS = Object.freeze({
   defaultMaxDepth: 8,
@@ -92,17 +93,24 @@ export function buildIcmDocumentIndex(project, options = {}) {
     return index;
   }
 
-  const candidates = findIcmDocumentCandidates(absolutePath, { maxDepth });
+  const sources = options.sourceFiles === undefined ? null : new Map(normalizeContextSources(options.sourceFiles).map((file) => [file.path, file]));
+  const candidates = sources ? [...sources.keys()].flatMap((file) => {
+    const depth = file.split("/").length - 1;
+    const kind = classifyDocument(file, path.posix.basename(file), depth);
+    return kind && depth <= maxDepth ? [{ kind, path: file }] : [];
+  }) : findIcmDocumentCandidates(absolutePath, { maxDepth });
   let totalContentBytes = 0;
   const documents = [];
 
   for (const candidate of candidates) {
-    const fileStat = safeLstat(candidate.absolutePath);
-    if (!fileStat || !fileStat.isFile() || fileStat.isSymbolicLink()) {
+    const snapshotFile = sources?.get(candidate.path);
+    const fileStat = snapshotFile ? null : safeLstat(candidate.absolutePath);
+    if (!snapshotFile && (!fileStat || !fileStat.isFile() || fileStat.isSymbolicLink())) {
       continue;
     }
 
-    if (fileStat.size > ICM_DOCUMENT_INDEX_LIMITS.maxFileSizeBytes) {
+    const byteSize = snapshotFile ? snapshotFile.byteSize : fileStat.size;
+    if (byteSize > ICM_DOCUMENT_INDEX_LIMITS.maxFileSizeBytes) {
       addError(errors, {
         code: "document_too_large",
         path: candidate.path
@@ -110,7 +118,7 @@ export function buildIcmDocumentIndex(project, options = {}) {
       continue;
     }
 
-    const readResult = readTextFile(candidate.absolutePath);
+    const readResult = snapshotFile ? { ok: true, text: snapshotFile.text } : readTextFile(candidate.absolutePath);
     if (!readResult.ok) {
       addError(errors, {
         code: "document_read_failed",
@@ -120,7 +128,7 @@ export function buildIcmDocumentIndex(project, options = {}) {
       continue;
     }
 
-    const document = toDocumentEntry(candidate, readResult.text, fileStat.size);
+    const document = toDocumentEntry(candidate, readResult.text, byteSize);
     if (includeContent) {
       const bounded = boundContent(readResult.text, totalContentBytes);
       document.content = bounded.content;

@@ -63,6 +63,28 @@ function workspaceIds(index) {
   return index.workspaces.map((workspace) => workspace.id);
 }
 
+test("ICM source snapshots reuse canonical parsing without reading other project files", (t) => {
+  const project = makeTempProject();
+  t.after(() => fs.rmSync(path.dirname(project.absolutePath), { recursive: true, force: true }));
+  writeFile(project, "PROJECT.md", "# EXCLUDED_DISK_CONTENT\n");
+  const manifest = "---\nschemaVersion: 1\nworkspace:\n  id: local\nexecutor:\n  required: worker\n---\nUNTRUSTED_INSTRUCTIONS\n";
+  const sourceFiles = [
+    { path: "area/AGENT.md", text: manifest },
+    { path: "PROJECT.md", text: "# Observed project\n" },
+    { path: "area/CONTEXT.md", text: "# Local context\n" }
+  ];
+  const index = buildProjectIcmIndex(project, { sourceFiles });
+  assert.deepEqual(index.workspaces.map((w) => w.id), ["local"]);
+  assert.equal(index.documents.find((d) => d.path === "PROJECT.md").title, "Observed project");
+  assert.equal(JSON.stringify(index).includes("EXCLUDED_DISK_CONTENT"), false);
+  assert.equal(JSON.stringify(index).includes("UNTRUSTED_INSTRUCTIONS"), false);
+  assert.deepEqual(buildProjectIcmIndex(project, { sourceFiles: [...sourceFiles].reverse() }), index);
+  const duplicate = buildProjectIcmIndex(project, { sourceFiles: [...sourceFiles, { path: "other/AGENT.md", text: manifest }] });
+  assert.equal(duplicate.valid, false);
+  assert.equal(duplicate.errors[0].code, "duplicate_workspace_id");
+  assert.throws(() => buildProjectIcmIndex(project, { sourceFiles: [{ path: "../AGENT.md", text: manifest }] }), { code: "invalid_context_sources" });
+});
+
 function documentPaths(index) {
   return index.documents.map((document) => document.path);
 }
