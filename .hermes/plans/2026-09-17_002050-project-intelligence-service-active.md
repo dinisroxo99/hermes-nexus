@@ -41,6 +41,30 @@ Step 2 final verification (at `5faa91e`):
   unstaged; no claim of a globally clean working tree
 - no dependency, registry-data or environment changes included in Step 2 commits
 
+Step 2.5 starting checkpoint:
+
+`8b4fb08 docs: checkpoint task context pack step`
+
+Final Step 2.5 implementation checkpoint:
+
+`cf5fd59 refactor: consume analyzer providers in task context`
+
+Final Step 2.5 canonical documentation checkpoint:
+
+`b7a590f docs: describe polyglot analyzer provider boundaries`
+
+Step 2.5 final verification:
+
+- 306 tests passed; 0 failed; 0 skipped
+- npm run check: passed
+- 14 changed JavaScript files: explicit syntax checks passed
+- git diff --check: passed
+- final targeted independent review: no remaining security or logic findings
+- no dependency/service installation, persistent external index or Impact v2
+- project identity/revision semantics and cache ownership unchanged
+- pre-existing `.env` and `data/projects.json` edits remain unstaged and excluded
+  from all Step 2.5 commits; working tree is not globally clean
+
 Architecture pack checkpoint:
 
 `14d9ee0 docs: align project intelligence roadmap with current architecture`
@@ -85,6 +109,11 @@ Step 1 final verification (at `f8adc7c`):
 - current project/worktree revision and observed-change rejection
 - read-only projectId-based task-context HTTP endpoint
 - no Task Context Pack persistence or cache reuse
+- normalized AnalyzerProvider contract and explicit language/capability discovery
+- native .NET and TypeScript/JavaScript provider adapters
+- deterministic single-provider priority/fallback with explicit partial coverage
+- snapshot-bound, data-only external/LSP adapter boundary (no tool execution)
+- provider-independent Context Pack provenance and capability-aware statuses
 
 ## Architecture boundary
 
@@ -187,6 +216,45 @@ Verified contract and limitations:
   scheduling, provider/model routing, agent selection or runtime implementation.
 
 Canonical contract: `docs/project-intelligence/04_ICM_AND_CONTEXT_PACK.md`.
+
+### Step 2.5 — Polyglot Analyzer Provider Layer: COMPLETE
+
+Project Intelligence now consumes a normalized language-analysis provider
+contract. This is not Hermes LLM/model/provider routing.
+
+Verified result:
+
+- existing native analyzers retained; snapshot extension recognition is
+  case-insensitive without renaming paths;
+- explicit unsupported/structural/semantic operation levels for detection,
+  bounded source analysis, symbols, definitions, references, dependencies,
+  implementations and diagnostics;
+- .NET then TypeScript/JavaScript then configured external priority/fallback;
+  explicit capability/quality/language requirements; no silent graph merging;
+- bounded external JSON must match project, revision/worktree snapshot,
+  provider ID/version and normalized descriptor request token;
+- unauthorized paths/URIs, absent files, undeclared operations, invalid locations
+  and ambiguous IDs fail validation; external input cannot execute code or IO;
+- Context Pack retains schema/sections and existing security, with additive
+  provider/coverage metadata, per-item external trust, source lines where known,
+  and partial/not_analyzed statuses preserved through byte trimming;
+- printable bounded polyglot symbol names no longer require JavaScript syntax.
+
+Known limitations and approval gate:
+
+- installed native analysis remains .NET and TypeScript/JavaScript;
+  Python/Go/Rust/Java/Bash/PowerShell observation is not semantic support;
+- native graph extraction is structural/heuristic; precise definitions,
+  implementations and compiler diagnostics are not advertised natively;
+- external boundary is data-only, not an installed Serena/LSP transport or a
+  sandbox for arbitrary plugins; tests use explicit external protocol fixtures;
+- no new dependency/service, persistent external memory/index/database or cache;
+- existing Linux/WSL descriptor-verification and bounded-source limitations remain;
+- optional Serena/Pyright integration requires separate approval of pinned
+  dependencies, a snapshot-only sandbox and real-server conformance tests.
+
+Canonical contract and exact integration proposal:
+`docs/project-intelligence/19_ANALYZER_PROVIDER_LAYER.md`.
 
 ## Current development frontier
 
