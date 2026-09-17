@@ -29,6 +29,12 @@ Project Map owns project identity, authorized source collection, revision associ
 
 The existing .NET and TypeScript implementations are retained and wrapped, not replaced. Their snapshot-only extension filters now recognize accepted uppercase suffixes without renaming paths. Legacy filesystem detection, UI/graph operations, existing impact behavior and caches retain their APIs. Higher-level bounded consumers use `analyzeContextSources` / `analyzeProviderSnapshot`, not concrete analyzers. `getAnalyzerCapabilities` remains the legacy API; `getAnalyzerProviderCapabilities` provides normalized capability discovery.
 
+Node.js is a project classification, not a separate analyzer identity. Projects
+detected as `nodejs` remain reported as `projectType: "nodejs"`, including in
+overview responses, but graph/search/context/expand route through the existing
+native TypeScript/JavaScript analyzer. Node.js overview reports `supported: true`
+because that analyzer is available; no `native.nodejs` provider was added.
+
 ## AnalyzerProvider contract
 
 Descriptors contain only:
@@ -81,7 +87,7 @@ Native abilities are always available; the Python row requires the separately bu
 | Bash | none | unsupported | unsupported | unsupported | unsupported | unsupported |
 | PowerShell | none | unsupported | unsupported | unsupported | unsupported | unsupported |
 
-Native AST/regex extraction remains useful but is not full compiler/LSP semantic accuracy. Source suffix recognition is case-insensitive, while paths retain their exact spelling; detection/observation does not imply semantic support. Bash/PowerShell `.sh`, `.bash`, `.ps1`, `.psm1`, `.psd1` text is now admitted by the existing bounded collector without execution. Other languages require explicit source-policy/detection additions and a capable provider. Legacy filesystem project classification is unchanged. Symbol labels are bounded printable display names, not JavaScript identifiers: names such as `Get-Thing` and qualified names are allowed; control characters and obvious path/URI forms are rejected.
+Native AST/regex extraction remains useful but is not full compiler/LSP semantic accuracy. JavaScript/Node.js evidence does not fully model CommonJS `require()` relationships, and `.mjs`/`.cjs` coverage remains limited or unsupported where the native analyzer cannot observe it. Source suffix recognition is case-insensitive, while paths retain their exact spelling; detection/observation does not imply semantic support. Bash/PowerShell `.sh`, `.bash`, `.ps1`, `.psm1`, `.psd1` text is now admitted by the existing bounded collector without execution. Other languages require explicit source-policy/detection additions and a capable provider. Legacy filesystem project classification is unchanged. Symbol labels are bounded printable display names, not JavaScript identifiers: names such as `Get-Thing` and qualified names are allowed; control characters and obvious path/URI forms are rejected.
 
 ## External boundary: data, not execution
 

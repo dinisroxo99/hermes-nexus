@@ -8,13 +8,29 @@ Branch:
 
 Latest implementation/test checkpoint:
 
+`adc92f5 fix: route Node.js projects to native JavaScript analyzer`
+
+Node.js routing through the existing native TypeScript/JavaScript analyzer is
+complete. Node.js projects remain classified as `projectType: "nodejs"`, overview
+reports `supported: true`, and graph/search/context/expand use the existing
+JavaScript-capable analyzer. No separate Node.js analyzer/provider was introduced.
+Native .NET, TypeScript and optional Serena/Python behavior remains unchanged.
+Architecture review, testing and code review passed for this checkpoint.
+Node.js project classification is distinct from analyzer identity: `nodejs`
+projects resolve to the existing TypeScript/JavaScript analyzer, not a separate
+Node.js provider. Native analysis remains structural; CommonJS `require()`
+relationships are not fully modeled, and `.mjs`/`.cjs` coverage remains limited
+or unsupported where applicable.
+
+Previous Serena/Python implementation/test checkpoint:
+
 `bd8fce6 fix: harden Serena sandbox conformance and cleanup`
 
 Optional Serena/Python integration: **COMPLETE**, disabled by default until a
 trusted immutable local image is configured. This checkpoint's documentation
 update records its canonical contract. Step 3 / Impact v2 remains **NOT STARTED**.
 
-Final verification:
+Previous Serena/Python final verification:
 
 - 46 focused provider/Context Pack/integration tests passed; 0 failed/skipped.
 - 338 full-suite tests passed; 0 failed/skipped (`SERENA_DOCKER_TESTS=1 npm test`).
@@ -147,6 +163,8 @@ Step 1 final verification (at `f8adc7c`):
 - no Task Context Pack persistence or cache reuse
 - normalized AnalyzerProvider contract and explicit language/capability discovery
 - native .NET and TypeScript/JavaScript provider adapters
+- Node.js projects resolved through the existing JavaScript-capable native
+  TypeScript analyzer while retaining `nodejs` project classification
 - deterministic single-provider priority/fallback with explicit partial coverage
 - snapshot-bound, data-only external/LSP adapter boundary (no tool execution)
 - provider-independent Context Pack provenance and capability-aware statuses
@@ -271,6 +289,8 @@ Verified result:
   implementations and diagnostics;
 - .NET then TypeScript/JavaScript then configured external priority/fallback;
   explicit capability/quality/language requirements; no silent graph merging;
+- Node.js graph/search/context/expand routes through the existing native
+  TypeScript/JavaScript analyzer; no separate Node.js provider is registered;
 - bounded external JSON must match project, revision/worktree snapshot,
   provider ID/version and normalized descriptor request token;
 - unauthorized paths/URIs, absent files, undeclared operations, invalid locations

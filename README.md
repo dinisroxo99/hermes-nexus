@@ -70,7 +70,7 @@ WRITE / RESERVED / WATCH / IMPACT · Conflict Intelligence · Project Expert.
 
 ## Current status
 
-Implementation checkpoint: [verified Serena/Python checkpoint](docs/CURRENT_STATUS.md)
+Implementation checkpoint: [current verified status](docs/CURRENT_STATUS.md)
 on `feat/serena-external-provider`.
 
 - **Complete:** project foundation; Step 1 Project Identity / Revision; Step 2
@@ -78,7 +78,8 @@ on `feat/serena-external-provider`.
 - **Implemented:** local HTTP API and graph UI, bounded discovery/overview,
   canonical ICM indexing and workspace matching, persisted project identity,
   Git/worktree evidence and revision-aware caches, read-only Context Packs,
-  normalized provider selection/fallback and snapshot-bound external data validation.
+  normalized provider selection/fallback, Node.js routing through the existing
+  JavaScript-capable native analyzer and snapshot-bound external data validation.
 - **Next, not started:** Step 3 — Impact v2. Existing node-based graph impact is
   an earlier capability, not completion of this step.
 - **Planned:** effective scope, conflicts, Hermes guard integration, project
@@ -87,9 +88,12 @@ on `feat/serena-external-provider`.
   and references for Python. [Pinned image and runtime guide](docker/serena-python/README.md).
   No runtime network, live-repository mount, editor, memory or agent operations.
 
-Native C#/.NET, TypeScript, JavaScript/JSX, and Node.js analysis is **structural**, not
-compiler-grade semantic analysis. Python has semantic evidence only when the
-optional image is built and enabled; Go/Rust/Java remain observation-only.
+Native C#/.NET, TypeScript, JavaScript/JSX and Node.js analysis is **structural**,
+not compiler-grade semantic analysis. Node.js remains classified as `nodejs`, but
+resolves to the existing TypeScript/JavaScript analyzer for graph/search/context/
+expand. CommonJS `require()` relationships and `.mjs`/`.cjs` coverage are not
+complete compiler truth. Python has semantic evidence only when the optional image
+is built and enabled; Go/Rust/Java remain observation-only.
 Bash/PowerShell have bounded text observation. Provider
 extensibility does not mean semantic support for all languages or safe execution
 of arbitrary plugins.

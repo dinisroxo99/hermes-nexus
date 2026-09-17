@@ -9,8 +9,8 @@ implementation plan or a live view of another checkout.
 
 - Repository: `dinisroxo99/hermes-project-map`.
 - Implementation branch: `feat/serena-external-provider`.
-- Exact implementation revision: **`bd8fce6261201b91522c591e7ddf8350462a5ed3`**
-  (`bd8fce6`, `fix: harden Serena sandbox conformance and cleanup`).
+- Exact implementation revision: **`adc92f5d42c414f9ff0dd70d9bca2d7d6775983c`**
+  (`adc92f5`, `fix: route Node.js projects to native JavaScript analyzer`).
 - Implementation authority: the [active plan](../.hermes/plans/2026-09-17_002050-project-intelligence-service-active.md),
   read with current source and the detailed contracts linked below.
 - Documentation is refreshed on the same branch for that implementation revision.
@@ -18,7 +18,8 @@ implementation plan or a live view of another checkout.
 **Steps 1, 2 and 2.5 are COMPLETE. Step 3 — Impact v2 is NEXT and NOT STARTED.**
 The optional Serena/Python continuation is also complete and remains opt-in.
 
-The implementation checkpoint reports **338 tests passed, 0 failed, 0 skipped**
+The Node.js routing fix has passed architecture review, testing and code review.
+The previous Serena/Python implementation checkpoint reports **338 tests passed, 0 failed, 0 skipped**
 with `SERENA_DOCKER_TESTS=1 npm test`; 46 focused tests and 14 explicit real Docker
 tests also pass with no skips. `npm run check`, syntax checks of 14 changed JS
 and 2 Python files, and `git diff --check` pass. Final independent re-review found
@@ -34,7 +35,7 @@ are not the current baseline.
 | Project foundation | Local HTTP API and graph UI; configured roots, manual/discovered registry, bounded discovery/overview, ICM indexing and workspace-path matching. | [Service reference](SERVICE_REFERENCE.md), [route registration](../src/routes/intelligence.routes.js), [ICM contract](project-icm.md) |
 | Step 1 — Project Identity / Revision | Optional persisted opaque projectId, independent of name/path/HEAD/remote; compatible legacy records; unambiguous configured-root-bound lookup; safe overview identity/revision projection. Linked worktrees reuse verified parent identity. Both existing analysis and .NET symbol caches are revision/worktree-aware. | [Identity contract](project-intelligence/18_PROJECT_IDENTITY_AND_ISOLATION.md), [project resolution](../src/lib/projects.js), [revision tests](../tests/project-revision.test.js) |
 | Step 2 — Task Context Pack | Bounded, project/revision-scoped composition of task, ICM, files, symbols, direct references and heuristic tests, with provenance and omission indicators. Deterministic selection, not a repository prompt dump or arbitrary LLM summary. Read-only; no persistent pack cache. | [Context Pack contract](project-intelligence/04_ICM_AND_CONTEXT_PACK.md), [builder](../src/lib/task-context.js), [HTTP tests](../tests/task-context-routes.test.js) |
-| Step 2.5 — Analyzer Provider Layer | Normalized contract and native adapters; deterministic selection/fallback; provider/version/capability/language metadata; bounded snapshot-scoped external evidence validation; polyglot symbol-name normalization. Task Context Pack consumes normalized providers and exposes partial/not_analyzed coverage. | [Provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md), [provider selection](../src/analyzers/common/analyzer-providers.js), [data validator](../src/analyzers/external/snapshot-provider.js), [pack/provider tests](../tests/task-context-providers.test.js) |
+| Step 2.5 — Analyzer Provider Layer | Normalized contract and native adapters; deterministic selection/fallback; provider/version/capability/language metadata; bounded snapshot-scoped external evidence validation; polyglot symbol-name normalization. Node.js projects remain classified as `nodejs` while resolving to the existing JavaScript-capable native TypeScript analyzer. Task Context Pack consumes normalized providers and exposes partial/not_analyzed coverage. | [Provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md), [provider selection](../src/analyzers/common/analyzer-providers.js), [data validator](../src/analyzers/external/snapshot-provider.js), [pack/provider tests](../tests/task-context-providers.test.js), [Node.js routing tests](../tests/nodejs-analyzer-routing.test.js) |
 | Existing graph impact | Bounded node-based impact, symbol context and graph insights. This is not Step 3 Impact v2. | [Graph intelligence](../src/lib/graph-intelligence.js), [analyzer service tests](../tests/analyzer-service.test.js) |
 | Optional Serena/Python | Real semantic symbols, definitions and references through a pinned offline snapshot-only Docker worker; mounted-source binding, strict validation, bounded cleanup and explicit fallback. | [Runtime guide](../docker/serena-python/README.md), [provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md), [real semantic tests](../tests/serena-python-docker.test.js), [real sandbox tests](../tests/serena-sandbox-docker.test.js) |
 
@@ -62,7 +63,7 @@ installed Hermes tool or automatic guard integration.
 |---|---|
 | C# / .NET | Native structural analysis. |
 | TypeScript | Native structural analysis. |
-|| JavaScript / JSX / Node.js | Native structural analysis through the TypeScript provider. |
+| JavaScript / JSX / Node.js | Native structural analysis through the TypeScript provider; `nodejs` remains a project classification, not a separate analyzer identity. |
 | Python | Observation by default; optional image enables semantic symbols, definitions and references. |
 | Go / Rust / Java | Language observation only; no semantic analysis. |
 | Bash / PowerShell | Bounded text observation, without execution; no semantic analysis by default. |
@@ -82,6 +83,9 @@ See [the full matrix](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md#languag
 - Partial language/operation coverage remains explicit. A single provider is
   selected; graph union is not automatic. Missing analysis is not an empty result
   proving there are no relevant symbols or references.
+- Native JavaScript/Node.js evidence is structural. CommonJS `require()`
+  relationships are not fully modeled, and `.mjs`/`.cjs` coverage remains limited
+  or unsupported where the native analyzer cannot observe it.
 - External JSON is untrusted evidence bound to an authorized snapshot and
   provider request. The codec executes no tools; the separate optional Serena
   transport runs only its fixed semantic image, not arbitrary plugins. Existing

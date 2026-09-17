@@ -37,8 +37,8 @@ security configuration.
 |---|---|---|
 | `.NET` | Native structural | Preserves the previous path through a wrapper and fallback to `symbol-index.js`. Not compiler-grade semantics. |
 | `TypeScript` / `React` / `Next.js` | Native structural | Extracts files, exports, components, hooks, providers, interfaces/types, and basic internal imports. |
-| `Node.js` | Detected project type | No dedicated full project-type analyzer; bounded JavaScript/JSX snapshots use the native TypeScript provider. |
-| `Python` | Detected | Detected, but no dedicated analyzer yet. |
+| `Node.js` | Native structural via TypeScript/JavaScript analyzer | Remains classified as `nodejs`; graph/search/context/expand use the existing JavaScript-capable native analyzer. No separate Node.js provider exists. CommonJS `require()` and `.mjs`/`.cjs` coverage are limited. |
+| `Python` | Observation by default; optional Serena/Pyright semantic evidence | Optional pinned local image enables semantic symbols, definitions and references only. |
 
 For bounded Context Packs, the provider layer also observes Python/Go/Rust/Java
 languages and Bash/PowerShell text without supplying native semantic analysis.
