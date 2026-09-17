@@ -14,6 +14,33 @@ Final Step 1 checkpoint:
 
 `f8adc7c docs: describe stable project identity and revision boundaries`
 
+Step 2 starting checkpoint:
+
+`a92d215 docs: checkpoint project identity step`
+
+Final Step 2 implementation/test checkpoint:
+
+`93e2dd3 test: verify task context isolation and bounded output`
+
+Final Step 2 canonical documentation checkpoint:
+
+`5faa91e docs: describe bounded task context pack contract`
+
+Step 2 final verification (at `5faa91e`):
+
+- 285 tests passed
+- 0 failed
+- 0 skipped
+- npm run check: passed
+- 23 changed JavaScript files: explicit syntax checks passed
+- git diff --check: passed
+- independent re-review: no remaining security or logic findings
+- real loopback task-context HTTP test: passed
+- 40-function fixture: graph + ICM 9,422 compact bytes; targeted pack 4,780 bytes
+- working tree: pre-existing `.env` and `data/projects.json` user changes remain
+  unstaged; no claim of a globally clean working tree
+- no dependency, registry-data or environment changes included in Step 2 commits
+
 Architecture pack checkpoint:
 
 `14d9ee0 docs: align project intelligence roadmap with current architecture`
@@ -51,6 +78,13 @@ Step 1 final verification (at `f8adc7c`):
 - analysis cache revision/worktree isolation
 - .NET symbol cache revision/worktree isolation
 - safe identity/revision overview
+- bounded project-local source observations with descriptor verification
+- existing ICM/analyzer reuse through isolated source snapshot inputs
+- deterministic, versioned Task Context Pack with per-section limits/provenance
+- declared-only ICM constraints and untrusted-text separation
+- current project/worktree revision and observed-change rejection
+- read-only projectId-based task-context HTTP endpoint
+- no Task Context Pack persistence or cache reuse
 
 ## Architecture boundary
 
@@ -88,7 +122,7 @@ Step 1 final verification (at `f8adc7c`):
 
 Honcho is not authoritative current-code truth.
 
-## Completed implementation step
+## Completed implementation steps
 
 ### Step 1 — Project Identity / Revision Model: COMPLETE
 
@@ -112,13 +146,9 @@ Known Step 1 limitations:
 - PowerShell registration remains a legacy single-root tool;
 - dirty-content fingerprints are deferred.
 
-## Current development frontier
+### Step 2 — Task Context Pack: COMPLETE
 
-### Step 2 — Task Context Pack
-
-Next implementation frontier. Not started.
-
-Build a bounded, deterministic, revision-aware task context from:
+Implemented bounded, deterministic, revision-aware task context from:
 
 - task
 - task paths
@@ -136,7 +166,33 @@ No routing.
 
 No agent selection.
 
+Verified contract and limitations:
+
+- `POST /api/intelligence/projects/:projectId/task-context` requires an existing
+  persisted ID; legacy name-based endpoints remain unchanged.
+- Schema version 1 / analysis version `task-context-v1`; safe Git/worktree
+  evidence, bounded sections, per-source hashes and explicit trust labels.
+- Dirty/unborn/non-Git/unavailable revision states are working-tree observations;
+  no cache reuse. Reobserved source/revision changes reject the pack.
+- `generatedAt` is null and volatile capturedAt is omitted for determinism.
+- Linux/WSL `/proc/self/fd` verification is required for source retrieval;
+  unavailable verification fails closed to partial metadata-only results.
+- Source limits can omit evidence; no atomic filesystem snapshot, full dirty
+  fingerprint, analyzer wall-clock guarantee or complete secret-DLP claim.
+- TypeScript/JavaScript and .NET symbol extraction reuse existing analyzers;
+  mixed snapshots prefer .NET. Test candidates are heuristic, not coverage proof.
+- Excerpts are opt-in bounded prefixes, not full files or symbol-centered views.
+  Expansion is resubmission with narrower targets, not a new endpoint.
+- No persistent Context Pack cache, stage resolver, Hermes high-level tool,
+  scheduling, provider/model routing, agent selection or runtime implementation.
+
+Canonical contract: `docs/project-intelligence/04_ICM_AND_CONTEXT_PACK.md`.
+
+## Current development frontier
+
 ### Step 3 — Impact v2
+
+Next implementation frontier. **NOT STARTED.** Requires separate authorization.
 
 Implement incrementally:
 
