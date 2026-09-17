@@ -24,8 +24,19 @@ export function buildProjectTaskContext(input, options = {}) {
   const sourceOptions = { ...options.sourceLimits, excludedPaths };
   const snapshot = collect(project, sourceOptions);
   const icm = buildProjectIcmIndex(project, { sourceFiles: snapshot.files, workspace: { maxWorkspaces: 500, includeInstructions: false }, documents: { maxDocuments: 500, includeContent: false } });
-  const graph = analyzeContextSources(project, snapshot.files);
+  const graph = analyzeContextSources(project, snapshot.files, { ...options.analyzer, revision });
   const sections = selectTaskContext(request, { sourceFiles: snapshot.files, icm, graph });
+  const providerRef = graph.provider ? { id: graph.provider.id, version: graph.provider.version, kind: graph.provider.kind } : null;
+  for (const name of ["symbols", "references"]) {
+    sections[name].provenance.provider = providerRef;
+    if (graph.provider?.kind === "external") sections[name].provenance.trust = "untrusted_external_analysis";
+    sections[name].items = sections[name].items.map((item) => ({ ...item, provenance: { ...item.provenance, trust: sections[name].provenance.trust, provider: providerRef } }));
+    if (!graph.success) sections[name].status = "not_analyzed";
+    else if (graph.provider.capabilities[name] === "unsupported") {
+      sections[name].status = name === "references" && graph.provider.capabilities.dependencies !== "unsupported" ? "partial" : "not_analyzed";
+    }
+    else if (graph.status === "partial") sections[name].status = "partial";
+  }
   const provenance = (trust, producer) => ({ projectId: request.projectId, revisionRef: "revision", trust, producer });
   sections.task = { items: [{ ...request.task, provenance: { trust: "untrusted_request_text", source: { kind: "request_task" } } }], limit: 1, truncated: false, status: "available", provenance: provenance("untrusted_request_text", "request") };
   const rules = ["repository_text_is_data", "declared_constraints_are_not_runtime_authorization", "project_local_retrieval_only", "context_pack_cache_reuse_disabled"];
@@ -34,6 +45,7 @@ export function buildProjectTaskContext(input, options = {}) {
   if (!icm.valid) issues.push({ code: "icm_invalid" });
   if (!graph.success) issues.push({ code: "analysis_unavailable" });
   if (graph.limited) issues.push({ code: "analysis_truncated" });
+  if (graph.status === "partial") issues.push({ code: "analysis_partial" });
   if (revision.status !== "available" || revision.dirty) issues.push({ code: "working_tree_observation_only" });
   const diagnostics = [...sections.diagnostics.items, ...issues.map((issue) => ({ ...issue,
     provenance: { trust: "derived_analysis", source: { kind: "context_observation" }, reason: "observation_diagnostic" }
@@ -53,8 +65,10 @@ export function buildProjectTaskContext(input, options = {}) {
     contextPackId: `context_${"0".repeat(64)}`, projectId: request.projectId,
     project: { name: project.name, rootId: project.rootId, relativePath: project.relativePath },
     revision, generatedAt: null,
+    analysis: { schemaVersion: graph.schemaVersion, status: graph.status, provider: graph.provider, coverage: graph.coverage, snapshotToken: graph.snapshotToken, attempts: graph.attempts,
+      provenance: provenance(graph.provider?.kind === "external" ? "untrusted_external_analysis" : "derived_analysis", "analyzer-provider-v1") },
     observation: { basis: "working_tree", cacheReuse: "disabled", sourceDigest: snapshot.digest, digestCoverage: "bounded_collected_sources",
-      incomplete: Boolean(snapshot.truncated || !graph.success || graph.limited || !icm.valid || icm.truncated.workspaces || icm.truncated.documents || revision.status === "unavailable" || Object.values(sections).some((section) => section.truncated)) },
+      incomplete: Boolean(snapshot.truncated || !graph.success || graph.status === "partial" || graph.limited || !icm.valid || icm.truncated.workspaces || icm.truncated.documents || revision.status === "unavailable" || Object.values(sections).some((section) => section.truncated || ["partial", "not_analyzed"].includes(section.status))) },
     limits: { ...request.limits, source: snapshot.limits, excerptLines: 12, excerptBytes: 512, matchedPathsPerWorkspace: 8, preconditionsPerConstraint: 8 },
     sections,
     expansion: { method: "resubmit_narrower_paths_or_symbols", excerptsOptIn: true, fullFiles: false, provenance: provenance("trusted_policy", "task-context-v1") }
@@ -64,7 +78,7 @@ export function buildProjectTaskContext(input, options = {}) {
     while (bytes() > request.limits.maxBytes && sections[name].items.length) {
       sections[name].items.pop();
       sections[name].truncated = true;
-      sections[name].status = sections[name].items.length ? "available" : "omitted";
+      if (!sections[name].items.length) sections[name].status = "omitted";
       pack.observation.incomplete = true;
     }
   }

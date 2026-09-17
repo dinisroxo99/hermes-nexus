@@ -5,8 +5,8 @@
  * analysis graphs for search, expand, full graph and agent endpoints.
  */
 
-import { resolveAnalyzer, listAnalyzerCapabilities, getAnalyzer } from "../analyzers/common/analyzer-registry.js";
-import { normalizeContextSources } from "./project-context-files.js";
+import { resolveAnalyzer, listAnalyzerCapabilities, listAnalyzerProviders } from "../analyzers/common/analyzer-registry.js";
+import { analyzeProviderSnapshot } from "../analyzers/common/analyzer-providers.js";
 import { getCachedAnalysis } from "./analysis-cache.js";
 import { analyzeImpact, buildContext, buildProjectInsights } from "./graph-intelligence.js";
 
@@ -15,20 +15,11 @@ export function getAnalyzerCapabilities() {
 }
 
 export function analyzeContextSources(project, sourceFiles, options = {}) {
-  const sources = normalizeContextSources(sourceFiles);
-  const projectType = sources.some((file) => /\.(cs|csproj)$/.test(file.path)) ? "dotnet"
-    : sources.some((file) => /\.(ts|tsx|js|jsx)$/.test(file.path)) ? "typescript" : "unknown";
-  const analyzer = getAnalyzer(projectType);
-  if (!analyzer) return { success: false, projectType, nodes: [], edges: [], limited: false };
-  const bound = (value, max) => Number.isFinite(value) ? Math.max(1, Math.min(max, Math.floor(value))) : max;
-  const limits = { nodeLimit: bound(options.nodeLimit, 2000), edgeLimit: bound(options.edgeLimit, 4000), sourceFiles: sources };
-  const isolated = { name: project.name, absolutePath: "/__project_context__" };
-  const graph = analyzer.fullGraph ? analyzer.fullGraph(isolated, limits) : analyzer.analyze(isolated, limits);
-  return {
-    success: graph.success !== false, projectType,
-    nodes: graph.nodes || [], edges: graph.edges || [],
-    limited: Boolean(graph.limited || graph.metadata?.totalSymbols > limits.nodeLimit || graph.metadata?.totalEdges > limits.edgeLimit)
-  };
+  return analyzeProviderSnapshot(project, sourceFiles, options);
+}
+
+export function getAnalyzerProviderCapabilities(externalProviders = []) {
+  return listAnalyzerProviders(externalProviders);
 }
 
 export function analyzeProject(project, options = {}) {
