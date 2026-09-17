@@ -15,7 +15,8 @@ export function registerAnalyzer(analyzer) {
 }
 
 export function getAnalyzer(projectType) {
-  return analyzers.get(projectType) || null;
+  // Node.js is a project classification, not a separate JavaScript analyzer.
+  return analyzers.get(projectType === "nodejs" ? "typescript" : projectType) || null;
 }
 
 export function listAnalyzerCapabilities() {
