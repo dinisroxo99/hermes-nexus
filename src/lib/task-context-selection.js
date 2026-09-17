@@ -11,8 +11,23 @@ export function selectTaskContext(request, { sourceFiles, graph = { nodes: [], e
   const files = normalizeContextSources(sourceFiles);
   const byPath = new Map(files.map((file) => [file.path, file]));
   const { task, limits, projectId } = request;
-  if (!Array.isArray(graph.nodes) || !Array.isArray(graph.edges) || graph.nodes.length > 2000 || graph.edges.length > 4000
-    || (icm.workspaces?.length || 0) > 500 || (icm.documents?.length || 0) > 1000) throw contextError("invalid_context_analysis");
+  if (!graph || !icm || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges) || graph.nodes.length > 2000 || graph.edges.length > 4000) throw contextError("invalid_context_analysis");
+  for (const [key, max] of [["workspaces", 500], ["documents", 1000], ["errors", 1000], ["warnings", 1000]]) {
+    if (icm[key] !== undefined && (!Array.isArray(icm[key]) || icm[key].length > max)) throw contextError("invalid_context_analysis");
+  }
+  const selectionIssues = [];
+  const uniqueRecords = (records, key, maxLength, code) => {
+    const counts = new Map();
+    for (const record of records) {
+      const value = record?.[key];
+      if (typeof value === "string" && value.length <= maxLength) counts.set(value, (counts.get(value) || 0) + 1);
+    }
+    if ([...counts.values()].some((count) => count > 1)) selectionIssues.push({ code });
+    return records.filter((record) => counts.get(record?.[key]) === 1);
+  };
+  const workspaces = uniqueRecords(icm.workspaces || [], "id", 128, "ambiguous_context_workspace");
+  const workspaceById = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
+  const documents = uniqueRecords(icm.documents || [], "path", 1024, "ambiguous_context_document");
   const terms = [...new Set(`${task.title} ${task.description}`.toLowerCase().match(/[a-z0-9_]{3,}/g) || [])]
     .filter((term) => !["the", "and", "for", "with", "add", "update", "fix", "task"].includes(term)).slice(0, 32);
   const lexical = (value) => terms.some((term) => String(value).toLowerCase().includes(term));
@@ -34,7 +49,7 @@ export function selectTaskContext(request, { sourceFiles, graph = { nodes: [], e
   for (const node of graph.nodes) nodeCounts.set(node?.id, (nodeCounts.get(node?.id) || 0) + 1);
   const nodes = graph.nodes.filter((node) => typeof node?.id === "string" && node.id.length <= 4096 && nodeCounts.get(node.id) === 1
     && byPath.has(node.file) && typeof node.label === "string" && node.label.length <= 128 && /^[\p{L}_$][\p{L}\p{N}_$]*$/u.test(node.label))
-    .map((node) => ({ rawId: node.id, id: `symbol_${contextDigest(JSON.stringify([projectId, node.file, node.label, node.kind]))}`,
+    .map((node) => ({ rawId: node.id, id: `symbol_${contextDigest(JSON.stringify([projectId, node.id]))}`,
       name: node.label, kind: ["class", "function", "hook", "interface", "type", "record", "struct", "enum", "component"].includes(node.kind) ? node.kind : "symbol", path: node.file }));
   const byId = new Map(nodes.map((node) => [node.rawId, node]));
   const seeds = new Set(nodes.filter((node) => explicit(node.path) || task.symbols.includes(node.name)
@@ -59,21 +74,22 @@ export function selectTaskContext(request, { sourceFiles, graph = { nodes: [], e
     provenance: source(file, request.includeExcerpts ? "untrusted_repository_text" : "canonical_fact", explicit(file.path) ? "task_path" : "related_symbol_or_name") }));
   const testItems = files.filter((file) => isTest(file.path) && (targets.has(file.path) || [...targets].some((target) => stem(target) === stem(file.path))))
     .map((file) => ({ path: file.path, confidence: "heuristic", provenance: source(file, "derived_analysis", targets.has(file.path) ? "task_path_or_reference" : "basename_convention") }));
-  const matched = matchWorkspaceScopes(icm.workspaces || [], task.paths, { maxMatches: 500, maxReasonsPerWorkspace: 1 });
+  const matched = matchWorkspaceScopes(workspaces, task.paths, { maxMatches: 500, maxReasonsPerWorkspace: 1 });
   const workspaceItems = matched.matches.filter((match) => byPath.has(match.manifestPath)).map((match) => ({
     id: match.workspaceId, path: match.manifestPath, workspacePath: match.workspacePath,
     matchedPaths: match.matchedPaths.slice(0, 8), truncated: match.matchedPaths.length > 8,
     provenance: source(byPath.get(match.manifestPath), "derived_analysis", "workspace_scope_match")
   }));
   const constraintItems = workspaceItems.map((match) => {
-    const workspace = icm.workspaces.find((w) => w.id === match.id && w.manifestPath === match.path);
+    const workspace = workspaceById.get(match.id);
     const declaredPermissions = Object.fromEntries(["read", "write", "executeCommands", "createAgents"].filter((key) => typeof workspace.permissions?.[key] === "boolean").map((key) => [key, workspace.permissions[key]]));
-    const preconditions = Array.isArray(workspace.preconditions) ? [...new Set(workspace.preconditions.filter((v) => typeof v === "string" && /^[a-z0-9][a-z0-9._:-]{0,99}$/.test(v)))].sort() : [];
+    if (Array.isArray(workspace.preconditions) && workspace.preconditions.length > 100) throw contextError("invalid_context_analysis");
+    const preconditions = Array.isArray(workspace.preconditions) ? [...new Set(workspace.preconditions.filter((v) => typeof v === "string" && v.length <= 100 && /^[a-z0-9][a-z0-9._:-]{0,99}$/.test(v)))].sort() : [];
     return { workspaceId: match.id, declaredOnly: true, declaredPermissions, preconditions: preconditions.slice(0, 8), truncated: preconditions.length > 8,
       provenance: source(byPath.get(match.path), "canonical_fact", "validated_manifest_declaration") };
   });
-  const documentItems = (icm.documents || []).filter((doc) => {
-    if (!byPath.has(doc.path)) return false;
+  const documentItems = documents.filter((doc) => {
+    if (!byPath.has(doc.path) || typeof doc.title !== "string" || doc.title.length > 1024) return false;
     if (["PROJECT.md", "AGENTS.md", "CONTEXT.md"].includes(doc.path)) return true;
     if (explicit(doc.path)) return true;
     if (doc.kind === "adr") return lexical(`${doc.path} ${doc.title}`);
@@ -84,9 +100,9 @@ export function selectTaskContext(request, { sourceFiles, graph = { nodes: [], e
     title: text(doc.title, 256), ...excerpt(byPath.get(doc.path)),
     provenance: source(byPath.get(doc.path), "untrusted_repository_text", "canonical_document_relevance")
   }));
-  const diagnostics = [...(icm.errors || []), ...(icm.warnings || []), ...matched.warnings].slice(0, 200)
-    .map((issue) => ({ code: typeof issue.code === "string" && /^[a-z_]{1,80}$/.test(issue.code) ? issue.code : "icm_issue",
-      ...(isContextPathAllowed(issue.path) ? { path: issue.path } : {}),
+  const diagnostics = [...(icm.errors || []), ...(icm.warnings || []), ...matched.warnings, ...selectionIssues]
+    .map((issue) => ({ code: typeof issue?.code === "string" && issue.code.length <= 80 && /^[a-z_]{1,80}$/.test(issue.code) ? issue.code : "icm_issue",
+      ...(isContextPathAllowed(issue?.path) ? { path: issue.path } : {}),
       provenance: { trust: "derived_analysis", source: { kind: "icm_validation" }, reason: "validation_diagnostic" } }))
     .sort((a, b) => compare(JSON.stringify(a), JSON.stringify(b)));
   return {
