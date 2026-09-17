@@ -7,6 +7,41 @@ import assert from "node:assert/strict";
 
 import { createRouter } from "../src/utils/router.js";
 import { registerIntelligenceRoutes } from "../src/routes/intelligence.routes.js";
+import { gitFixture } from "./helpers/git-fixture.js";
+
+test("POST registration recognizes a parent's worktree without writing a second project", async (t) => {
+  const f = gitFixture(t);
+  f.worktree();
+  const manual = JSON.stringify([{ name: "parent", rootId: "test", relativePath: "main", projectId: "PrJ_Parent" }]);
+  fs.writeFileSync(path.join(f.root, "projects.json"), manual);
+  const { status, payload } = await dispatchRegister({ roots: [{ id: "test", path: f.root }], registryDir: f.root, body: { projects: [{ rootId: "test", relativePath: "linked", parentProjectId: "forged" }] } });
+  assert.equal(status, 200);
+  assert.equal(payload.data.results[0].projectId, "PrJ_Parent");
+  assert.equal(payload.data.results[0].status, "already_registered");
+  assert.equal(fs.existsSync(path.join(f.root, "discovered-projects.json")), false);
+  assert.equal(fs.readFileSync(path.join(f.root, "projects.json"), "utf8"), manual);
+});
+
+test("POST registration rejects an unresolved worktree batch before writing any candidates", async (t) => {
+  const f = gitFixture(t);
+  f.worktree();
+  makeTypeScriptProject(f.root, "ordinary");
+  const { status, payload } = await dispatchRegister({ roots: [{ id: "test", path: f.root }], registryDir: f.root, body: { projects: [{ rootId: "test", relativePath: "ordinary" }, { rootId: "test", relativePath: "linked" }] } });
+  assert.equal(status, 400);
+  assert.equal(payload.error, "worktree_parent_unresolved");
+  assert.equal(fs.existsSync(path.join(f.root, "discovered-projects.json")), false);
+});
+
+test("POST registration refuses inaccessible Git-file metadata instead of guessing a new identity", async (t) => {
+  const f = gitFixture(t);
+  const candidate = makeTypeScriptProject(f.root, "broken");
+  fs.writeFileSync(path.join(candidate, ".git"), "gitdir: /unavailable-test-metadata\n");
+  const { status, payload } = await dispatchRegister({ roots: [{ id: "test", path: f.root }], registryDir: f.root, body: { projects: [{ rootId: "test", relativePath: "broken" }] } });
+  assert.equal(status, 400);
+  assert.equal(payload.error, "worktree_parent_unresolved");
+  assert.equal(JSON.stringify(payload).includes("unavailable-test-metadata"), false);
+  assert.equal(fs.existsSync(path.join(f.root, "discovered-projects.json")), false);
+});
 
 function makeRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "project-map-route-"));

@@ -5,6 +5,32 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { discoverProjects } from "../src/lib/project-discovery.js";
+import { gitFixture } from "./helpers/git-fixture.js";
+
+test("discovery recognizes Git-only linked worktrees without assigning a new identity", (t) => {
+  const f = gitFixture(t, { committed: false });
+  f.write("README.md", "fixture\n");
+  f.commit();
+  f.worktree();
+  const options = { roots: [{ id: "test", path: f.root }], registeredProjects: [{ name: "parent", rootId: "test", relativePath: "main", projectId: "PrJ_Parent" }], includeRegistered: true };
+  const result = discoverProjects(options);
+  const linked = result.candidates.find((p) => p.relativePath === "linked");
+  assert.ok(linked);
+  assert.equal(linked.isLinkedWorktree, true);
+  assert.equal(linked.parentProjectId, "PrJ_Parent");
+  assert.equal(linked.registered, true);
+  assert.equal(Object.hasOwn(linked, "projectId"), false);
+  assert.equal(JSON.stringify(result).includes(f.root), false);
+  assert.equal(discoverProjects({ ...options, includeRegistered: false }).candidates.length, 0);
+  const orphan = discoverProjects({ ...options, registeredProjects: [] }).candidates.find((p) => p.relativePath === "linked");
+  assert.equal(orphan.parentProjectId, null);
+  assert.equal(orphan.registered, false);
+  const ambiguous = discoverProjects({ ...options, registeredProjects: [
+    ...options.registeredProjects,
+    { ...options.registeredProjects[0], projectId: "PrJ_Other" }
+  ] }).candidates.find((p) => p.relativePath === "linked");
+  assert.equal(ambiguous.parentProjectId, null);
+});
 
 function makeRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "project-map-discovery-"));

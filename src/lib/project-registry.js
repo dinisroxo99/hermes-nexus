@@ -160,6 +160,16 @@ export function upsertDiscoveredProjects({
       relativePath: candidate.relativePath
     };
 
+    if (candidate.isLinkedWorktree || candidate.identityStatus === "unavailable") {
+      const parents = effective.filter((project) => project.projectId && project.projectId === candidate.parentProjectId);
+      if (candidate.identityStatus === "unavailable" || parents.length !== 1) {
+        return { ok: false, error: "worktree_parent_unresolved", result: null, projects: discoveredProjects };
+      }
+      skippedCount += 1;
+      results.push({ ...identity, projectId: parents[0].projectId, status: "already_registered" });
+      continue;
+    }
+
     const alias = effective.find((project) => projectNameKey(project) === projectNameKey(candidate));
     if (alias?.projectId && projectPathKey(alias) !== key) throw identityConflict();
 

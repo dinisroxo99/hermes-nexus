@@ -2,8 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { detectProjectType } from "../analyzers/common/analyzer-detection.js";
-import { getConfiguredProjectRoots, normalizeRootPath } from "./project-roots.js";
+import { getConfiguredProjectRoots, normalizeRootPath, resolveProjectLocation } from "./project-roots.js";
 import { normalizeProjectEntryForRuntime } from "./project-registry.js";
+import { readProjectRevision, isLinkedProjectWorktree } from "./project-revision.js";
 import { isIgnoredProjectScanDir } from "./project-scan-policy.js";
 
 const DEFAULT_MAX_DEPTH = 3;
@@ -26,6 +27,28 @@ export function discoverProjects(options = {}) {
   const roots = (options.roots || getConfiguredProjectRoots())
     .map((root, index) => normalizeDiscoveryRoot(root, index));
   const registry = createRegisteredProjectIndex(options.registeredProjects || []);
+  let parentRevisions;
+  const worktreeMetadata = (candidate) => {
+    let absolutePath;
+    try { absolutePath = resolveProjectLocation(candidate, roots); } catch {
+      return { identityStatus: "unavailable", registered: false };
+    }
+    const revision = readProjectRevision({ absolutePath });
+    if (revision.status === "unavailable" && hasGitFile(absolutePath)) {
+      return { identityStatus: "unavailable", registered: false };
+    }
+    if (!revision.isLinkedWorktree) return {};
+    parentRevisions ??= (options.registeredProjects || []).flatMap((entry) => {
+      const project = normalizeProjectEntryForRuntime(entry);
+      if (!project?.projectId) return [];
+      try {
+        return [{ projectId: project.projectId, revision: readProjectRevision({ absolutePath: resolveProjectLocation(project, roots) }) }];
+      } catch { return []; }
+    });
+    const parents = parentRevisions.filter((parent) => isLinkedProjectWorktree(parent.revision, revision));
+    const parentProjectId = parents.length === 1 ? parents[0].projectId : null;
+    return { isLinkedWorktree: true, parentProjectId, registered: parentProjectId !== null };
+  };
   const includeRegistered = options.includeRegistered === true;
   const warnings = [];
   const candidates = [];
@@ -60,7 +83,8 @@ export function discoverProjects(options = {}) {
       maxDepth,
       limit: remaining,
       mapCandidate: (candidate) => {
-        const registered = isRegisteredCandidate(candidate, registry);
+        const metadata = worktreeMetadata(candidate);
+        const registered = metadata.registered ?? isRegisteredCandidate(candidate, registry);
 
         if (registered && !includeRegistered) {
           return null;
@@ -68,6 +92,7 @@ export function discoverProjects(options = {}) {
 
         return {
           ...candidate,
+          ...metadata,
           registered
         };
       }
@@ -201,7 +226,7 @@ export function detectProjectSignals(projectPath) {
       continue;
     }
 
-    if (entry.isDirectory() && entry.name === ".git") {
+    if ((entry.isDirectory() || entry.isFile()) && entry.name === ".git") {
       signals.push(".git");
       continue;
     }
@@ -354,6 +379,14 @@ function safeLstat(file) {
     return fs.lstatSync(file);
   } catch {
     return null;
+  }
+}
+
+function hasGitFile(directory) {
+  for (let current = directory; ; current = path.dirname(current)) {
+    const marker = safeLstat(path.join(current, ".git"));
+    if (marker) return marker.isFile();
+    if (path.dirname(current) === current) return false;
   }
 }
 

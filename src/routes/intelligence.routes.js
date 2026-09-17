@@ -101,7 +101,9 @@ export function createRegisterDiscoveredProjectsHandler(dependencies = {}) {
       });
 
       if (!upsert.ok) {
-        sendError(res, 400, upsert.error, "Requested project is not a current discovery candidate.");
+        sendError(res, 400, upsert.error, upsert.error === "worktree_parent_unresolved"
+          ? "Worktree parent identity could not be verified."
+          : "Requested project is not a current discovery candidate.");
         return;
       }
 
