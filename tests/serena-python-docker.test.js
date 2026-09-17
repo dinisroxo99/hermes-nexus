@@ -4,10 +4,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { contextDigest } from "../src/lib/project-context-files.js";
+import { contextDigest, collectContextSources } from "../src/lib/project-context-files.js";
 import { createProviderSnapshot } from "../src/analyzers/common/analyzer-provider-contract.js";
 import { createExternalSnapshotRequest, readExternalSnapshotResponse } from "../src/analyzers/external/snapshot-provider.js";
 import { runSerenaSnapshot } from "../src/analyzers/external/serena-transport.js";
+import { taskContextFixture } from "./helpers/task-context-fixture.js";
+import { buildProjectTaskContext } from "../src/lib/task-context.js";
 
 const enabled = process.env.SERENA_DOCKER_TESTS === "1";
 const provider = { id: "external.serena-python", version: "1-f8f53b77-pyright-1.1.403", kind: "external", priority: 50, languages: ["python"],
@@ -74,4 +76,29 @@ test("real Docker transport validates and disposes a Python snapshot", { skip: !
     createProviderSnapshot({ projectId: "Prj_Transport" }, [{ ...files[0], text: "class Changed: pass\n" }], { status: "not_git" })
   ]) assert.throws(() => readExternalSnapshotResponse(other, provider, result.response, { requireObservedSource: true }), { code: "invalid_external_evidence" });
   assert.equal(spawnSync("docker", ["ps", "-aq", "--filter", "name=project-map-serena-"], { encoding: "utf8" }).stdout.trim(), "");
+});
+
+test("Context Pack consumes real normalized Python evidence without changing source security", { skip: !enabled }, (t) => {
+  const f = taskContextFixture(t);
+  f.write("models.py", "def greet(name: str):\n    return name\n");
+  f.write("usage.py", "from models import greet\n\ndef caller():\n    return greet('world')\n");
+  const image = spawnSync("docker", ["image", "inspect", "project-map-serena-python:1", "--format", "{{.Id}}"], { encoding: "utf8" }).stdout.trim();
+  const request = { ...f.request, task: { title: "Inspect greet", paths: ["models.py"] } };
+  const options = { ...f.options, analyzer: { serena: { image }, requiredLanguages: ["python"] } };
+  const pack = buildProjectTaskContext(request, options);
+  assert.equal(pack.analysis.provider.id, provider.id);
+  assert.equal(pack.analysis.status, "partial");
+  assert.deepEqual(pack.analysis.coverage.uncovered, ["typescript"]);
+  assert.ok(pack.sections.symbols.items.some((s) => s.name === "greet" && s.line === 1));
+  assert.ok(pack.sections.references.items.length > 0);
+  assert.equal(pack.sections.symbols.items[0].provenance.trust, "untrusted_external_analysis");
+  assert.equal(pack.observation.cacheReuse, "disabled");
+  assert.equal(JSON.stringify(pack).includes(f.root), false);
+  assert.deepEqual(buildProjectTaskContext(request, options), pack);
+  const changed = { ...options, collectSources(project, limits) {
+    const result = collectContextSources(project, limits);
+    f.write("models.py", "def changed(): pass\n");
+    return result;
+  } };
+  assert.throws(() => buildProjectTaskContext(request, changed), { code: "context_sources_changed" });
 });

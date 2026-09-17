@@ -2,6 +2,8 @@ import { getAnalyzer, listAnalyzerProviders } from "./analyzer-registry.js";
 import { ANALYZER_OPERATIONS, PROVIDER_LIMITS, createProviderSnapshot, providerError, isAnalyzerSymbolLabel } from "./analyzer-provider-contract.js";
 import { contextDigest, compareContextStrings as compare } from "../../lib/project-context-files.js";
 import { readExternalSnapshotResponse } from "../external/snapshot-provider.js";
+import { SERENA_PROVIDER } from "../external/serena-provider.js";
+import { runSerenaSnapshot } from "../external/serena-transport.js";
 
 function nativeEvidence(provider, snapshot, limits) {
   const projectType = provider.id === "native.dotnet" ? "dotnet" : "typescript";
@@ -30,7 +32,7 @@ function nativeEvidence(provider, snapshot, limits) {
 
 export function analyzeProviderSnapshot(project, sourceFiles, options = {}) {
   const snapshot = createProviderSnapshot(project, sourceFiles, options.revision);
-  const providers = listAnalyzerProviders(options.externalProviders);
+  const providers = listAnalyzerProviders(options.externalProviders, options);
   const required = options.requiredCapabilities ?? ["symbols"];
   const minimumLevel = options.minimumLevel ?? "structural";
   const requiredLanguages = options.requiredLanguages ?? [];
@@ -48,7 +50,14 @@ export function analyzeProviderSnapshot(project, sourceFiles, options = {}) {
     }
     let evidence;
     try {
-      evidence = provider.kind === "native" ? nativeEvidence(provider, snapshot, limits)
+      if (options.serena && provider.id === SERENA_PROVIDER.id) {
+        const transport = runSerenaSnapshot(snapshot, options.serena);
+        if (transport.status !== "available") {
+          attempts.push({ providerId: provider.id, status: transport.status === "invalid" ? "invalid" : "unavailable", reason: transport.status });
+          continue;
+        }
+        evidence = readExternalSnapshotResponse(snapshot, provider, transport.response, { ...limits, requireObservedSource: true });
+      } else evidence = provider.kind === "native" ? nativeEvidence(provider, snapshot, limits)
         : options.externalResponses?.[provider.id] === undefined ? null : readExternalSnapshotResponse(snapshot, provider, options.externalResponses[provider.id], limits);
     }
     catch { attempts.push({ providerId: provider.id, status: "invalid" }); continue; }

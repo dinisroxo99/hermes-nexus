@@ -112,6 +112,7 @@ export function resolveProjectConfig(options = {}) {
     legacyProjectsRoot,
     legacyProjectsRootContainer,
     projectRoots,
+    serenaPythonImage: (env.SERENA_PYTHON_IMAGE ?? envFileValues.SERENA_PYTHON_IMAGE) || null,
     intelligenceRegistryWritesEnabled: parseBoolean(
       env.INTELLIGENCE_REGISTRY_WRITES_ENABLED ?? envFileValues.INTELLIGENCE_REGISTRY_WRITES_ENABLED,
       false

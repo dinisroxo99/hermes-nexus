@@ -24,7 +24,8 @@ export function createTaskContextHandler(dependencies = {}) {
         manualProjectsFile: path.join(config.dataDir, "projects.json"),
         discoveredProjectsFile: path.join(config.dataDir, "discovered-projects.json")
       };
-      const pack = build({ ...body, projectId: params.projectId }, { registry });
+      const analyzer = config.serenaPythonImage ? { serena: { image: config.serenaPythonImage } } : undefined;
+      const pack = build({ ...body, projectId: params.projectId }, { registry, ...(analyzer ? { analyzer } : {}) });
       sendOk(res, 200, pack, "Task context constructed.");
     } catch (error) {
       const code = error?.code;

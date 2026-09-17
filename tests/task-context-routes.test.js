@@ -68,3 +68,18 @@ test("task context is served over a real loopback HTTP connection", async (t) =>
   assert.equal(data.revision.commitSha, f.git(["rev-parse", "HEAD"]));
   assert.ok(data.sections.symbols.items.some((symbol) => symbol.name === "One"));
 });
+
+test("task-context route passes only trusted Serena configuration and rejects body overrides", async (t) => {
+  const f = taskContextFixture(t);
+  const image = `sha256:${"a".repeat(64)}`;
+  let options;
+  const result = await dispatch(f, { task: f.request.task }, {
+    getProjectConfig: () => ({ dataDir: f.root, serenaPythonImage: image }),
+    buildProjectTaskContext: (_, supplied) => { options = supplied; return { projectId: f.request.projectId }; }
+  });
+  assert.equal(result.status, 200);
+  assert.deepEqual(options.analyzer, { serena: { image } });
+  for (const key of ["serena", "analyzer", "image", "externalProviders", "requiredLanguages"]) {
+    assert.equal((await dispatch(f, { task: f.request.task, [key]: image })).status, 400);
+  }
+});
