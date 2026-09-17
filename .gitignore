@@ -3,3 +3,5 @@ node_modules/
 .hermes/skills/
 .env
 data/projects.json
+# Local project registry state
+data/discovered-projects.json
