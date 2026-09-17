@@ -1,5 +1,6 @@
 import path from "node:path";
 import { getProjectCacheIdentity } from "./project-revision.js";
+import { normalizeContextSources } from "./project-context-files.js";
 import { inferFeatureFromSymbol, inferLayerFromProjectName } from "./project-structure.js";
 import { findFiles, normalizePath, readText, relative } from "../utils/fs-utils.js";
 
@@ -160,9 +161,10 @@ export function expandSymbolExplorer(project, nodeId, direction = "both") {
   };
 }
 
-function createSymbolIndex(project) {
-  const files = findFiles(project.absolutePath, ".cs");
-  const csprojs = findFiles(project.absolutePath, ".csproj");
+function createSymbolIndex(project, sourceFiles) {
+  const snapshot = sourceFiles === undefined ? null : normalizeContextSources(sourceFiles);
+  const files = snapshot ? snapshot.filter((file) => file.path.endsWith(".cs")).map((file) => path.join(project.absolutePath, file.path)) : findFiles(project.absolutePath, ".cs");
+  const csprojs = snapshot ? snapshot.filter((file) => file.path.endsWith(".csproj")).map((file) => path.join(project.absolutePath, file.path)) : findFiles(project.absolutePath, ".csproj");
 
   const projectDirs = csprojs
     .map((file) => ({
@@ -174,7 +176,7 @@ function createSymbolIndex(project) {
   const symbols = [];
 
   for (const file of files) {
-    const content = readText(file);
+    const content = snapshot ? snapshot.find((source) => path.join(project.absolutePath, source.path) === file).text : readText(file);
     const namespace = extractNamespace(content);
     const projectName = findNearestProjectName(file, projectDirs);
 
@@ -675,7 +677,7 @@ export function getFullGraphExplorer(project, options = {}) {
     features = []
   } = options;
 
-  const index = getSymbolIndex(project);
+  const index = options.sourceFiles === undefined ? getSymbolIndex(project) : createSymbolIndex(project, options.sourceFiles);
   const layerFilter = new Set(layers.filter(Boolean));
   const featureFilter = new Set(features.filter(Boolean));
   const allowedSymbols = index.symbols.filter((symbol) => {

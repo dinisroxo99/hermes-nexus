@@ -7,6 +7,40 @@ import assert from "node:assert/strict";
 import { resolveAnalyzer } from "../src/analyzers/common/analyzer-registry.js";
 import { analyzeProject, getImpact, getSymbolContext, getProjectInsights } from "../src/lib/analyzer-service.js";
 import { getAnalysisCacheStats, invalidateAnalysisCache } from "../src/lib/analysis-cache.js";
+import * as analyzerService from "../src/lib/analyzer-service.js";
+
+test("context analyzers reuse extraction from supplied sources without filesystem or cache access", (t) => {
+  assert.equal(typeof analyzerService.analyzeContextSources, "function");
+  const before = getAnalysisCacheStats().size;
+  t.mock.method(fs, "readFileSync", () => { throw new Error("Unexpected filesystem read"); });
+  const project = { name: "isolated", absolutePath: "/not-a-project-on-disk" };
+  const ts = analyzerService.analyzeContextSources(project, [
+    { path: "tsconfig.json", text: '{"extends":"../../outside.json"}' },
+    { path: "safe.ts", text: "import { Outside } from '../../outside'; export class Safe {}" }
+  ]);
+  assert.ok(ts.nodes.some((node) => node.label === "Safe"));
+  assert.equal(ts.nodes.some((node) => node.label === "Outside"), false);
+  const dotnet = analyzerService.analyzeContextSources(project, [
+    { path: "Core.csproj", text: "<Project />" },
+    { path: "Safe.cs", text: "namespace Core; public class Safe {}" }
+  ]);
+  assert.ok(dotnet.nodes.some((node) => node.label === "Safe"));
+  assert.equal(getAnalysisCacheStats().size, before);
+});
+
+test("context analyzer graph limits are explicit and preserve local references", () => {
+  const files = [
+    { path: "one.ts", text: "export class One {}" },
+    { path: "two.ts", text: "import { One } from './one'; export function Two() { return One; }" }
+  ];
+  const result = analyzerService.analyzeContextSources({ name: "fixture" }, files);
+  assert.equal(result.nodes.length, 2);
+  assert.ok(result.edges.length > 0);
+  assert.deepEqual(analyzerService.analyzeContextSources({ name: "fixture" }, [...files].reverse()), result);
+  const limited = analyzerService.analyzeContextSources({ name: "fixture" }, files, { nodeLimit: 1, edgeLimit: 1 });
+  assert.equal(limited.nodes.length, 1);
+  assert.equal(limited.limited, true);
+});
 
 function makeTsProject() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hermes-project-map-service-"));

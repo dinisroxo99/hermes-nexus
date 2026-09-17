@@ -8,6 +8,7 @@
 import { Project } from 'ts-morph';
 import fs from 'node:fs';
 import path from 'node:path';
+import { normalizeContextSources } from '../../lib/project-context-files.js';
 
 const IGNORED_DIRS = new Set([
   'node_modules',
@@ -49,12 +50,13 @@ export function analyzeTypeScriptProject(project, options = {}) {
     features = []
   } = options;
   const rootPath = project.absolutePath;
+  const snapshot = options.sourceFiles === undefined ? null : normalizeContextSources(options.sourceFiles);
 
-  if (!fs.existsSync(rootPath)) {
+  if (!snapshot && !fs.existsSync(rootPath)) {
     return emptyResult(`Caminho do projeto não encontrado: ${rootPath}`);
   }
 
-  const files = findAllSourceFiles(rootPath);
+  const files = snapshot ? snapshot.filter((file) => /\.(ts|tsx|js|jsx)$/.test(file.path)).map((file) => path.join(rootPath, file.path)) : findAllSourceFiles(rootPath);
 
   if (!files.length) {
     return emptyResult('Nenhum ficheiro .ts/.tsx/.js/.jsx encontrado');
@@ -62,7 +64,11 @@ export function analyzeTypeScriptProject(project, options = {}) {
 
   try {
     const tsConfigPath = path.join(rootPath, 'tsconfig.json');
-    const tsProject = new Project({
+    const tsProject = new Project(snapshot ? {
+      useInMemoryFileSystem: true,
+      skipFileDependencyResolution: true,
+      compilerOptions: { allowJs: true, noLib: true }
+    } : {
       tsConfigFilePath: fs.existsSync(tsConfigPath) ? tsConfigPath : undefined,
       skipAddingFilesFromTsConfig: true,
       compilerOptions: {
@@ -71,7 +77,8 @@ export function analyzeTypeScriptProject(project, options = {}) {
     });
 
     for (const file of files) {
-      tsProject.addSourceFileAtPath(file);
+      if (snapshot) tsProject.createSourceFile(file, snapshot.find((source) => path.join(rootPath, source.path) === file).text);
+      else tsProject.addSourceFileAtPath(file);
     }
 
     const nodes = [];
@@ -81,7 +88,7 @@ export function analyzeTypeScriptProject(project, options = {}) {
     const fileSymbolsByPath = new Map();
     const defaultSymbolByPath = new Map();
     const exportAliasesByPath = new Map();
-    const pathAliases = readPathAliases(rootPath);
+    const pathAliases = readPathAliases(rootPath, snapshot ? snapshot.find((file) => file.path === 'tsconfig.json')?.text || '{}' : undefined);
     const sourceFiles = tsProject.getSourceFiles().filter((sourceFile) => {
       const relativePath = normalizeRelativePath(rootPath, sourceFile.getFilePath());
       return !shouldIgnorePath(relativePath);
@@ -371,15 +378,15 @@ function resolveImportPath(fromRelativePath, moduleSpecifier, context) {
   return null;
 }
 
-function readPathAliases(rootPath) {
+function readPathAliases(rootPath, sourceText) {
   const tsConfigPath = path.join(rootPath, 'tsconfig.json');
 
-  if (!fs.existsSync(tsConfigPath)) {
+  if (sourceText === undefined && !fs.existsSync(tsConfigPath)) {
     return [];
   }
 
   try {
-    const raw = stripJsonComments(fs.readFileSync(tsConfigPath, 'utf8'));
+    const raw = stripJsonComments(sourceText === undefined ? fs.readFileSync(tsConfigPath, 'utf8') : sourceText);
     const parsed = JSON.parse(raw);
     const compilerOptions = parsed.compilerOptions || {};
     const baseUrl = compilerOptions.baseUrl || '.';
