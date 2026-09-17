@@ -1,0 +1,53 @@
+# Roundtable Review — 15_ACCEPTANCE_AND_BENCHMARKS.md
+
+**Decision:** REVISED — approved with refinements
+
+## Context sent to the panel
+
+The simulated panel reviewed the **full content** of this file together with the following dependency/context documents:
+
+- `15_ACCEPTANCE_AND_BENCHMARKS.md`
+- `22_MODEL_ROUTING_AND_TOKEN_BUDGETS.md`
+- `23_24_7_DEPLOYMENT_AND_OPERATIONS.md`
+- `26_PROJECT_EXPERT_DATA_PIPELINE.md`
+
+Global architecture assumptions supplied to every expert:
+
+- Hermes remains the runtime/orchestrator and Kanban owner.
+- `hermes-project-map` remains the project-intelligence / ICM / impact / scope layer.
+- Honcho is experiential memory, not current-code truth.
+- Git/revision-aware Project Intelligence is authoritative for current repository facts.
+- The Project Expert is read-only and retrieval-first.
+- Context should be bounded and measurable rather than dumping the repository.
+
+## 10-expert roundtable
+
+| Expert | Assessment |
+|---|---|
+| **Distributed Systems Architect** | `Acceptance Tests and Benchmarks` fits the overall boundary, but must continue to name its owner, inputs and failure behavior rather than becoming an implicit shared state machine. |
+| **Multi-Agent / LLM Systems Engineer** | `Acceptance Tests and Benchmarks` should minimize what every worker must read; only task-relevant outputs should enter agent context, with the full document remaining operator/design documentation. |
+| **Application Security / Trust Engineer** | No architectural objection, but any repository/tool text referenced by `Acceptance Tests and Benchmarks` must be treated as untrusted data rather than executable policy. |
+| **SRE / Observability Engineer** | `Acceptance Tests and Benchmarks` is operationally acceptable if its derived state can be rebuilt and its dependencies expose health/readiness and bounded timeouts. |
+| **Git / SCM & Developer Tooling Engineer** | `Acceptance Tests and Benchmarks` should remain compatible with normal Git workflows and avoid inventing a second source-code state outside Git/worktrees. |
+| **Data / Knowledge Architect** | `Acceptance Tests and Benchmarks` needs references to canonical entities rather than free-form duplicated fields; the new state model should be used by implementations. |
+| **ML / MLOps Engineer** | Approves retrieval-first learning, but insists on validated labels, frozen evaluation sets and reproducible exports before fine-tuning/router learning. |
+| **API / MCP Integration Engineer** | `Acceptance Tests and Benchmarks` should refer to stable domain contracts and avoid leaking provider-specific schemas into Project Map core logic. |
+| **Developer Experience / Product Engineer** | `Acceptance Tests and Benchmarks` is useful as long as operators can inspect the reason behind decisions (impact, scope, conflict, routing) instead of receiving opaque automation. |
+| **QA / Verification Engineer** | Requires deterministic fixtures, invariants and regression gates; the decision is accepted because the revised document now states testable outcomes. |
+
+## Consensus
+
+Keep; make experiments paired/reproducible and report distributions.
+
+## Why this decision
+
+The panel accepted the document's responsibility boundary but required the changes below so that the text can be implemented without duplicating Hermes, mixing sources of truth, or creating untestable autonomous behavior.
+
+## Changes applied to the delivered file
+
+- Added benchmark metadata and golden set.
+- Added median/tail/failure metrics.
+
+## Outcome
+
+The file remains in the pack and the v4 refinements are part of the accepted target design.
