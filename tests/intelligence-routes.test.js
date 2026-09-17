@@ -47,6 +47,41 @@ function makeRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "project-map-route-"));
 }
 
+test("POST registration returns 409 for persisted identity conflicts without writing", async (t) => {
+  const root = makeRoot();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const manual = JSON.stringify([
+    { name: "one", relativePath: "one", projectId: "PrJ_Same" },
+    { name: "two", relativePath: "two", projectId: "PrJ_Same" }
+  ]);
+  fs.writeFileSync(path.join(root, "projects.json"), manual);
+  const result = await dispatchRegister({ roots: [{ id: "default", path: root }], registryDir: root, body: { projects: [{ relativePath: "one" }] } });
+  assert.equal(result.status, 409);
+  assert.equal(result.payload.error, "project_identity_conflict");
+  assert.equal(fs.readFileSync(path.join(root, "projects.json"), "utf8"), manual);
+  assert.equal(fs.existsSync(path.join(root, "discovered-projects.json")), false);
+});
+
+test("overview returns controlled identity errors without exposing lookup details", async () => {
+  for (const [code, expectedStatus] of [["ambiguous_project", 409], ["project_identity_conflict", 409], ["invalid_project_identity", 400]]) {
+    const result = await dispatchOverview({ url: "/api/intelligence/projects/api/overview", extraDependencies: {
+      getProjectByName: () => { throw Object.assign(new Error("/sensitive/git/path"), { code }); }
+    } });
+    assert.equal(result.status, expectedStatus);
+    assert.equal(result.payload.error, code);
+    assert.equal(JSON.stringify(result.payload).includes("/sensitive"), false);
+  }
+});
+
+test("overview route projects only safe Git identity fields", async (t) => {
+  const f = gitFixture(t);
+  const { payload, status } = await dispatchOverview({ project: f.project, url: "/api/intelligence/projects/fixture/overview" });
+  assert.equal(status, 200);
+  assert.equal(payload.data.project.projectId, "PrJ_Fixture");
+  assert.equal(payload.data.revision.commitSha, f.git(["rev-parse", "HEAD"]));
+  assert.equal(JSON.stringify(payload).includes(f.root), false);
+});
+
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
@@ -388,6 +423,7 @@ test("GET /api/intelligence/projects/:name/overview returns high-level overview 
   assert.equal(payload.data.schemaVersion, 1);
   assert.equal(payload.data.bounded, true);
   assert.deepEqual(payload.data.project, {
+    projectId: null,
     name: "sample-service",
     rootId: "default",
     relativePath: "sample-service",

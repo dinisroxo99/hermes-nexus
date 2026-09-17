@@ -6,10 +6,74 @@ import assert from "node:assert/strict";
 
 import { buildProjectOverview } from "../src/lib/project-overview.js";
 import { getProjectByNameForIntelligence } from "../src/lib/projects.js";
+import { getCachedAnalysis, invalidateAnalysisCache } from "../src/lib/analysis-cache.js";
+import { gitFixture } from "./helpers/git-fixture.js";
+
+test("overview exposes stable identity and safe Git evidence without internal paths", (t) => {
+  const f = gitFixture(t);
+  const overview = buildProjectOverview(f.project, { now: "2026-01-01T00:00:00Z" });
+  assert.equal(overview.project.projectId, "PrJ_Fixture");
+  assert.equal(overview.revision.commitSha, f.git(["rev-parse", "HEAD"]));
+  assert.equal(overview.revision.capturedAt, "2026-01-01T00:00:00Z");
+  assert.equal(overview.revision.dirty, false);
+  assert.equal(Object.hasOwn(overview.revision, "evidence"), false);
+  assert.equal(JSON.stringify(overview).includes(f.root), false);
+  f.git(["checkout", "--detach"]);
+  assert.equal(buildProjectOverview(f.project).revision.branch, null);
+});
+
+test("overview matches exact cached identity and rejects stale HEAD or dirty state", (t) => {
+  const f = gitFixture(t);
+  f.write("tsconfig.json", "{}\n");
+  f.commit();
+  invalidateAnalysisCache();
+  t.after(() => invalidateAnalysisCache());
+  const cache = () => getCachedAnalysis(f.project, { projectType: "typescript", fileExtensions: [".ts"] }, {}, () => ({ nodes: [], edges: [] }));
+  cache();
+  assert.equal(buildProjectOverview(f.project).analysis.status, "fresh");
+  assert.equal(buildProjectOverview(f.project).statistics.nodeCount, 0);
+  assert.equal(buildProjectOverview({ ...f.project, projectId: "PrJ_Other" }).analysis.status, "not_analyzed");
+  f.git(["commit", "--allow-empty", "--no-gpg-sign", "-m", "new revision"]);
+  assert.equal(buildProjectOverview(f.project).analysis.status, "not_analyzed");
+  cache();
+  f.write("src/source.ts", "export const dirty = 1;\n");
+  const dirty = buildProjectOverview(f.project);
+  assert.equal(dirty.revision.dirty, true);
+  assert.equal(dirty.analysis.status, "not_analyzed");
+  assert.equal(dirty.statistics.nodeCount, null);
+});
+
+test("overview preserves legacy non-Git identity and rejects cache path-prefix collisions", (t) => {
+  const root = makeTempRoot();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const project = makeProject(root, "legacy");
+  writeJson(path.join(project.absolutePath, "package.json"), {});
+  const overview = buildProjectOverview(project, { getAnalysisCacheStats: () => ({ entries: [{
+    project: "legacy", projectType: "nodejs", key: `legacy:nodejs:${project.absolutePath}-other`, expiresInMs: 300000, nodeCount: 99
+  }] }) });
+  assert.equal(overview.project.projectId, null);
+  assert.equal(overview.revision.status, "not_git");
+  assert.equal(overview.analysis.status, "not_analyzed");
+});
 
 function makeTempRoot(prefix = "project-overview-") {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
+
+test("overview reports unborn and unavailable Git without claiming a clean revision", (t) => {
+  const f = gitFixture(t, { committed: false });
+  const unborn = buildProjectOverview(f.project);
+  assert.equal(unborn.revision.status, "unborn");
+  assert.equal(unborn.revision.commitSha, null);
+  const broken = path.join(f.root, "broken");
+  fs.mkdirSync(broken);
+  fs.writeFileSync(path.join(broken, ".git"), "gitdir: /private/unreachable-metadata\n");
+  const unavailable = buildProjectOverview({ ...f.project, absolutePath: broken });
+  assert.equal(unavailable.revision.status, "unavailable");
+  assert.equal(unavailable.revision.dirty, null);
+  assert.equal(unavailable.analysis.status, "not_analyzed");
+  assert.equal(JSON.stringify(unavailable).includes("/private"), false);
+});
 
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -93,6 +157,7 @@ test("buildProjectOverview returns bounded TypeScript identity, stack and archit
   assert.equal(overview.schemaVersion, 1);
   assert.equal(overview.bounded, true);
   assert.deepEqual(overview.project, {
+    projectId: null,
     name: "sample-service",
     rootId: "default",
     relativePath: "sample-service",

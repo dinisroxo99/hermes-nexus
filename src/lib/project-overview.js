@@ -10,6 +10,7 @@ import { listAnalyzerCapabilities } from "../analyzers/common/analyzer-registry.
 import { getAnalysisCacheStats as getAnalysisCacheStatsDefault } from "./analysis-cache.js";
 import { buildProjectIcmIndex } from "./icm-index.js";
 import { analyzeProjectStructure } from "./project-structure.js";
+import { getProjectCacheIdentity } from "./project-revision.js";
 
 export const PROJECT_OVERVIEW_LIMITS = Object.freeze({
   scripts: 50,
@@ -72,10 +73,13 @@ export function buildProjectOverview(project, options = {}) {
   };
 
   const projectType = detectProjectType(project.absolutePath);
+  const identity = getProjectCacheIdentity(project, {
+    now: typeof options.now === "function" ? options.now : options.now ? () => options.now : undefined
+  });
   const supported = isSupportedProjectType(projectType);
   const packageInfo = readPackageJson(project.absolutePath, warnings);
   const structure = readProjectStructure(project, warnings);
-  const analysis = readAnalysisState(project, projectType, options.getAnalysisCacheStats || getAnalysisCacheStatsDefault);
+  const analysis = readAnalysisState(project, projectType, options.getAnalysisCacheStats || getAnalysisCacheStatsDefault, identity);
   const sourceFileCount = inferSourceFileCount(project, structure);
   const icmIndex = buildProjectIcmIndex(project, limits.icm);
 
@@ -101,6 +105,7 @@ export function buildProjectOverview(project, options = {}) {
       }
     },
     project: {
+      projectId: project.projectId ?? null,
       name: project.name,
       rootId: project.rootId || "default",
       relativePath: normalizeRelativePath(project.relativePath || project.name || ""),
@@ -109,6 +114,7 @@ export function buildProjectOverview(project, options = {}) {
       supported,
       registrySource: project.registrySource || project.source || "manual"
     },
+    revision: { ...identity.revision },
     stack: {
       languages: inferLanguages(projectType),
       frameworks: detectFrameworks(packageInfo.packageJson).slice(0, limits.frameworks),
@@ -391,13 +397,15 @@ function countKnownSourceFiles(rootPath) {
   return count;
 }
 
-function readAnalysisState(project, projectType, getAnalysisCacheStats) {
+function readAnalysisState(project, projectType, getAnalysisCacheStats, identity) {
   const stats = getAnalysisCacheStats?.() || {};
   const entries = Array.isArray(stats.entries) ? stats.entries : [];
   const entry = entries.find((item) => {
-    return item.project === project.name
+    const matches = item.identityKey === identity.key || (!item.identityKey && !project.projectId
+      && identity.revision.status === "not_git" && item.key === `${project.name}:${projectType}:${project.absolutePath}`);
+    return identity.reusable && matches && item.project === project.name
       && item.projectType === projectType
-      && (!item.key || String(item.key).includes(project.absolutePath));
+      && (item.projectId ?? null) === (project.projectId ?? null);
   });
 
   if (!entry) {

@@ -43,6 +43,8 @@ export function createDiscoverProjectsHandler(dependencies = {}) {
 
       sendOk(res, 200, result, "Descoberta de projetos concluída");
     } catch (error) {
+      const identity = classifyIdentityError(error);
+      if (identity) { sendError(res, identity.status, identity.code, identity.message); return; }
       sendError(res, 500, "discovery_failed", error.message || "Falha ao descobrir projetos.");
     }
   };
@@ -113,6 +115,8 @@ export function createRegisterDiscoveredProjectsHandler(dependencies = {}) {
 
       sendOk(res, 200, upsert.result, "Projetos descobertos registados");
     } catch (error) {
+      const identity = classifyIdentityError(error);
+      if (identity) { sendError(res, identity.status, identity.code, identity.message); return; }
       sendError(res, 500, "registration_failed", error.message || "Falha ao registar projetos descobertos.");
     }
   };
@@ -201,6 +205,8 @@ function parseRegistrationRequest(body) {
 }
 
 function classifyProjectLookupError(error, projectName) {
+  const identity = classifyIdentityError(error);
+  if (identity) return identity;
   const message = error?.message || `Projeto não encontrado: ${projectName}`;
 
   if (message.includes("Pasta do projeto")) {
@@ -216,4 +222,14 @@ function classifyProjectLookupError(error, projectName) {
     code: "project_not_found",
     message
   };
+}
+
+function classifyIdentityError(error) {
+  if (["ambiguous_project", "project_identity_conflict"].includes(error?.code)) {
+    return { status: 409, code: error.code, message: "Project identity is ambiguous or conflicting." };
+  }
+  if (error?.code === "invalid_project_identity") {
+    return { status: 400, code: error.code, message: "Invalid project identity." };
+  }
+  return null;
 }
