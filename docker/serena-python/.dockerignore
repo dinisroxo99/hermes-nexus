@@ -1,0 +1,5 @@
+*
+!Dockerfile
+!fetch.py
+!bridge.py
+!requirements.lock
