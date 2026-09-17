@@ -33,3 +33,10 @@ test("provider snapshots bind identity, revision and content without leaking fil
   assert.notEqual(first.token, createProviderSnapshot(project, [{ path: "one.py", text: "changed" }], first.revision).token);
   assert.ok(Object.isFrozen(first.files));
 });
+
+test("provider revision projection rejects internal metadata paths", async () => {
+  const { createProviderSnapshot } = await api();
+  for (const revision of [{ repositoryId: "/private/.git" }, { worktreeId: "C:\\private\\.git" }, { branch: "/private/.git/refs" }]) {
+    assert.throws(() => createProviderSnapshot({ projectId: "PrJ_A" }, [], revision), { code: "invalid_analyzer_snapshot" });
+  }
+});

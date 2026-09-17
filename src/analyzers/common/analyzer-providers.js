@@ -1,6 +1,7 @@
 import { getAnalyzer, listAnalyzerProviders } from "./analyzer-registry.js";
 import { ANALYZER_OPERATIONS, PROVIDER_LIMITS, createProviderSnapshot, providerError } from "./analyzer-provider-contract.js";
 import { contextDigest, compareContextStrings as compare } from "../../lib/project-context-files.js";
+import { readExternalSnapshotResponse } from "../external/snapshot-provider.js";
 
 function nativeEvidence(provider, snapshot, limits) {
   const projectType = provider.id === "native.dotnet" ? "dotnet" : "typescript";
@@ -32,6 +33,8 @@ export function analyzeProviderSnapshot(project, sourceFiles, options = {}) {
   const providers = listAnalyzerProviders(options.externalProviders);
   const required = options.requiredCapabilities ?? ["symbols"];
   const minimumLevel = options.minimumLevel ?? "structural";
+  const requiredLanguages = options.requiredLanguages ?? [];
+  if (!Array.isArray(requiredLanguages) || requiredLanguages.length > 32 || requiredLanguages.some((language) => typeof language !== "string" || !/^[a-z][a-z0-9-]{0,31}$/.test(language))) throw providerError("invalid_analyzer_request");
   if (!Array.isArray(required) || required.length > ANALYZER_OPERATIONS.length || required.some((operation) => !ANALYZER_OPERATIONS.includes(operation))
     || !["structural", "semantic"].includes(minimumLevel)) throw providerError("invalid_analyzer_request");
   const bound = (value, max) => Number.isFinite(value) ? Math.max(1, Math.min(max, Math.floor(value))) : max;
@@ -39,13 +42,18 @@ export function analyzeProviderSnapshot(project, sourceFiles, options = {}) {
   const attempts = [];
   for (const provider of providers) {
     if (!provider.languages.some((language) => snapshot.languages.includes(language))) continue;
+    if (requiredLanguages.some((language) => !provider.languages.includes(language) || !snapshot.languages.includes(language))) continue;
     if (provider.capabilities.boundedSourceAnalysis === "unsupported" || required.some((operation) => provider.capabilities[operation] === "unsupported" || (minimumLevel === "semantic" && provider.capabilities[operation] !== "semantic"))) {
       attempts.push({ providerId: provider.id, status: "unsupported" }); continue;
     }
     let evidence;
-    try { evidence = provider.kind === "native" ? nativeEvidence(provider, snapshot, limits) : null; }
+    try {
+      evidence = provider.kind === "native" ? nativeEvidence(provider, snapshot, limits)
+        : options.externalResponses?.[provider.id] === undefined ? null : readExternalSnapshotResponse(snapshot, provider, options.externalResponses[provider.id], limits);
+    }
     catch { attempts.push({ providerId: provider.id, status: "invalid" }); continue; }
     if (!evidence) { attempts.push({ providerId: provider.id, status: "unavailable" }); continue; }
+    if (["unavailable", "unsupported"].includes(evidence.status)) { attempts.push({ providerId: provider.id, status: evidence.status }); continue; }
     const uncovered = snapshot.languages.filter((language) => !provider.languages.includes(language));
     const status = evidence.limited || uncovered.length ? "partial" : "available";
     attempts.push({ providerId: provider.id, status });

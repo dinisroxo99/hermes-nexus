@@ -41,6 +41,10 @@ export function createProviderSnapshot(project, sourceFiles, revision = {}) {
   for (const key of ["status", "commitSha", "branch", "repositoryId", "worktreeId"]) {
     const value = revision[key] ?? null;
     if (value !== null && (typeof value !== "string" || value.length > 512 || /[\u0000-\u001f\u007f]/.test(value))) throw providerError("invalid_analyzer_snapshot");
+    if (value !== null && ((["repositoryId", "worktreeId"].includes(key) && !/^[A-Za-z0-9_-]{1,128}$/.test(value))
+      || (key === "branch" && /^(?:[A-Za-z]:|[\\/])/.test(value))
+      || (key === "commitSha" && !/^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$/.test(value))
+      || (key === "status" && !["available", "unborn", "not_git", "unavailable"].includes(value)))) throw providerError("invalid_analyzer_snapshot");
     safeRevision[key] = value;
   }
   for (const key of ["dirty", "isGit", "isLinkedWorktree"]) {
