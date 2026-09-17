@@ -5,7 +5,7 @@ import { validateRelativeProjectPath, isPathInsideRoot } from "./project-roots.j
 import { isIgnoredProjectScanDir } from "./project-scan-policy.js";
 
 export const CONTEXT_SOURCE_LIMITS = Object.freeze({ maxDepth: 8, maxEntries: 10000, maxFiles: 500, maxFileBytes: 128 * 1024, maxTotalBytes: 4 * 1024 * 1024 });
-const EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".cs", ".csproj", ".sln", ".slnx", ".py", ".go", ".rs", ".java", ".md", ".json", ".yaml", ".yml", ".txt"]);
+const EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".cs", ".csproj", ".sln", ".slnx", ".py", ".go", ".rs", ".java", ".sh", ".bash", ".ps1", ".psm1", ".psd1", ".md", ".json", ".yaml", ".yml", ".txt"]);
 
 export const compareContextStrings = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 export const contextDigest = (value) => createHash("sha256").update(value).digest("hex");
