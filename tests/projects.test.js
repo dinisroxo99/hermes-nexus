@@ -53,3 +53,38 @@ test("explicit relocation preserves projectId without generating a new identity"
   assert.equal(resolved.projectId, "PrJ_A");
   assert.equal(resolved.relativePath, "moved");
 });
+
+test("legacy lookup and listing resolve the registered root before projecting metadata", (t) => {
+  const { dir, options } = fixture(t, [{ name: "api", rootId: "b", relativePath: "api" }]);
+  const expected = path.join(dir, "b", "api");
+  assert.equal(projects.getProjectByName("api", options).absolutePath, expected);
+  assert.equal(projects.listProjects(options)[0].absolutePath, expected);
+  assert.equal(Object.hasOwn(projects.getProjectByName("api", options), "rootId"), false);
+});
+
+test("lookup rejects unknown roots, non-directories and symlink escapes without leaking paths", (t) => {
+  const { dir, options } = fixture(t, [{ name: "api", rootId: "b", relativePath: "api" }]);
+  for (const lookup of [projects.getProjectByName, projects.getProjectByNameForIntelligence]) {
+    assert.throws(() => lookup("api", { ...options, roots: [] }), { code: "project_unavailable" });
+  }
+  const target = path.join(dir, "b", "api");
+  fs.rmdirSync(target);
+  fs.writeFileSync(target, "not a directory");
+  assert.throws(() => projects.getProjectByNameForIntelligence("api", options), { code: "project_unavailable" });
+  fs.unlinkSync(target);
+  fs.mkdirSync(path.join(dir, "external"));
+  fs.symlinkSync(path.join(dir, "external"), target, "dir");
+  assert.throws(() => projects.getProjectByNameForIntelligence("api", options), (error) => {
+    assert.equal(error.code, "project_unavailable");
+    assert.equal(error.message.includes(dir), false);
+    return true;
+  });
+});
+
+test("missing project remains listable but cannot be resolved or assigned a new ID", (t) => {
+  const { dir, options } = fixture(t, [{ name: "api", relativePath: "api", projectId: "PrJ_A" }]);
+  fs.rmdirSync(path.join(dir, "default", "api"));
+  assert.throws(() => projects.getProjectByIdForIntelligence("PrJ_A", options), { code: "project_unavailable" });
+  assert.equal(projects.listProjects(options)[0].absolutePath, path.join(dir, "default", "api"));
+  assert.equal(JSON.parse(fs.readFileSync(options.manualProjectsFile))[0].projectId, "PrJ_A");
+});

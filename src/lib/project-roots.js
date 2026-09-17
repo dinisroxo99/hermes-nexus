@@ -1,4 +1,5 @@
 import path from "node:path";
+import fs from "node:fs";
 
 import { resolveProjectConfig, toRuntimePath } from "./project-config.js";
 
@@ -11,6 +12,35 @@ export function getConfiguredProjectRoots(options = {}) {
     source: root.source || "env",
     writableRegistry: root.writableRegistry !== false
   }));
+}
+
+export function resolveProjectLocation(project, roots = getConfiguredProjectRoots(), options = {}) {
+  const fail = () => {
+    const error = new Error("Pasta do projeto indisponível no runtime.");
+    error.code = "project_unavailable";
+    return error;
+  };
+  const relative = validateRelativeProjectPath(project?.relativePath);
+  const matches = roots.filter((root) => root.id === (project?.rootId || "default"));
+  if (!relative.valid || /^[A-Za-z]:/.test(relative.relativePath) || matches.length !== 1) throw fail();
+  try {
+    const root = fs.realpathSync(matches[0].path);
+    const candidate = path.resolve(root, relative.relativePath);
+    if (!isPathInsideRoot(root, candidate)) throw fail();
+    let ancestor = candidate;
+    while (options.allowMissing && !fs.existsSync(ancestor) && ancestor !== root) {
+      // A dangling symlink is unavailable, not a missing directory.
+      try { if (fs.lstatSync(ancestor).isSymbolicLink()) throw fail(); } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
+      ancestor = path.dirname(ancestor);
+    }
+    const canonical = fs.realpathSync(ancestor);
+    if (!isPathInsideRoot(root, canonical) || !fs.statSync(canonical).isDirectory()) throw fail();
+    return path.join(canonical, path.relative(ancestor, candidate));
+  } catch {
+    throw fail();
+  }
 }
 
 export function normalizeRootPath(value, options = {}) {

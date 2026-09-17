@@ -6,7 +6,7 @@ import {
   isSupportedProjectType
 } from "../analyzers/common/analyzer-detection.js";
 import { resolveProjectConfig } from "./project-config.js";
-import { getConfiguredProjectRoots } from "./project-roots.js";
+import { resolveProjectLocation } from "./project-roots.js";
 import {
   mergeProjectRegistries,
   readDiscoveredProjectRegistry,
@@ -16,7 +16,6 @@ import {
 
 const PROJECT_CONFIG = resolveProjectConfig();
 const DATA_DIR = PROJECT_CONFIG.dataDir;
-const PROJECTS_ROOT_CONTAINER = PROJECT_CONFIG.legacyProjectsRootContainer;
 
 const PROJECTS_FILE = path.join(DATA_DIR, "projects.json");
 const DISCOVERED_PROJECTS_FILE = path.join(DATA_DIR, "discovered-projects.json");
@@ -29,18 +28,14 @@ function readProjectsFile(options = {}) {
   return projects;
 }
 
-export function getProjectAbsolutePath(project) {
-  return path.join(PROJECTS_ROOT_CONTAINER, project.relativePath || "");
+export function getProjectAbsolutePath(project, roots) {
+  return resolveProjectLocation(project, roots, { allowMissing: true });
 }
 
 export function getProjectByName(name, options = {}) {
   const project = selectProject("name", name, options);
 
-  const absolutePath = getProjectAbsolutePath(project);
-
-  if (!fs.existsSync(absolutePath)) {
-    throw new Error(`Pasta do projeto não encontrada no runtime: ${absolutePath}`);
-  }
+  const absolutePath = resolveProjectLocation(project, options.roots);
 
   return {
     ...toLegacyProjectView(project),
@@ -69,11 +64,7 @@ function selectProject(field, value, options) {
 }
 
 function resolveIntelligenceProject(project, options) {
-  const absolutePath = getProjectAbsolutePathForIntelligence(project, options.roots);
-
-  if (!fs.existsSync(absolutePath)) {
-    throw new Error(`Pasta do projeto não encontrada no runtime: ${absolutePath}`);
-  }
+  const absolutePath = resolveProjectLocation(project, options.roots);
 
   return {
     ...project,
@@ -81,11 +72,14 @@ function resolveIntelligenceProject(project, options) {
   };
 }
 
-export function listProjects() {
-  return readProjectsFile().map((project) => ({
-    ...toLegacyProjectView(project),
-    absolutePath: getProjectAbsolutePath(project)
-  }));
+export function listProjects(options = {}) {
+  return readProjectsFile(options).map((project) => {
+    let absolutePath = null;
+    try { absolutePath = getProjectAbsolutePath(project, options.roots); } catch (error) {
+      if (error.code !== "project_unavailable") throw error;
+    }
+    return { ...toLegacyProjectView(project), absolutePath };
+  });
 }
 
 export function listProjectSummaries() {
@@ -128,16 +122,6 @@ function countFiles(root, extensions) {
   }
 
   return count;
-}
-
-function getProjectAbsolutePathForIntelligence(project, roots = getConfiguredProjectRoots()) {
-  const root = roots.find((item) => item.id === (project.rootId || "default"));
-
-  if (root) {
-    return path.join(root.path, project.relativePath || "");
-  }
-
-  return getProjectAbsolutePath(project);
 }
 
 function* walk(dir) {

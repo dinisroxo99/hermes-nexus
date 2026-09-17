@@ -6,6 +6,7 @@ import {
   getConfiguredProjectRoots,
   isPathInsideRoot,
   normalizeRootPath,
+  resolveProjectLocation,
   validateRelativeProjectPath
 } from "../src/lib/project-roots.js";
 
@@ -113,4 +114,13 @@ test("validateRelativeProjectPath explicitly rejects empty and dot paths", () =>
   assert.equal(validateRelativeProjectPath("").valid, false);
   assert.equal(validateRelativeProjectPath("   ").valid, false);
   assert.equal(validateRelativeProjectPath(".").valid, false);
+});
+
+test("resolveProjectLocation rejects unsafe locators and unknown roots before filesystem resolution", () => {
+  const roots = [{ id: "default", path: "/unused" }];
+  for (const relativePath of ["../outside", "/outside", "C:outside", "C:/outside", "\\\\server\\share", "."]) {
+    assert.throws(() => resolveProjectLocation({ relativePath }, roots), { code: "project_unavailable" });
+  }
+  assert.throws(() => resolveProjectLocation({ rootId: "unknown", relativePath: "api" }, roots), { code: "project_unavailable" });
+  assert.throws(() => resolveProjectLocation({ relativePath: "api" }, [...roots, ...roots]), { code: "project_unavailable" });
 });
