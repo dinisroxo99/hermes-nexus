@@ -114,3 +114,13 @@ test("per-section omissions mark the pack incomplete even when the byte budget f
   assert.equal(pack.sections.files.truncated, true);
   assert.equal(pack.observation.incomplete, true);
 });
+
+test("worktree context excludes registered boundaries in the actual selected checkout", async (t) => {
+  const build = await builder(); const f = taskContextFixture(t);
+  const linked = f.worktree();
+  f.write("private/a.ts", "export class PRIVATE_OTHER_PROJECT {}\n", linked);
+  fs.writeFileSync(f.options.registry.manualProjectsFile, JSON.stringify([...f.entries, { name: "private", rootId: "test", relativePath: "linked/private", projectId: "PrJ_Private" }]));
+  const pack = build({ ...f.request, worktree: { rootId: "test", relativePath: "linked" }, task: { title: "Inspect", paths: ["private"] }, includeExcerpts: true }, f.options);
+  assert.equal(pack.sections.files.items.length, 0);
+  assert.equal(JSON.stringify(pack).includes("PRIVATE_OTHER_PROJECT"), false);
+});

@@ -38,7 +38,8 @@ export function collectContextSources(project, options = {}) {
   const limits = Object.fromEntries(Object.entries(CONTEXT_SOURCE_LIMITS).map(([key, max]) => [key,
     Number.isFinite(options[key]) ? Math.max(key === "maxDepth" ? 0 : 1, Math.min(max, Math.floor(options[key]))) : max
   ]));
-  const root = fs.realpathSync(project.absolutePath);
+  const root = path.resolve(project.absolutePath);
+  if (fs.realpathSync(root) !== root) throw Object.assign(new Error("Resolved context root changed."), { code: "invalid_context_sources" });
   const excluded = options.excludedPaths || [];
   if (!Array.isArray(excluded) || excluded.some((p) => !isContextPathAllowed(p))) {
     throw Object.assign(new Error("Invalid context boundaries."), { code: "invalid_context_sources" });
@@ -52,12 +53,20 @@ export function collectContextSources(project, options = {}) {
     truncated = true;
     if (diagnostics.length < 40) diagnostics.push({ code, ...(file ? { path: file } : {}) });
   };
+  // Kernel-backed descriptor paths bind the opened object, not a raceable pathname.
+  // Without this facility collection fails closed; never fall back to path prechecks.
+  const verifyDescriptor = (fd, expected) => {
+    if (fs.readlinkSync(`/proc/self/fd/${fd}`) !== expected) throw new Error("Context source moved.");
+  };
   function visit(dir, depth) {
     if (visited > limits.maxEntries) return;
     const entries = [];
     let handle;
+    let directoryFd;
     try {
-      handle = fs.opendirSync(dir);
+      directoryFd = fs.openSync(dir, fs.constants.O_RDONLY | (fs.constants.O_DIRECTORY || 0) | (fs.constants.O_NOFOLLOW || 0));
+      verifyDescriptor(directoryFd, dir);
+      handle = fs.opendirSync(`/proc/self/fd/${directoryFd}`);
       let entry;
       while ((entry = handle.readSync())) {
         visited += 1;
@@ -65,7 +74,7 @@ export function collectContextSources(project, options = {}) {
         entries.push(entry);
       }
     } catch { issue("source_directory_unavailable"); return; }
-    finally { handle?.closeSync(); }
+    finally { handle?.closeSync(); if (directoryFd !== undefined) fs.closeSync(directoryFd); }
     entries.sort((a, b) => compareContextStrings(a.name, b.name));
     for (const entry of entries) {
       const absolute = path.join(dir, entry.name);
@@ -84,19 +93,20 @@ export function collectContextSources(project, options = {}) {
         try {
           if (!isPathInsideRoot(root, fs.realpathSync(absolute))) { issue("source_unavailable"); continue; }
           fd = fs.openSync(absolute, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
+          verifyDescriptor(fd, absolute);
           const before = fs.fstatSync(fd);
           if (!before.isFile() || before.size > limits.maxFileBytes || bytes + before.size > limits.maxTotalBytes) {
             issue("source_byte_limit", relative); continue;
           }
           const buffer = Buffer.alloc(before.size + 1);
           const count = fs.readSync(fd, buffer, 0, buffer.length, 0);
+          bytes += count;
           const after = fs.fstatSync(fd);
           if (count !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs) {
             issue("source_changed", relative); continue;
           }
           const text = buffer.subarray(0, count).toString("utf8");
           if (text.includes("\0") || text.includes("\ufffd")) { issue("source_binary", relative); continue; }
-          bytes += count;
           files.push({ path: relative, text, byteSize: count, sha256: contextDigest(text) });
         } catch { issue("source_unavailable", relative); }
         finally { if (fd !== undefined) fs.closeSync(fd); }

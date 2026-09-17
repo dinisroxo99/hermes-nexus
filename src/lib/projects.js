@@ -107,16 +107,17 @@ export function listProjects(options = {}) {
 }
 
 export function getNestedProjectPaths(project, options = {}) {
-  const base = project.canonicalLocation
-    ? resolveProjectLocation(project.canonicalLocation, options.roots)
-    : project.absolutePath;
+  const bases = [project.absolutePath];
+  if (project.canonicalLocation) bases.push(resolveProjectLocation(project.canonicalLocation, options.roots));
   const excluded = [];
   for (const entry of readProjectsFile(options)) {
     if (entry.projectId && entry.projectId === project.projectId) continue;
     let location;
     try { location = resolveProjectLocation(entry, options.roots); } catch { continue; }
-    const relative = path.relative(base, location).replaceAll("\\", "/");
-    if (relative && relative !== ".." && !relative.startsWith("../") && !path.isAbsolute(relative)) excluded.push(relative);
+    for (const base of bases) {
+      const relative = path.relative(base, location).replaceAll("\\", "/");
+      if (relative && relative !== ".." && !relative.startsWith("../") && !path.isAbsolute(relative)) excluded.push(relative);
+    }
   }
   return [...new Set(excluded)].sort();
 }

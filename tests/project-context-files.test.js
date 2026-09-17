@@ -62,3 +62,43 @@ test("a dangling nested Git marker remains a context boundary", async (t) => {
   fs.symlinkSync(path.join(f.root, "missing-git-metadata"), path.join(f.root, "nested", ".git"));
   assert.equal(collectContextSources({ absolutePath: f.root }).files.length, 0);
 });
+
+test("opened files are verified before reading across an intermediate symlink swap", async (t) => {
+  const { collectContextSources } = await api();
+  const f = fixture(t); const outside = fixture(t);
+  f.write("area/a.ts", "LOCAL"); outside.write("a.ts", "OUTSIDE_SENTINEL");
+  const open = fs.openSync; const read = fs.readSync;
+  const forbidden = new Set(); let outsideReads = 0;
+  t.mock.method(fs, "openSync", (file, ...args) => {
+    if (file !== path.join(f.root, "area/a.ts")) return open(file, ...args);
+    fs.renameSync(path.join(f.root, "area"), path.join(f.root, "saved"));
+    fs.symlinkSync(outside.root, path.join(f.root, "area"));
+    try { const fd = open(file, ...args); forbidden.add(fd); return fd; }
+    finally { fs.unlinkSync(path.join(f.root, "area")); fs.renameSync(path.join(f.root, "saved"), path.join(f.root, "area")); }
+  });
+  t.mock.method(fs, "readSync", (fd, ...args) => { if (forbidden.has(fd)) outsideReads++; return read(fd, ...args); });
+  const result = collectContextSources({ absolutePath: f.root });
+  assert.equal(outsideReads, 0);
+  assert.equal(JSON.stringify(result).includes("OUTSIDE_SENTINEL"), false);
+});
+
+test("collection refuses a replaced resolved root and unavailable descriptor verification", async (t) => {
+  const { collectContextSources } = await api();
+  const f = fixture(t); const outside = fixture(t);
+  outside.write("a.ts", "OUTSIDE_SENTINEL");
+  fs.symlinkSync(outside.root, path.join(f.root, "replaced"));
+  assert.throws(() => collectContextSources({ absolutePath: path.join(f.root, "replaced") }), { code: "invalid_context_sources" });
+  f.write("a.ts", "LOCAL");
+  t.mock.method(fs, "readlinkSync", () => { throw new Error("unsupported descriptor lookup"); });
+  const result = collectContextSources({ absolutePath: f.root });
+  assert.equal(result.files.length, 0);
+  assert.equal(result.truncated, true);
+});
+
+test("rejected binary reads still consume the source I/O byte budget", async (t) => {
+  const { collectContextSources } = await api(); const f = fixture(t);
+  f.write("a.ts", "\0aa"); f.write("b.ts", "b");
+  const result = collectContextSources({ absolutePath: f.root }, { maxTotalBytes: 3 });
+  assert.equal(result.files.length, 0);
+  assert.equal(result.truncated, true);
+});
