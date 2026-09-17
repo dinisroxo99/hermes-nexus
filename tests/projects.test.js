@@ -6,6 +6,17 @@ import assert from "node:assert/strict";
 import * as projects from "../src/lib/projects.js";
 import { gitFixture } from "./helpers/git-fixture.js";
 
+test("nested registered project boundaries are excluded from context retrieval", (t) => {
+  const { options } = fixture(t, [
+    { name: "parent", relativePath: "parent", projectId: "PrJ_Parent" },
+    { name: "child", relativePath: "parent/child", projectId: "PrJ_Child" },
+    { name: "other", relativePath: "other", projectId: "PrJ_Other" }
+  ]);
+  assert.equal(typeof projects.getNestedProjectPaths, "function");
+  const parent = projects.getProjectByIdForIntelligence("PrJ_Parent", options);
+  assert.deepEqual(projects.getNestedProjectPaths(parent, options), ["child"]);
+});
+
 function fixture(t, entries) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "project-map-lookup-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
