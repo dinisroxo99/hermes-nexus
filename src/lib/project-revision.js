@@ -72,6 +72,19 @@ export function isLinkedProjectWorktree(parent, candidate, options = {}) {
   });
 }
 
+export function getProjectCacheIdentity(project, options = {}) {
+  const revision = readProjectRevision(project, options);
+  let location = project.absolutePath;
+  try { location = fs.realpathSync(location); } catch { /* Unavailable state disables reuse. */ }
+  const contextKey = digest([project.projectId ?? null, project.name, location]);
+  return {
+    contextKey,
+    key: digest([contextKey, revision.status, revision.repositoryIdentity, revision.worktreeId, revision.commitSha]),
+    reusable: revision.status === "not_git" || (revision.status === "available" && revision.dirty === false),
+    revision
+  };
+}
+
 function runGit(absolutePath, args, options) {
   const env = Object.fromEntries(Object.entries(options.env || process.env).filter(([key]) => !key.startsWith("GIT_")));
   env.GIT_OPTIONAL_LOCKS = "0";

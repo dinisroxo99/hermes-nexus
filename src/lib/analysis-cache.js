@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { getProjectCacheIdentity } from "./project-revision.js";
 
 const DEFAULT_TTL_MS = Number(process.env.ANALYSIS_CACHE_TTL_MS || 5 * 60 * 1000);
 const DEFAULT_MAX_ENTRIES = Number(process.env.ANALYSIS_CACHE_MAX_ENTRIES || 12);
@@ -25,14 +26,15 @@ const STATS = {
 };
 
 export function getCachedAnalysis(project, analyzer, options = {}, factory) {
-  const key = makeKey(project, analyzer.projectType);
+  const identity = getProjectCacheIdentity(project);
+  const key = JSON.stringify([identity.key, analyzer.projectType]);
   const now = Date.now();
   const signature = getProjectSignature(project.absolutePath, analyzer.fileExtensions || []);
   const cached = CACHE.get(key);
 
   if (cached) {
     const ageMs = now - cached.createdAt;
-    const isFresh = ageMs < DEFAULT_TTL_MS && cached.signature === signature;
+    const isFresh = identity.reusable && ageMs < DEFAULT_TTL_MS && cached.signature === signature;
 
     if (isFresh) {
       STATS.hits += 1;
@@ -51,7 +53,9 @@ export function getCachedAnalysis(project, analyzer, options = {}, factory) {
     edgeLimit: options.cacheEdgeLimit || options.edgeLimit || 25000
   });
 
-  CACHE.set(key, {
+  if (identity.reusable) CACHE.set(key, {
+    identityKey: identity.key,
+    projectId: project.projectId ?? null,
     projectName: project.name,
     projectPath: project.absolutePath,
     projectType: analyzer.projectType,
@@ -69,7 +73,7 @@ export function invalidateAnalysisCache(projectName = null) {
   let removed = 0;
 
   for (const [key, entry] of Array.from(CACHE.entries())) {
-    if (!projectName || entry.projectName === projectName || key.startsWith(`${projectName}:`)) {
+    if (!projectName || entry.projectName === projectName) {
       CACHE.delete(key);
       removed += 1;
     }
@@ -91,6 +95,8 @@ export function getAnalysisCacheStats() {
     ...STATS,
     entries: Array.from(CACHE.entries()).map(([key, entry]) => ({
       key,
+      identityKey: entry.identityKey,
+      projectId: entry.projectId,
       project: entry.projectName,
       projectType: entry.projectType,
       ageMs: now - entry.createdAt,
@@ -110,10 +116,6 @@ function evictIfNeeded() {
     CACHE.delete(oldest[0]);
     STATS.evictions += 1;
   }
-}
-
-function makeKey(project, projectType) {
-  return `${project.name}:${projectType}:${project.absolutePath}`;
 }
 
 function getProjectSignature(rootPath, extensions) {
