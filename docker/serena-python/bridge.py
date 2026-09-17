@@ -2,6 +2,7 @@
 import hashlib
 import json
 import logging
+import os
 import pathlib
 import signal
 import sys
@@ -21,19 +22,21 @@ def observe(request):
         raise ValueError("Too many files")
     total = 0
     for file in request["files"]:
+        if set(file) != {"path", "text", "sha256"}:
+            raise ValueError("Invalid source fields")
         name = file["path"]
         parts = pathlib.PurePosixPath(name).parts
-        if not parts or name.startswith("/") or ".." in parts or "\\" in name or ":" in name or not name.endswith(".py"):
+        if not parts or name.startswith("/") or ".." in parts or "\\" in name or ":" in name or not name.lower().endswith(".py"):
             raise ValueError("Invalid source")
         target = ROOT / name
         if target.is_symlink() or target.resolve() != target:
             raise ValueError("Invalid source")
         data = target.read_bytes()
         total += len(data)
-        if len(data) > 128 * 1024 or total > 4 * 1024 * 1024 or digest(data) != file["sha256"]:
+        if len(data) > 128 * 1024 or total > 4 * 1024 * 1024 or digest(data) != file["sha256"] or data != file["text"].encode():
             raise ValueError("Snapshot mismatch")
         pairs.append([name, digest(data)])
-    if pairs != sorted(pairs) or len({p[0] for p in pairs}) != len(pairs):
+    if pairs != sorted(pairs, key=lambda p: p[0].encode("utf-16-be")) or len({p[0] for p in pairs}) != len(pairs):
         raise ValueError("Invalid source ordering")
     token = digest(json.dumps(pairs, ensure_ascii=False, separators=(",", ":")).encode())
     if token != request["observedSourceToken"]:
@@ -46,12 +49,21 @@ def analyze(request):
     from solidlsp.ls_config import LanguageServerConfig, LanguageServerId
     from solidlsp.settings import SolidLSPSettings
 
-    if request["schemaVersion"] != 1 or not set(request["operations"]).issubset(OPERATIONS):
+    if set(request) != {*BINDING, "observedSourceToken", "revision", "operations", "limits", "files"}:
+        raise ValueError("Unknown request fields")
+    if (request["schemaVersion"] != 1 or set(request["operations"]) != OPERATIONS
+            or len(request["operations"]) != len(OPERATIONS)
+            or request["providerId"] != "external.serena-python"
+            or request["providerVersion"] != "1-f8f53b77-pyright-1.1.403"):
         raise ValueError("Unsupported request")
     observed = observe(request)
     settings = SolidLSPSettings(solidlsp_dir="/tmp/solidlsp", project_data_path="/tmp/project",
         ls_specific_settings={"python": {"ls_base_cmd": ["/usr/local/bin/node", "/opt/pyright/langserver.index.js"], "ls_args": ["--stdio"]}})
     server = SolidLanguageServer.create(LanguageServerConfig(LanguageServerId.PYTHON), str(ROOT), timeout=10, solidlsp_settings=settings)
+    # Pyright's workspace scan ignores unusual suffix casing, but explicit
+    # Python didOpen/documentSymbol requests support it. Do not spend the whole
+    # request budget waiting for the upstream 60-second scan readiness hint.
+    server._TIMEOUT_FOR_INITIAL_ANALYSIS = 5.0
     nodes = []
     symbols = []
     edges = []
@@ -145,6 +157,8 @@ def analyze(request):
 
 
 def main():
+    # PID 1 ignores default-terminating signals unless a handler is installed.
+    signal.signal(signal.SIGALRM, lambda signum, frame: os._exit(124))
     signal.alarm(29)
     logging.disable(logging.CRITICAL)
     request = json.loads(sys.stdin.buffer.read(26 * 1024 * 1024 + 1))

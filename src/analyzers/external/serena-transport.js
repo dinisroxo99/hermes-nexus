@@ -44,7 +44,7 @@ export function runSerenaSnapshot(inputSnapshot, options = {}) {
       "--mount", `type=bind,source=${source},target=/snapshot,readonly`, "--entrypoint=/usr/local/bin/python", "-i", options.image, "-P", "/opt/bridge.py"],
     { input: JSON.stringify(request), encoding: "utf8", shell: false, cwd: root, env, timeout: remaining, killSignal: "SIGKILL", maxBuffer: SERENA_RUNTIME.responseBytes });
     if (["ENOENT", "EACCES"].includes(run.error?.code)) launched = false;
-    if (run.error?.code === "ETIMEDOUT") result = { status: "timeout" };
+    if (run.error?.code === "ETIMEDOUT" || run.status === 124) result = { status: "timeout" };
     else if (run.error?.code === "ENOBUFS" || Buffer.byteLength(run.stdout || "") > SERENA_RUNTIME.responseBytes) result = { status: "oversized" };
     else if (run.error || run.status === 125 || run.status === 127) result = { status: "unavailable" };
     else if (run.status !== 0) result = { status: "crashed" };
@@ -58,9 +58,17 @@ export function runSerenaSnapshot(inputSnapshot, options = {}) {
       // Killing the CLI does not kill a daemon-owned container. Remove it by our
       // generated name on every exit, including timeout and output overflow.
       try {
-        const cleanup = childProcess.spawnSync("/usr/bin/docker", [...dockerArgs(), "rm", "--force", name],
-          { encoding: "utf8", shell: false, env, timeout: SERENA_RUNTIME.cleanupMs, killSignal: "SIGKILL", maxBuffer: 4096 });
-        if (cleanup.error || (cleanup.status !== 0 && !/^Error response from daemon: No such container: project-map-serena-[a-f0-9-]+\s*$/.test(cleanup.stderr || ""))) result = { status: "cleanup_failed" };
+        const until = performance.now() + SERENA_RUNTIME.cleanupMs;
+        let removed = false;
+        while (performance.now() < until) {
+          const cleanup = childProcess.spawnSync("/usr/bin/docker", [...dockerArgs(), "rm", "--force", name],
+            { encoding: "utf8", shell: false, env, timeout: Math.max(1, Math.floor(until - performance.now())), killSignal: "SIGKILL", maxBuffer: 4096 });
+          if (!cleanup.error && (cleanup.status === 0 || cleanup.stderr?.trim() === `Error response from daemon: No such container: ${name}`)) { removed = true; break; }
+          if (cleanup.error || cleanup.stderr?.trim() !== `Error response from daemon: removal of container ${name} is already in progress`) break;
+          // --rm may win the race. Verify completion, never assume in-progress means removed.
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.min(50, Math.max(0, until - performance.now())));
+        }
+        if (!removed) result = { status: "cleanup_failed" };
       } catch { result = { status: "cleanup_failed" }; }
     }
     if (root) fs.rmSync(root, { recursive: true, force: true });

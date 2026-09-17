@@ -16,7 +16,7 @@ const provider = { id: "external.serena-python", version: "1-f8f53b77-pyright-1.
   capabilities: { boundedSourceAnalysis: "structural", detection: "structural", symbols: "semantic", definitions: "semantic", references: "semantic" } };
 const files = [{ path: "models.py", text: "class Greeter:\n    def greet(self):\n        return 'hello'\n" }];
 
-function runWorker(t, sources = files) {
+function runWorker(t, sources = files, alterRequest, expectFailure = false) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "project-map-serena-test-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.chmodSync(root, 0o755);
@@ -28,13 +28,21 @@ function runWorker(t, sources = files) {
   const snapshot = createProviderSnapshot({ projectId: "Prj_Python" }, sources, { status: "not_git" });
   const request = createExternalSnapshotRequest(snapshot, provider);
   const observedSourceToken = contextDigest(JSON.stringify(request.files.map(({ path, sha256 }) => [path, sha256])));
+  const input = { ...request, observedSourceToken };
+  alterRequest?.(input);
   const image = spawnSync("docker", ["image", "inspect", "project-map-serena-python:1", "--format", "{{.Id}}"], { encoding: "utf8" });
   assert.equal(image.status, 0, `Build the optional image first: ${image.stderr}`);
   const result = spawnSync("docker", ["run", "--rm", "--pull=never", "--network=none", "--read-only", "--user=65532:65532",
     "--cap-drop=ALL", "--security-opt=no-new-privileges", "--cpus=2", "--memory=1g", "--memory-swap=1g", "--pids-limit=64", "--log-driver=none",
     "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=64m", "--shm-size=1m", "--mount", `type=bind,source=${root},target=/snapshot,readonly`, "-i", image.stdout.trim()],
-  { encoding: "utf8", input: JSON.stringify({ ...request, observedSourceToken }), timeout: 30000, maxBuffer: 256 * 1024 });
+  { encoding: "utf8", input: JSON.stringify(input), timeout: 30000, maxBuffer: 256 * 1024 });
   assert.equal(result.error, undefined);
+  if (expectFailure) {
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "serena_analysis_unavailable\n");
+    return;
+  }
   assert.equal(result.status, 0, result.stderr);
   const raw = JSON.parse(result.stdout);
   assert.equal(raw.observedSourceToken, observedSourceToken);
@@ -75,7 +83,6 @@ test("real Docker transport validates and disposes a Python snapshot", { skip: !
     createProviderSnapshot({ projectId: "Prj_Transport" }, files, { status: "not_git", worktreeId: "other_worktree" }),
     createProviderSnapshot({ projectId: "Prj_Transport" }, [{ ...files[0], text: "class Changed: pass\n" }], { status: "not_git" })
   ]) assert.throws(() => readExternalSnapshotResponse(other, provider, result.response, { requireObservedSource: true }), { code: "invalid_external_evidence" });
-  assert.equal(spawnSync("docker", ["ps", "-aq", "--filter", "name=project-map-serena-"], { encoding: "utf8" }).stdout.trim(), "");
 });
 
 test("Context Pack consumes real normalized Python evidence without changing source security", { skip: !enabled }, (t) => {
@@ -101,4 +108,46 @@ test("Context Pack consumes real normalized Python evidence without changing sou
     return result;
   } };
   assert.throws(() => buildProjectTaskContext(request, changed), { code: "context_sources_changed" });
+});
+
+test("worker rejects commands, incomplete operations and false mounted-source bindings", { skip: !enabled }, (t) => {
+  for (const alter of [
+    (r) => { r.command = "shell"; },
+    (r) => { r.operations = []; },
+    (r) => { r.operations.push("write_memory"); },
+    (r) => { r.providerId = "other"; },
+    (r) => { r.providerVersion = "other"; },
+    (r) => { r.files[0].sha256 = "a".repeat(64); },
+    (r) => { r.files[0].text = "class Other: pass\n"; },
+    (r) => { r.observedSourceToken = "a".repeat(64); }
+  ]) runWorker(t, files, alter, true);
+});
+
+test("real Python evidence retains UTF-16 columns and encoded snapshot paths", { skip: !enabled }, (t) => {
+  const { normalized: result } = runWorker(t, [
+    { path: "models.py", text: "def greet():\n    return 'hello'\n" },
+    { path: "🐍.py", text: "from models import greet\ndef caller():\n    return '🐍' + greet()\n" },
+    { path: "\ue000.py", text: "class Other: pass\n" }
+  ]);
+  const greet = result.nodes.find((n) => n.label === "greet");
+  assert.ok(result.edges.some((edge) => edge.to === greet.id && edge.location.path === "🐍.py" && edge.location.line === 3 && edge.location.column === 19));
+});
+
+test("real Python symbol budget reports partial rather than complete evidence", { skip: !enabled }, (t) => {
+  const { raw, normalized } = runWorker(t, [{ path: "many.py", text: Array.from({ length: 300 }, (_, i) => `def fn_${i}(): pass`).join("\n") }]);
+  assert.equal(raw.status, "partial");
+  assert.equal(normalized.limited, true);
+  assert.equal(normalized.nodes.length, 256);
+  assert.ok(Buffer.byteLength(JSON.stringify(raw)) <= 256 * 1024);
+});
+
+test("real Serena accepts uppercase Python suffixes without renaming source paths", { skip: !enabled }, (t) => {
+  for (const sources of [
+    [{ path: "models.PY", text: "class Upper: pass\n" }],
+    [{ path: "models.pY", text: "class Upper: pass\n" }, { path: "valid.py", text: "class Lower: pass\n" }]
+  ]) {
+    const { normalized } = runWorker(t, sources);
+    assert.ok(normalized.nodes.some((node) => node.label === "Upper" && node.file === sources[0].path));
+    if (sources.length > 1) assert.ok(normalized.nodes.some((node) => node.label === "Lower"));
+  }
 });

@@ -112,3 +112,18 @@ test("failed cleanup suppresses otherwise valid evidence", async (t) => {
     ? { status: 0, stdout: envelope(JSON.parse(options.input)) } : { error: { code: "ETIMEDOUT" } });
   assert.deepEqual(runSerenaSnapshot(snapshot(), { image }), { status: "cleanup_failed" });
 });
+
+test("Docker auto-removal races are verified within the cleanup deadline", async (t) => {
+  const { runSerenaSnapshot } = await api();
+  let removals = 0;
+  t.mock.method(childProcess, "spawnSync", (_, args) => {
+    if (args.includes("run")) return { error: { code: "ENOBUFS" } };
+    removals += 1;
+    const name = args.at(-1);
+    return { status: 1, stderr: removals === 1
+      ? `Error response from daemon: removal of container ${name} is already in progress\n`
+      : `Error response from daemon: No such container: ${name}\n` };
+  });
+  assert.deepEqual(runSerenaSnapshot(snapshot(), { image }), { status: "oversized" });
+  assert.equal(removals, 2);
+});
