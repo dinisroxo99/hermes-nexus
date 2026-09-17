@@ -34,7 +34,7 @@ For specialist work, use `profile_delegate` with:
 
 Active implementation plan:
 
-`.hermes/plans/<NOME_REAL_DO_PLANO>.md`
+`.hermes/plans/2026-09-17_002050-project-intelligence-service-active.md`
 
 Canonical architecture documentation:
 
