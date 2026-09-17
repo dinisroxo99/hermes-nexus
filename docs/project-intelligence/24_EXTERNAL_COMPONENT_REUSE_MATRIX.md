@@ -43,11 +43,14 @@ Do not use as authoritative current code truth.
 
 ## Serena
 
-**Evaluate as analyzer provider**
+**Implemented optional Python-only semantic analyzer provider**
 
-Useful because language-server-backed symbol intelligence can complement native analyzers, including C# support.
+Serena SolidLSP/Pyright now complements the unchanged native .NET and TS/JS
+providers through an offline read-only snapshot sandbox. No Serena C# adapter,
+MCP agent, memory store or runtime orchestration is enabled. Other languages
+require separate verification and approval; see `19_ANALYZER_PROVIDER_LAYER.md`.
 
-Potential role:
+Implemented role:
 
 ```text
 definitions

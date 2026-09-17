@@ -6,6 +6,25 @@
 
 Status: **PLANNED**
 
+## Implemented exception: optional semantic-analysis sandbox
+
+The broader Hermes task/agent enforcement design below remains planned. The
+Serena/Python AnalyzerProvider now has a narrower implemented Docker boundary:
+only a fresh exported snapshot mounted read-only, read-only root, UID 65532,
+dropped capabilities/no-new-privileges, network disabled, bounded tmpfs, 2 CPUs,
+1 GiB RAM, 30-second process deadline budget and 256 KiB response limit.
+No live checkout, `.git`, host HOME, credentials or Docker socket enters the
+container. No shell/edit/memory/project-switching/agent operations are exposed;
+the worker calls only fixed SolidLSP semantic operations and lifecycle methods.
+Source code is not executed. No runtime dependency download is possible.
+
+The host uses the local Docker CLI as a trusted semantic subprocess boundary,
+not a task scheduler or Hermes runtime. Timeout/crash/overflow removes the named
+container; cleanup failures suppress evidence. Real Docker tests probe isolation,
+PID-1 deadline handling and cleanup. Host/daemon failure is not a guaranteed
+cleanup case. See `19_ANALYZER_PROVIDER_LAYER.md` and
+[`docker/serena-python/README.md`](../../docker/serena-python/README.md).
+
 ## Goal
 
 Prevent an agent from mutating code outside the scope assigned to its task.

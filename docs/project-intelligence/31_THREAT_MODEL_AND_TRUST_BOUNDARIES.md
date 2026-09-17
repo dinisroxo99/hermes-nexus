@@ -6,6 +6,29 @@
 
 Status: **PLANNED**
 
+## Implemented external semantic boundary
+
+Optional Serena/Python follows this trust chain: authorized bounded observation
+→ private read-only snapshot → offline constrained container → untrusted JSON
+→ strict host evidence validation → existing Context Pack trust labels.
+The bridge never starts SerenaAgent/MCP, so repository prose cannot select tools,
+commands, project roots, memories, network endpoints or interpreter settings.
+Only Python text is exported; project configs/virtual environments are omitted.
+
+The image and local Docker daemon are trusted operator-controlled infrastructure;
+an immutable image ID prevents tag drift, not malicious operator configuration.
+Runtime network, host filesystem access and source writes are separately blocked
+by the container. Invalid paths/URIs, source positions, IDs, relationships,
+undeclared operations, oversize output and wrong project/revision/request/observed
+snapshot bindings fail closed. Provider failure permits deterministic fallback,
+never a cross-provider merge. Real hostile-worker probes verify restrictions.
+
+These controls do not establish whole-host isolation against a compromised
+kernel/daemon, complete source-secret DLP, general agent enforcement or identity
+ownership in Serena. Git/Project Map/Hermes/Honcho responsibilities stay distinct.
+The exact shipped contract is `19_ANALYZER_PROVIDER_LAYER.md`; the wider threat
+inventory below remains architectural guidance.
+
 ## Goal
 
 Assume agents, repository content, external MCP servers, tools and model outputs can all be wrong or hostile.

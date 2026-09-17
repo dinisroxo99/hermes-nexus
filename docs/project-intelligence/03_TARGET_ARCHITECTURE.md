@@ -96,8 +96,10 @@ selection, **not** LLM/model/provider routing owned by Hermes.
 Capabilities, language coverage and fallback are explicit; unsupported languages
 must not masquerade as complete empty graphs. Results remain single-provider,
 revision-associated and project-local. External tools never own project identity,
-Git truth, ICM, Context Packs or cache policy. Serena/LSP process integration is
-not installed. See `19_ANALYZER_PROVIDER_LAYER.md`; Impact v2 remains a later step.
+Git truth, ICM, Context Packs or cache policy. Optional Serena/Python execution
+now uses an immutable image over a bounded read-only snapshot, with no runtime
+network, live repository mount or agent/MCP dispatcher. It supplies semantic
+evidence only. See `19_ANALYZER_PROVIDER_LAYER.md`; Impact v2 is **NOT STARTED**.
 
 ### Hermes
 

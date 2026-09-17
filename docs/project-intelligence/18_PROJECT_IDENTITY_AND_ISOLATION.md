@@ -30,6 +30,14 @@ Location resolution selects the configured root and verifies directory/realpath 
 
 ### Git revision and worktree evidence
 
+The optional Serena/Python integration preserves this model unchanged. Git reads
+remain in Project Map on the host. The semantic container receives safe revision
+metadata and snapshot/request tokens, never `.git` or a live checkout. Its
+`observedSourceToken` describes only exported source bytes, not a new project ID,
+revision algorithm or dirty-worktree fingerprint. Replay across project,
+revision/worktree or changed source snapshots is rejected. See
+`19_ANALYZER_PROVIDER_LAYER.md` for the external evidence boundary.
+
 `src/lib/project-revision.js` captures live Git evidence using shell-free argument arrays, a 2-second timeout and a 1 MiB output limit **per Git invocation**. Locator-related inherited Git environment overrides are removed; optional locks and filesystem-monitor execution are disabled for the read. No persistent Git configuration is changed and no remote URL is read.
 
 The safe revision projection contains:

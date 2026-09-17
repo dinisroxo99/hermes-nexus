@@ -1,0 +1,32 @@
+{
+  "verifiedImageId": "sha256:77379ee3d115e8f2b9f8b4223fbf1195b2d4b6b9b06b385a2bc30949d4af26c8",
+  "platform": "linux/amd64",
+  "serena": {
+    "version": "1.7.1.dev0",
+    "commit": "f8f53b77f04e50aadf9e5789841ec6a95c874514",
+    "archiveSha256": "2696d5a2d209e2cfb06916fc277509cb7bf9cdadadd59c60b77b75d2882a37a0"
+  },
+  "pyright": "1.1.403",
+  "python": "3.11.13",
+  "node": "22.18.0",
+  "pythonBaseDigest": "sha256:86adf8dbadc3d6e82ee5dd2c74bec2e1c2467cdad47886280501df722372d2e1",
+  "nodeBaseDigest": "sha256:752ea8a2f758c34002a0461bd9f1cee4f9a3c36d48494586f60ffce1fc708e0e",
+  "pythonDependencies": {
+    "beautifulsoup4": "4.14.2",
+    "certifi": "2026.2.25",
+    "charset-normalizer": "3.4.6",
+    "idna": "3.15",
+    "joblib": "1.5.1",
+    "mslex": "1.3.0",
+    "oslex": "2.0.0",
+    "overrides": "7.7.0",
+    "pathspec": "0.12.1",
+    "psutil": "7.0.0",
+    "requests": "2.33.0",
+    "sensai-utils": "1.5.0",
+    "soupsieve": "2.8.4",
+    "typing-extensions": "4.15.0",
+    "urllib3": "2.7.0"
+  },
+  "note": "Verified local artifact; rebuilding can change image metadata/digest. Runtime accepts only an immutable local sha256 ID. All wheel hashes are in requirements.lock."
+}

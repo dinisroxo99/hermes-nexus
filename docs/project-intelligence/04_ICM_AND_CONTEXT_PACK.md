@@ -20,8 +20,20 @@ AnalyzerProvider layer. Existing schema/sections and selection policy remain;
 snapshot binding, attempts and provenance. Symbol/reference sections retain
 external trust labels and validated source lines. Missing operation support is
 not_analyzed; partial language/operation coverage marks the pack incomplete.
-No external tool is executed or made authoritative. The exact provider contract
-and optional Serena/LSP approval proposal are in `19_ANALYZER_PROVIDER_LAYER.md`.
+External evidence is never authoritative. A separately enabled immutable
+Serena/Python image now supplies real semantic symbols/definitions/references
+through a snapshot-only Docker sandbox. The exact provider and runtime contract
+is in `19_ANALYZER_PROVIDER_LAYER.md`; default native behavior is unchanged.
+
+The HTTP route reads optional `SERENA_PYTHON_IMAGE` from trusted service config,
+not the request body. It passes the existing composer a fixed Serena option.
+The composer itself is unchanged: normalized evidence retains provider/version,
+external trust, observed snapshot/revision association, existing source
+reobservation, section bounds and no-store behavior. Unavailable/invalid/timed-out
+Python analysis yields explicit attempts and incomplete/not_analyzed sections,
+not a fabricated empty semantic graph. Definitions remain in the provider facade,
+not a new Context Pack section. Mixed projects retain native provider priority;
+trusted internal callers may require Python coverage explicitly.
 
 `buildProjectTaskContext(request, options)` in `src/lib/task-context.js` is the
 on-demand composer. HTTP exposure is **read-only**:
@@ -146,8 +158,9 @@ timestamp sketches below without changing the Step 1 revision-reader contract.
 There is no atomic whole-repository snapshot or analyzer wall-clock guarantee.
 Source caps can omit relevant evidence; inspect truncation/incomplete flags.
 Secret-pattern redaction is defense in depth, not a complete DLP system. Symbol
-support is inherited from TypeScript/JavaScript and .NET analyzers; mixed-language
-snapshots prefer .NET and other languages have file/document evidence only.
+support is inherited from TypeScript/JavaScript and .NET analyzers, plus optional
+sandboxed Serena/Python. Mixed-language snapshots retain native priority and
+explicit partial coverage; unsupported languages have file/document evidence only.
 Expansion means resubmitting narrower paths/symbols or opting into bounded
 excerpts. There is no expansion endpoint, persistent Context Pack cache, stage
 resolver, LLM/provider routing, agent selection, scheduler or Hermes runtime.

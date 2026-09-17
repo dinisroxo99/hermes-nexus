@@ -184,8 +184,12 @@ not fields accepted from a task-context HTTP body. JSON evidence remains
 untrusted. Legacy UI/graph APIs and cache ownership
 remain unchanged. There is no new public provider-execution endpoint.
 
-Serena/Pyright runtime integration is **proposed only**, not installed or enabled
-by the provider layer. See the [exact contract and approval proposal](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md).
+Optional Serena/Python transport is now implemented separately from the data
+validator. Build the pinned image and set trusted `SERENA_PYTHON_IMAGE` to its
+immutable local image ID to enable it for task context. No runtime installation,
+network or live-repository mount is used. No new endpoint/body controls are added.
+See the [runtime guide](../docker/serena-python/README.md) and
+[exact provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md).
 
 ### Canonical Project ICM
 

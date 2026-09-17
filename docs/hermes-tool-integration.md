@@ -66,8 +66,9 @@ does not imply that a `project_task_context` Hermes tool is installed.
 
 Step 2.5 is also complete: Task Context Pack consumes normalized AnalyzerProvider
 evidence with capability/coverage metadata and snapshot-scoped external JSON
-validation. This is language analysis, not Hermes model routing or an installed
-Serena/LSP transport. See the [provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md).
+validation. The subsequent optional Serena/Python integration adds a fixed
+snapshot-only semantic Docker worker, not Hermes model routing or runtime
+orchestration. See the [provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md).
 
 Future work:
 

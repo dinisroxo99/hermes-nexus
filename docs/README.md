@@ -12,10 +12,10 @@
 | What can I use now? | [Current status](CURRENT_STATUS.md) |
 | How do I run it or call the API? | [Service reference](SERVICE_REFERENCE.md) |
 
-The public overview is pinned to **`be0cb2c`**: Project Identity / Revision,
-Task Context Pack and Analyzer Provider Layer are complete. Impact v2 is next
-and not started; scope/conflicts, runtime guard integration and project knowledge
-remain planned. Serena/Pyright execution is proposed only.
+The [current checkpoint](CURRENT_STATUS.md) includes completed Project Identity /
+Revision, Task Context Pack and Analyzer Provider Layer, plus optional sandboxed
+Serena/Python semantic analysis. Impact v2 is **NOT STARTED**; scope/conflicts,
+runtime guard integration and project knowledge remain planned.
 
 ## Setup and service guides
 
@@ -49,7 +49,9 @@ Useful entry points:
 - [Implemented Context Pack contract](project-intelligence/04_ICM_AND_CONTEXT_PACK.md).
 - [Project identity and revision contract](project-intelligence/18_PROJECT_IDENTITY_AND_ISOLATION.md).
 - [Analyzer Provider Layer](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md) —
-  implemented normalization and external data validation; proposed Serena/LSP execution.
+  implemented normalization, external data validation and optional Serena/Python execution.
+- [Serena/Python runtime](../docker/serena-python/README.md) — pinned image build,
+  opt-in configuration, sandbox contract and real integration tests.
 - [Scope, impact and conflicts](project-intelligence/06_SCOPE_IMPACT_CONFLICTS.md).
 - [State ownership and data model](project-intelligence/30_STATE_AND_DATA_MODEL.md).
 - [Project Expert data pipeline](project-intelligence/26_PROJECT_EXPERT_DATA_PIPELINE.md).

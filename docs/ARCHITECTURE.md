@@ -49,9 +49,9 @@ automatic guard integration are not established by the current service API.
 | Task Context Pack builder | Compose bounded, revision-aware evidence for a task without an LLM or persistent pack cache. |
 
 Project Identity / Revision, Task Context Pack and the Analyzer Provider Layer
-are **complete** at `be0cb2c`. Installed native analysis remains structural;
-Serena/LSP process integration is **proposed**, not installed or running as part
-of this service.
+are **complete**. Installed native analysis remains structural; optional
+Serena/Python execution supplies semantic evidence through the bounded Docker
+worker. It is not enabled automatically and is not an agent/runtime service.
 
 The API offers discovery, explicit guarded discovered-project registration,
 project overview and a read-only task-context POST. Legacy exploration/indexing
@@ -126,16 +126,17 @@ provider options are distinct from the public task-context HTTP body.
 See [capability levels](CONCEPTS.md#structural-vs-semantic-evidence) and the
 [AnalyzerProvider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md).
 
-## Proposed Serena / LSP integration
+## Optional Serena / Python integration
 
-**PROPOSED ONLY — separate approval required.** No Serena/LSP execution was
-installed or integrated by Step 2.5. The first candidate is optional local Python,
-with Serena pinned to source revision `f8f53b77f04e50aadf9e5789841ec6a95c874514`
-and its pinned Pyright adapter dependency `1.1.403`, as recorded in the
-[exact proposal](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md#exact-serenalsp-integration-proposal--approval-required).
-These are proposal pins, not installed versions or recommendations to install now.
+**IMPLEMENTED, opt-in only.** A separately built immutable image supplies Python
+semantic symbols, definitions and references using Serena's SolidLSP library,
+not its agent/MCP server. Serena is pinned to source revision
+`f8f53b77f04e50aadf9e5789841ec6a95c874514`, Pyright to `1.1.403`, Python to
+`3.11.13` and Node to `22.18.0`. See the
+[exact contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md#implemented-optional-serenapython-checkpoint)
+and [build/enablement guide](../docker/serena-python/README.md).
 
-The proposed boundary requires:
+The verified runtime boundary enforces:
 
 - a sandboxed, read-only **exported snapshot**, never a live repository mount;
 - no `.git`, host HOME, credentials, other projects or container socket;
@@ -143,12 +144,12 @@ The proposed boundary requires:
 - bounded private temporary storage, non-root execution and dropped capabilities;
 - a semantic read-only tool allowlist, excluding editing, shell execution,
   project switching, memory actions and onboarding;
-- bounded CPU, memory, total time and response size: the proposal starts at
-  two CPUs, 1 GiB, 30 seconds and 256 KiB per request;
+- bounded CPU, memory, process time and response size:
+  two CPUs, 1 GiB, 30-second request budget plus bounded cleanup and 256 KiB output;
 - pinned dependencies/image provenance, validated URI-to-snapshot mapping,
-  process cleanup and real-server conformance tests before capability claims.
+  process cleanup and real-server conformance tests backing capability claims.
 
-The service would validate normalized evidence again after that transport.
+The service validates normalized evidence again after that transport.
 Tool configuration alone is not the sandbox. Additional language integrations
 would require their own approval, pinned dependencies and capability tests.
 

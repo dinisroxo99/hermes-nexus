@@ -91,9 +91,11 @@ Potentially useful if Hermes claims + Project Map guard are insufficient.
 
 Do not add another coordination service before proving the gap.
 
-## DEFERRED — Serena/other analyzer providers
+## PARTLY IMPLEMENTED — Serena/other analyzer providers
 
-Can be integrated as evidence providers, especially for language-specific semantic intelligence.
+Optional snapshot-only Serena/Python symbols, definitions and references are now
+implemented; see `19_ANALYZER_PROVIDER_LAYER.md`. Other external providers and
+additional languages remain deferred. No editing, memory or agent role is added.
 
 Do not replace the canonical Project Intelligence API with a provider-specific API.
 
