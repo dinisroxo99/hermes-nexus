@@ -21,6 +21,17 @@ export function normalizeProjectEntryForRuntime(entry, options = {}) {
     return null;
   }
 
+  if (Object.hasOwn(entry, "projectId") && (
+    typeof entry.projectId !== "string"
+    || entry.projectId.length > 128
+    || !/^[A-Za-z0-9]/.test(entry.projectId)
+    || /[^A-Za-z0-9_-]/.test(entry.projectId)
+  )) {
+    const error = new Error("Invalid projectId: expected 1-128 ASCII letters, digits, underscores or hyphens, starting with a letter or digit.");
+    error.code = "invalid_project_identity";
+    throw error;
+  }
+
   const name = typeof entry.name === "string" ? entry.name.trim() : "";
   const relativePathResult = validateRelativeProjectPath(entry.relativePath);
 
