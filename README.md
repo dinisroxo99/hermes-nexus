@@ -1,454 +1,161 @@
 # Hermes Project Map
 
-A project map for exploring structure, symbols, and dependencies through a local API and a web UI.
+**Project Intelligence and coordination for AI coding agents.**
 
-The project provides an incremental foundation for supporting multiple project types while preserving `.NET` support and adding an initial TypeScript analyzer.
+AI models can produce more of the implementation. This project explores the
+context, boundaries and project knowledge needed to make that work inspectable
+and better coordinated, especially when several agents work on the same codebase.
+
+Hermes Project Map is the current working name. Its scope has grown beyond code
+visualization; neither the repository nor the product has been renamed.
+
+## Why this exists
+
+For the author, Codex began as a coding assistant. As more implementation was
+delegated to AI, the human focus shifted toward architecture, decomposition,
+direction and validation. Experiments with Hermes, reusable profiles and ICM
+inspired a broader project-intelligence layer. This is the author's development
+experience, not a universal claim about those tools. [Read the evolution →](docs/VISION.md)
+
+## The problem
+
+Multi-agent coding needs more than the ability to generate code:
+
+- selective context, rather than a full repository dump;
+- project identity and Git/worktree awareness;
+- evidence of change impact;
+- explicit task boundaries;
+- coordination between concurrent changes, even across different files;
+- project history that does not override current code.
+
+ICM, discovered through Clif Notes, inspired structured, selective context.
+**In this design, ICM is an input to Project Intelligence, not the entire
+system.** Smaller prompts alone do not establish whether two changes are compatible.
+
+## The approach
+
+Current context composition:
+
+```text
+Task + Project Identity / Git Revision + ICM
+     + Analyzer Providers / normalized code evidence
+     → bounded Task Context Pack
+```
+
+This is deterministic evidence selection, not arbitrary LLM summarization.
+Packs carry provenance, limits and incomplete-coverage signals. Future impact,
+scope, conflict and validated-history layers will build on this foundation;
+they are not implemented by the current pack.
+
+## Hermes relationship
+
+| Hermes owns execution | This project owns project intelligence |
+|---|---|
+| Runtime, agents, profiles/SOULs | Project identity, understanding and ICM |
+| Model/provider execution | Code analysis and bounded Context Packs |
+| Kanban/tasks, workers, dispatch | Impact and effective task-scope intelligence |
+| Worktrees, sessions, retries | Conflict intelligence and project knowledge |
+
+This is an ownership boundary, not a completion checklist. **The service is not
+a replacement for Hermes or another orchestrator.** An AnalyzerProvider analyzes
+code evidence; it is not the LLM/provider routing that belongs to Hermes.
+Automatic Hermes guard integration remains planned.
+
+## Core concepts
+
+[Concepts →](docs/CONCEPTS.md): Profile != Model · ICM != Runtime · Project
+Identity · Git Revision / Worktree · Context Pack · Analyzer Provider Layer ·
+Structural vs semantic evidence · Impact · Workspace vs Effective Task Scope ·
+WRITE / RESERVED / WATCH / IMPACT · Conflict Intelligence · Project Expert.
+
+## Current status
+
+Implementation checkpoint: **`be0cb2c`** on `feat/project-intelligence-service`.
+
+- **Complete:** project foundation; Step 1 Project Identity / Revision; Step 2
+  Task Context Pack; Step 2.5 Analyzer Provider Layer.
+- **Implemented:** local HTTP API and graph UI, bounded discovery/overview,
+  canonical ICM indexing and workspace matching, persisted project identity,
+  Git/worktree evidence and revision-aware caches, read-only Context Packs,
+  normalized provider selection/fallback and snapshot-bound external data validation.
+- **Next, not started:** Step 3 — Impact v2. Existing node-based graph impact is
+  an earlier capability, not completion of this step.
+- **Planned:** effective scope, conflicts, Hermes guard integration, project
+  telemetry/validated history, Project Expert and learning/evaluation.
+- **Proposed only:** optional sandboxed Serena/Pyright integration for Python.
+  No Serena or LSP runtime was installed or integrated by this checkpoint.
+
+Native C#/.NET, TypeScript and JavaScript/JSX analysis is **structural**, not
+compiler-grade semantic analysis. Python/Go/Rust/Java have language observation
+only by default; Bash/PowerShell have bounded text observation. Provider
+extensibility does not mean semantic support for all languages or safe execution
+of arbitrary plugins.
+
+Context source retrieval requires Linux/WSL `/proc/self/fd` verification and
+otherwise fails closed to partial metadata-only evidence. Packs are bounded
+observations, not complete atomic snapshots or enforced WRITE permissions.
+
+[Current status and evidence →](docs/CURRENT_STATUS.md) ·
+[AnalyzerProvider contract and proposal →](docs/project-intelligence/19_ANALYZER_PROVIDER_LAYER.md)
+
+## Architecture
+
+Solid paths show the current evidence boundary; the dashed history path is planned.
+The Hermes adapter must be configured separately; automatic task integration is
+not implied by HTTP support.
+
+```mermaid
+flowchart LR
+    U[User] --> H["Hermes: agents and runtime"]
+    H -->|"HTTP client"| P["Independent Project Intelligence service"]
+    P --> G["Git and repository evidence"]
+    P --> I["ICM and canonical documents"]
+    P -.-> K["Validated project history: PLANNED"]
+```
+
+The service returns evidence to Hermes; it does not dispatch workers. The graph
+UI and HTTP service remain independently usable.
+
+[Public architecture and context-flow diagrams →](docs/ARCHITECTURE.md) ·
+[Detailed technical documentation →](docs/project-intelligence/00_INDEX.md)
+
+## Try the current service
+
+With Node.js and npm installed, configure trusted project roots using
+[Adding projects](docs/adding-projects.md), then run from the repository root:
+
+```bash
+npm ci
+npm start
+```
+
+Open `http://localhost:8770`. Health check: `curl http://localhost:8770/api/health`.
+The server binds to all interfaces by default; keep it on a trusted local
+network. See the [service reference](docs/SERVICE_REFERENCE.md) for Docker,
+configuration, registration, endpoints, compatibility notes and troubleshooting.
+
+Development verification: `npm test` and `npm run check`.
+
+## Roadmap
+
+```text
+COMPLETE: Project foundation → Project Identity / Revision
+          → Task Context Pack → Analyzer Provider Layer
+NEXT / NOT STARTED: Impact v2
+PLANNED: Effective Task Scope → Conflict Engine → Hermes Guard integration
+         → Telemetry / validated project history → Project Expert
+         → Learning / evaluation
+```
+
+This follows the [active implementation plan](.hermes/plans/2026-09-17_002050-project-intelligence-service-active.md),
+not a delivery-date commitment. Context efficiency and better coordination are
+objectives to evaluate, not measured savings or guarantees.
 
 ## Documentation
 
-- [Adding projects](./docs/adding-projects.md)
-- [Analyzer implementation](./docs/analyzers-implementation.md)
-- [Analyzer execution and troubleshooting](./docs/analyzers-execution.md)
-- [Hermes tool integration](./docs/hermes-tool-integration.md)
-- [Hermes plugin installation for profiles](./docs/hermes-plugin-installation.md)
-- [Project ICM architecture](./docs/project-icm.md)
-
-## What it does
-
-- Lists projects from the effective runtime registry: human-managed `data/projects.json` plus optional machine-managed `data/discovered-projects.json`.
-- Analyzes `.NET` projects using the existing analyzer based on `symbol-index.js`.
-- Analyzes TypeScript/React/Next.js projects with initial support based on `ts-morph`.
-- Exposes endpoints to:
-  - list projects;
-  - inspect project structure;
-  - search symbols;
-  - expand dependencies and references;
-  - retrieve the full graph.
-- Serves a static web UI from `src/public`.
-
-## Current support
-
-| Type | Status | Notes |
-|---|---|---|
-| `.NET` | Supported | Preserves the previous path through a wrapper and fallback to `symbol-index.js`. |
-| `TypeScript` / `React` / `Next.js` | Initial | Extracts files, exports, components, hooks, providers, interfaces/types, and basic internal imports. |
-| `Node.js` | Detected | Detected, but no dedicated full analyzer yet. |
-| `Python` | Detected | Detected, but no dedicated analyzer yet. |
-
-## Main structure
-
-```txt
-src/
-  server.js                         # HTTP entry point
-  routes/                           # API routes
-  lib/
-    analyzer-service.js             # multi-analyzer dispatcher
-    project-config.js               # DATA_DIR and project-root configuration
-    project-roots.js                # trusted root normalization and relative-path safety
-    project-registry.js             # manual/discovered/effective registry helpers
-    agent-manifest.js               # canonical AGENT.md schema v1 parser
-    workspace-index.js              # canonical workspace index from AGENT.md manifests
-    icm-documents.js                # contextual ICM document index
-    icm-index.js                    # combined Project ICM Index
-    projects.js                     # existing project listing/lookup API over the effective registry
-    symbol-index.js                 # existing .NET analyzer
-  analyzers/
-    common/analyzer-detection.js    # project-type detection
-    dotnet/dotnet-analyzer.js       # .NET wrapper
-    typescript/typescript-analyzer.js
-  public/                           # web UI
-scripts/
-  add-hermes-project.ps1
-  list-hermes-projects.ps1
-  remove-hermes-project.ps1
-data/
-  projects.json                     # human-managed legacy/manual registry
-  discovered-projects.json          # future machine-managed registry; absent is valid
-```
-
-## Local quick start
-
-Install dependencies:
-
-```bash
-npm install
-```
-
-Validate syntax:
-
-```bash
-npm run check
-```
-
-Run tests:
-
-```bash
-npm test
-```
-
-Start the server:
-
-```bash
-npm start
-```
-
-By default, the server runs at:
-
-```txt
-http://localhost:8770
-```
-
-Health check:
-
-```bash
-curl http://localhost:8770/api/health
-```
-
-## Docker quick start
-
-Create `.env`:
-
-```powershell
-copy .env.example .env
-```
-
-Example:
-
-```env
-PROJECTS_ROOT=/home/user/projects
-PORT=8770
-DOTNET_VERSION=10.0
-```
-
-Start with a rebuild:
-
-```bash
-docker compose up --build
-```
-
-The `PROJECTS_ROOT` folder is mounted inside the container at `/projects`.
-
-## Project Intelligence API
-
-Project Intelligence endpoints are bounded, agent-oriented contracts for Hermes and future orchestrators. Discovery ordering remains deterministic; live revision timestamps are explicit. These routes remain separate from the existing UI/specialist graph endpoints. Legacy ID-less records remain supported, while ambiguous names and unsafe locations now fail rather than resolving a different project.
-
-Currently implemented:
-
-```txt
-GET  /api/intelligence/discover
-POST /api/intelligence/discover/register
-GET  /api/intelligence/projects/:name/overview
-POST /api/intelligence/projects/:projectId/task-context
-```
-
-Implemented ICM support is on-demand and bounded: a canonical `AGENT.md` parser, Workspace Index, contextual ICM Document Index, combined Project ICM Index, compact overview ICM summary, and revision-aware Task Context Pack. Not implemented yet: task routing, impact v2, Hermes high-level `project_*` tools, and Hermes Agent OS orchestration.
-
-### Task Context Pack
-
-`POST /api/intelligence/projects/:projectId/task-context` accepts a task with a
-required title and optional relative paths/symbol names, limits, bounded excerpts
-and verified worktree locator. It is read-only and requires a persisted projectId;
-it neither assigns IDs nor owns task execution. The deterministic, versioned pack
-includes current Git/worktree evidence, matched ICM declarations, relevant file/
-symbol/reference/test candidates, canonical document references and provenance.
-No full files/graphs are returned by default and no Context Pack cache is used.
-
-Source retrieval currently requires Linux/WSL `/proc/self/fd` descriptor
-verification and fails closed elsewhere. Dirty/unavailable revisions remain
-explicit, and observed changes during construction reject the pack. See the
-[implemented contract](./docs/project-intelligence/04_ICM_AND_CONTEXT_PACK.md)
-for input/output limits, trust labels, HTTP errors and remaining limitations.
-
-### Analyzer providers
-
-Bounded Project Intelligence now uses a normalized AnalyzerProvider contract.
-Native .NET and TypeScript/JavaScript analyzers remain in place; capability levels,
-language coverage, deterministic priority/fallback and provider provenance are
-explicit. Python, Go, Rust, Java, Bash and PowerShell source observation does not
-imply installed semantic analysis. Optional external evidence must match the
-authorized snapshot and provider request; no external tool is executed by this
-data-only adapter. Serena/LSP installation remains a separate approval gate.
-
-See [AnalyzerProvider contract and integration proposal](./docs/project-intelligence/19_ANALYZER_PROVIDER_LAYER.md).
-
-### Canonical Project ICM
-
-Project ICM separates machine-authoritative workspace contracts from contextual project knowledge:
-
-- `AGENT.md` YAML front matter is the canonical machine-readable workspace execution contract.
-- `AGENT.md` Markdown body is context only.
-- `PROJECT.md`, `AGENTS.md`, `CONTEXT.md`, and ADR Markdown are context only.
-
-Contextual prose cannot override executor, owner, reviewers, permissions, scope, preconditions, or routing metadata. The service can describe those fields but does not enforce them; future Hermes Agent OS policy enforcement remains responsible for ALLOW/DENY/REROUTE decisions.
-
-The combined Project ICM Index composes the Workspace Index and contextual document index in memory. It does not write a persistent ICM cache/index and does not expose a dedicated ICM HTTP endpoint. See [Project ICM architecture](./docs/project-icm.md) for schema, bounds, and validity semantics.
-
-### Discovery dry run
-
-`GET /api/intelligence/discover` scans configured roots without mutating registry files. It is multi-root, boundary-aware, and hides configured absolute root paths by default.
-
-Query parameters:
-
-- `maxDepth`: default `3`, clamped to `1..6`.
-- `limit`: default `100`, clamped to `1..500`; applied globally across all roots.
-- `includeRegistered=true`: includes effective-registry matches; absent or any other value excludes them.
-
-Results are ordered by configured root order, then candidate `relativePath`. `truncated` is true only when an additional returnable candidate exists beyond the global limit. Root problems are returned as structured warnings bounded to `20`, such as `{ "code": "root_missing", "rootId": "default" }`. Registered matching uses `rootId + relativePath`, with same-root name compatibility for legacy entries.
-
-Linked worktree candidates additionally expose `isLinkedWorktree` and `parentProjectId` (null when unresolved). A verified parent makes the worktree registered without assigning another projectId. Inaccessible Git-file metadata is marked `identityStatus: "unavailable"`; discovery never invents a parent or persists an ID.
-
-### Explicit discovered-project registration
-
-`POST /api/intelligence/discover/register` writes only machine-managed discovery state and is disabled by default. Enable it explicitly with:
-
-```env
-INTELLIGENCE_REGISTRY_WRITES_ENABLED=true
-```
-
-Accepted true values are exactly `true`, `1`, and `yes` after trimming and lowercasing; all other values are false.
-
-Request body is bounded JSON, max `64 KiB`, with at most `100` requested projects:
-
-```json
-{
-  "projects": [
-    {
-      "rootId": "default",
-      "relativePath": "sample-service"
-    }
-  ]
-}
-```
-
-The client supplies candidate identity only. The server re-runs current discovery from configured roots, validates requested identities against current candidates, and persists server-derived metadata. Unknown or stale candidates are rejected. Repeated registration is idempotent/update-oriented. Manual `data/projects.json` is never written; machine state is persisted atomically to `data/discovered-projects.json`.
-
-Explicit enrollment assigns `prj_<UUID>` to requested new/ID-less discovered records and preserves existing IDs. Per-result projectId is additive when known. Client projectId/parentProjectId/Git fields are ignored. A verified linked worktree returns `already_registered` with its parent ID and no second registry record. Unresolved worktrees reject the entire batch with `worktree_parent_unresolved` before a write. Identity conflicts return 409; malformed explicit persisted IDs return 400.
-
-### Bounded project overview
-
-`GET /api/intelligence/projects/:name/overview` returns a compact high-level summary for registered manual or discovered projects. It uses root IDs and relative paths by default and does not expose `absolutePath`.
-
-The schemaVersion remains 1. `project.projectId` is the persisted opaque ID, or null for an unassigned legacy record. The additive `revision` block contains `status` (available/unborn/not_git/unavailable), `commitSha`, `branch`, `dirty`, `repositoryIdentity`, `worktreeId`, `isLinkedWorktree` and `capturedAt`. Unknown evidence is null; detached HEAD has no branch. Local repository/worktree evidence can change after relocation and is not a durable projectId. No raw Git metadata paths or remote URLs are returned.
-
-Ambiguous name/identity lookup returns 409 in the existing error envelope. Internal by-ID/worktree resolution is available; no new public ID/worktree endpoint was added.
-
-Returned categories:
-
-- project identity, project type/support, and registry source;
-- stack languages, frameworks, package manager, runtime, and scripts;
-- architecture layers, features, entry points, and test commands;
-- source/graph statistics;
-- compact ICM availability/health/count metadata;
-- analysis cache state and analyzer capabilities;
-- bounded warnings.
-
-Bounds: `scripts <= 50`, `frameworks <= 20`, `layers <= 20`, `features <= 20`, `entryPoints <= 20`, `testCommands <= 20`, `warnings <= 20`. `graphLimit` defaults to `20` and is clamped to `1..100`.
-
-The overview `icm` field contains only:
-
-```json
-{
-  "status": "available",
-  "valid": true,
-  "workspaceCount": 1,
-  "documentCount": 3,
-  "errorCount": 0,
-  "warningCount": 0,
-  "truncated": {
-    "workspaces": false,
-    "documents": false
-  }
-}
-```
-
-`status` is `not_configured` for a valid empty ICM index, `available` for valid ICM with workspace/document content or bounded issues/truncation, and `invalid` when the machine-authoritative Project ICM Index is invalid. Overview ICM bounds are `maxWorkspaces: 50`, `maxDocuments: 100`, scan depth `8`, with `includeInstructions: false` and `includeContent: false`.
-
-Project Overview deliberately does not return `AGENT.md` Markdown instructions, contextual document content, executor IDs, owner/reviewer identities, routing maps, permission contracts, or scope patterns.
-
-Package-manager precedence is: `package.json.packageManager`, `pnpm-lock.yaml`, `yarn.lock`, `package-lock.json`, `bun.lock`/`bun.lockb`, `package.json` without evidence as `"unknown"`, and no package metadata as `null`.
-
-Overview does not trigger a full analyzer/index run. It uses current structure/cache information. If no analysis exists, `analysis.status` is `"not_analyzed"` and `statistics.nodeCount`/`edgeCount` are `null`. If an analyzed cached graph exists and contains zero nodes or edges, those values are `0`.
-
-Freshness requires exact project/revision/worktree cache identity. Dirty, unborn or Git-unavailable requests bypass both existing caches; overview does not label those graphs fresh. Confirmed non-Git inputs retain compatibility caching without Git freshness guarantees. Git reads have per-command time/output bounds, not a global discovery deadline or an immutable filesystem snapshot guarantee.
-
-### Phase status
-
-Completed:
-
-- Phase 0: centralized config, safe roots/path handling, registry ownership, atomic discovered-registry persistence.
-- Phase 1: boundary classification, bounded deterministic discovery, discovery dry-run HTTP API, explicit guarded registration, bounded project overview.
-- Phase 2: canonical `AGENT.md` parser, Workspace Index, contextual ICM Document Index, combined Project ICM Index, compact overview ICM summary.
-- Active-plan Step 1: optional persisted project IDs, unambiguous root-bound lookup, read-only Git/worktree evidence, parent-worktree discovery, revision-aware caches and safe overview projection. No live registry migration was performed.
-
-Next:
-
-- Active-plan Step 2: bounded Task Context Pack using the Project ICM Index. Not started; separate approval is required.
-
-Future:
-
-- task routing, impact v2, Hermes high-level tools, and Hermes Agent OS / Policy Engine.
-
-### Project root configuration
-
-Configuration is resolved in this order:
-
-```txt
-process.env → .env → repository defaults
-```
-
-Supported compatibility variables:
-
-- `DATA_DIR`: registry and index data directory; default is `<repo>/data`.
-- `PROJECTS_ROOT_CONTAINER`: runtime path used by existing project lookup, commonly `/projects` in Docker.
-- `PROJECTS_ROOT`: legacy host/project root; Windows paths can be converted to WSL-style paths when used as trusted configured roots.
-
-Canonical multi-root configuration uses `PROJECTS_ROOTS` as a JSON array only. Do not use delimiter-separated path strings.
-
-```env
-PROJECTS_ROOTS=[{"id":"personal","path":"/home/user/projects","writableRegistry":true},{"id":"work","path":"/work/projects","writableRegistry":false}]
-```
-
-### Registry ownership
-
-- `data/projects.json` is the human-managed legacy/manual registry. Existing array entries with `name`, `relativePath`, and optional metadata remain valid.
-- `data/discovered-projects.json` contains explicitly registered machine-managed discovery state. Its absence is valid and does not cause an error.
-- The effective runtime registry is `manual + discovered`; manual entries retain same-root legacy name/path precedence. Equal names across roots are not collapsed. Conflicting explicit IDs are errors, not silent reassignment.
-
-Runtime normalization may add fields such as `registrySource` and default `rootId` in memory, but it does not rewrite `data/projects.json`. Persisted machine-managed discovered entries use `source: "discovered"`; runtime-only `registrySource` is not persisted.
-
-Both registries accept optional opaque projectIds. Same-location manual overlays may retain a persisted discovered ID in memory. Move/rename a project by updating its existing record while preserving its ID; separate clones/forks remain separate registrations. IDs are never derived from location, name, HEAD or remote. See [identity and migration boundaries](./docs/project-intelligence/18_PROJECT_IDENTITY_AND_ISOLATION.md).
-
-### Path safety and persistence
-
-Trusted configured roots and untrusted project-relative paths are validated separately. Trusted roots may be absolute POSIX paths such as `/home/user/projects` or `/projects`, and trusted Windows roots such as `C:\Users\Example\Projects` may normalize to `/mnt/c/Users/Example/Projects` on Linux/WSL. Untrusted project-relative paths reject traversal and absolute forms such as `../secret`, `/absolute`, `C:\secret`, `C:/secret`, and UNC paths.
-
-Machine-managed discovered registry writes use an atomic helper that writes a complete sibling temporary file, fsyncs it, closes it, and renames it over `data/discovered-projects.json`. That helper is intentionally scoped to `discovered-projects.json` and never writes `data/projects.json`.
-
-## Adding projects
-
-See the full guide:
-
-- [docs/adding-projects.md](./docs/adding-projects.md)
-
-PowerShell example:
-
-```powershell
-.\scripts\add-hermes-project.ps1 -Name "faturas-backend" -Path "C:\Users\aiino\Documents\Faturas"
-```
-
-Project registration is generic. The actual project type is detected by the analyzer.
-
-## Main endpoints
-
-### Health
-
-```txt
-GET /api/health
-```
-
-### Projects
-
-```txt
-GET /api/projects
-GET /api/projects/:name
-GET /api/projects/:name/structure
-```
-
-### Exploration
-
-```txt
-GET /api/explore/:project/search?q=...
-GET /api/explore/:project/expand?nodeId=...&direction=both|in|out
-GET /api/explore/:project/full?nodeLimit=500&edgeLimit=1200
-GET /api/explore/:project/impact?nodeId=...&depth=2
-GET /api/explore/:project/context?symbol=...&depth=1
-GET /api/explore/:project/insights?limit=20
-```
-
-The impact, context, and insights endpoints return bounded graph intelligence for Hermes agents and UI workflows.
-TypeScript analysis now resolves default imports, named re-exports/barrel files, and simple `tsconfig.paths` aliases.
-
-### Indexing and cache
-
-```txt
-POST /api/index/:project
-GET /api/cache/symbols
-DELETE /api/cache/symbols
-```
-
-Cache stats include the legacy .NET symbol-index cache and the shared analyzer analysis cache.
-
-## Usage examples
-
-Search for a `.NET` symbol:
-
-```bash
-curl "http://localhost:8770/api/explore/faturas-backend/search?q=InvoiceCreationService"
-```
-
-Search for a TypeScript symbol:
-
-```bash
-curl "http://localhost:8770/api/explore/site-next/search?q=Provider"
-```
-
-Retrieve the full graph:
-
-```bash
-curl "http://localhost:8770/api/explore/faturas-backend/full?nodeLimit=500&edgeLimit=1200"
-```
-
-## Development
-
-Available npm commands:
-
-```bash
-npm run check
-npm test
-npm start
-```
-
-When changing ESM imports, also validate the import path directly:
-
-```bash
-node -e "import('./src/lib/analyzer-service.js').then(()=>console.log('import ok')).catch(e=>{console.error(e); process.exit(1)})"
-```
-
-## Troubleshooting
-
-### `ERR_MODULE_NOT_FOUND`
-
-Check relative imports. Example of correct imports from `src/lib/analyzer-service.js`:
-
-```js
-../analyzers/common/analyzer-detection.js
-../analyzers/dotnet/dotnet-analyzer.js
-../analyzers/typescript/typescript-analyzer.js
-```
-
-More details:
-
-- [Analyzer execution and troubleshooting](./docs/analyzers-execution.md)
-
-### New Docker dependencies
-
-If npm dependencies were added, rebuild the container:
-
-```bash
-docker compose up --build
-```
-
-## Short-term roadmap
-
-- Deepen TypeScript references without turning the analyzer into a language server.
-- Add dedicated analyzers for other detected project types only when the value justifies the scope.
-- Create a Hermes tool or plugin that consumes the impact/context API directly.
-
-## Navigation
-
-- [Adding projects](./docs/adding-projects.md)
-- [Analyzer implementation](./docs/analyzers-implementation.md)
-- [Analyzer execution and troubleshooting](./docs/analyzers-execution.md)
-- [Hermes tool integration](./docs/hermes-tool-integration.md)
-- [Hermes plugin installation for profiles](./docs/hermes-plugin-installation.md)
-- [Project ICM architecture](./docs/project-icm.md)
+- [Vision](docs/VISION.md) — the author's experience and project direction.
+- [Concepts](docs/CONCEPTS.md) — vocabulary, evidence levels and boundaries.
+- [Architecture](docs/ARCHITECTURE.md) — current composition and future layers.
+- [Current status](docs/CURRENT_STATUS.md) — checkpoint-backed capabilities.
+- [Service reference](docs/SERVICE_REFERENCE.md) — current API and operations.
+- [Documentation index](docs/README.md) — setup, integration and technical guides.
