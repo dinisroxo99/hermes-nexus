@@ -251,8 +251,9 @@ Only Markdown files under these ADR roots are considered ADR documents. README f
 Current limitations are explicit:
 
 - `AGENTS.md` inheritance/merge is not calculated yet;
-- `CONTEXT.md` workspace matching is not implemented yet;
-- task-specific context selection is not implemented yet.
+- this document index does not itself calculate `CONTEXT.md` workspace matches;
+- Step 2 task-specific selection now composes this index with workspace/path
+  matches and bounded analysis; it does not implement `AGENTS.md` inheritance.
 
 Bounds:
 
@@ -403,7 +404,9 @@ The overview privacy boundary is deliberate. Project Overview does not return:
 - permission contracts;
 - scope patterns.
 
-It exposes only ICM availability, validity, counts, issue counts, and truncation metadata because task-specific context selection is not implemented yet.
+It exposes only ICM availability, validity, counts, issue counts, and truncation
+metadata. Task-specific evidence belongs to the separate Task Context Pack API,
+not the overview response.
 
 ## HTTP API status
 
@@ -413,13 +416,13 @@ Implemented Project Intelligence endpoints:
 GET  /api/intelligence/discover
 POST /api/intelligence/discover/register
 GET  /api/intelligence/projects/:name/overview
+POST /api/intelligence/projects/:projectId/task-context
 ```
 
 Not implemented:
 
 ```txt
 GET  /api/intelligence/projects/:name/icm
-POST /api/intelligence/projects/:name/task-context
 POST /api/intelligence/projects/:name/route
 ```
 
@@ -446,9 +449,15 @@ Completed:
 - Phase 1: discovery, registration, overview.
 - Phase 2: canonical `AGENT.md` parser, Workspace Index, contextual ICM Document Index, combined Project ICM Index, compact overview ICM summary.
 
-Next:
+Completed under the tracked active plan:
 
-- Phase 3: bounded Task Context / `project_task_context` functionality that uses the Project ICM Index to select bounded relevant context for a task.
+- Step 2: bounded, deterministic, revision-aware Task Context Pack service and
+  read-only HTTP endpoint using persisted projectId. The high-level Hermes
+  `project_task_context` tool is not implemented. See the
+  [implemented contract](./project-intelligence/04_ICM_AND_CONTEXT_PACK.md) for
+  limits, trust labels, source snapshot mode and Linux/WSL descriptor verification.
+- Step 3 — Impact v2 remains not started. The earlier foundation phase numbering
+  above is historical and does not supersede the tracked active plan.
 
 Future:
 

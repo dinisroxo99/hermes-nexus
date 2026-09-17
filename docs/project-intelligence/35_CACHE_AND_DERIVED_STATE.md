@@ -10,6 +10,25 @@ Status: **PLANNED**
 
 Use caching to reduce repeated analysis/tokens without serving stale project context.
 
+## Implemented Step 2 policy
+
+Task Context Packs are rebuilt on demand with **cache reuse disabled**, including
+clean commits. The snapshot analyzer facade bypasses both existing analysis and
+.NET symbol caches; no new persistent cache was justified or added. Existing
+Step 1 cache behavior for legacy analysis callers is unchanged.
+
+The composer compares Git evidence and reobserves bounded source digests before
+returning. Dirty/unborn/non-Git/unavailable states are working-tree observations,
+not clean committed snapshots. Digests cover only collected sources and are not
+whole-worktree dirty fingerprints. Limits and incomplete/truncated flags remain
+part of the payload. No atomic filesystem snapshot is promised.
+
+`tests/task-context-benchmark.test.js` measures actual compact output bytes for a
+controlled fixture; its timing is outside the deterministic pack. The key,
+invalidation, single-flight and sharing designs below remain future guidance,
+not implemented Context Pack caching. See `04_ICM_AND_CONTEXT_PACK.md` for the
+shipped bounds and descriptor-verification platform requirement.
+
 ## What may be cached
 
 ```text

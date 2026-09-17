@@ -138,9 +138,26 @@ Currently implemented:
 GET  /api/intelligence/discover
 POST /api/intelligence/discover/register
 GET  /api/intelligence/projects/:name/overview
+POST /api/intelligence/projects/:projectId/task-context
 ```
 
-Implemented ICM support is on-demand and bounded: a canonical `AGENT.md` parser, Workspace Index, contextual ICM Document Index, combined Project ICM Index, and compact overview ICM summary. Not implemented yet: task context, task routing, impact v2, Hermes high-level `project_*` tools, and Hermes Agent OS orchestration.
+Implemented ICM support is on-demand and bounded: a canonical `AGENT.md` parser, Workspace Index, contextual ICM Document Index, combined Project ICM Index, compact overview ICM summary, and revision-aware Task Context Pack. Not implemented yet: task routing, impact v2, Hermes high-level `project_*` tools, and Hermes Agent OS orchestration.
+
+### Task Context Pack
+
+`POST /api/intelligence/projects/:projectId/task-context` accepts a task with a
+required title and optional relative paths/symbol names, limits, bounded excerpts
+and verified worktree locator. It is read-only and requires a persisted projectId;
+it neither assigns IDs nor owns task execution. The deterministic, versioned pack
+includes current Git/worktree evidence, matched ICM declarations, relevant file/
+symbol/reference/test candidates, canonical document references and provenance.
+No full files/graphs are returned by default and no Context Pack cache is used.
+
+Source retrieval currently requires Linux/WSL `/proc/self/fd` descriptor
+verification and fails closed elsewhere. Dirty/unavailable revisions remain
+explicit, and observed changes during construction reject the pack. See the
+[implemented contract](./docs/project-intelligence/04_ICM_AND_CONTEXT_PACK.md)
+for input/output limits, trust labels, HTTP errors and remaining limitations.
 
 ### Canonical Project ICM
 

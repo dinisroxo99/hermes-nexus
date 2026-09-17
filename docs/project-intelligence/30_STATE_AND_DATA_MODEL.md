@@ -106,6 +106,16 @@ createdAt
 
 Context Packs are derived and disposable.
 
+The implemented Step 2 DTO refines this logical sketch: `schemaVersion: 1`,
+`analysisVersion: "task-context-v1"`, `contextPackId`, persisted `projectId`, safe
+`revision`, `observation`, `limits` and provenance-labelled `sections`. The task
+reference is `sections.task.items[0].id`; no task lifecycle is persisted.
+`generatedAt` is null and volatile observation timestamps are omitted from the
+deterministic payload. `observation.sourceDigest` hashes bounded collected
+sources, not the entire worktree; it is not a new RepositoryRevision fingerprint
+or identity store. No Context Pack state is persisted. See the implemented
+contract in `04_ICM_AND_CONTEXT_PACK.md`; other entity sketches here remain planned.
+
 ### ImpactSnapshot
 
 ```text

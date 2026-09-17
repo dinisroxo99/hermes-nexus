@@ -12,6 +12,141 @@ Project Intelligence provides machine-derived knowledge of the current codebase.
 
 The Context Pack joins both.
 
+## Implemented Step 2 contract
+
+`buildProjectTaskContext(request, options)` in `src/lib/task-context.js` is the
+on-demand composer. HTTP exposure is **read-only**:
+
+```text
+POST /api/intelligence/projects/:projectId/task-context
+```
+
+The route ID must be an existing persisted project identity, not a project name.
+Legacy ID-less records remain readable elsewhere but require explicit identity
+assignment before this operation. No registry migration or identity generation
+occurs. `worktree: {rootId, relativePath}` optionally selects a checkout through
+the existing parent/worktree resolver; it never enrolls another project.
+
+Request body:
+
+```json
+{
+  "task": {"id": "task-1", "title": "Change One", "paths": ["src/one.ts"], "symbols": []},
+  "includeExcerpts": false,
+  "limits": {"files": 16, "symbols": 24}
+}
+```
+
+`title` is required (1–200 characters); optional task `id` is at most 128,
+`description` at most 2000, `paths` at most 32 entries of 1024 characters, and
+`symbols` at most 8 names of 128 characters. Paths are relative, validated before
+normalization, deduplicated and sorted. Unknown fields, including profile/model/
+provider/routing inputs and a body-level projectId, are rejected. The body limit
+is 64 KiB. The existing `{ok, data, message}` envelope and `Cache-Control: no-store`
+are retained. Controlled failures use 400 for invalid input/budget, 404 for missing
+or unavailable projects, 409 for ambiguity/worktree/observed-state conflicts,
+413 for oversized bodies, and sanitized 500 for unexpected failures.
+
+### Composition and relevance
+
+The existing registry, revision reader, workspace matcher, Project ICM Index and
+TypeScript/.NET extraction logic are reused. Optional `sourceFiles` input modes
+let the existing ICM parsers and analyzers consume one bounded in-memory source
+observation, without a second parser/index or persistent store. TypeScript runs
+in an in-memory filesystem: external imports/config extends/plugins are not
+loaded. Ordinary legacy analyzer/index callers retain their existing behavior.
+
+Explicit file/directory paths and symbol names select targets; when both are
+absent, bounded lexical matching uses task text. Direct graph neighbours can add
+references, not transitive impact. Test candidates use explicit targets, direct
+references or basename conventions and are labelled heuristic. Root canonical
+documents remain available; localized documents follow task/workspace ancestry;
+ADRs need explicit or lexical relevance. This is not a coverage guarantee.
+
+### Versioned output and provenance
+
+The pack contains `schemaVersion: 1`, `analysisVersion: "task-context-v1"`,
+`contextPackId`, `projectId`, a relative project locator, safe `revision`,
+`observation`, `limits`, `sections` and expansion hints. Sections are `task`,
+`policy`, `workspaces`, `documents`, `constraints`, `files`, `symbols`,
+`references`, `tests` and `diagnostics`. Each has `items`, `limit`, `truncated`,
+`status` and producer/project/revision provenance. Content-bearing items have
+source metadata and relevance reasons; file evidence includes a relative path
+and SHA-256. Public symbol references hash bounded analyzer identities instead
+of exposing internal absolute IDs. Unknown exact symbol lines are `null`.
+
+Trust classes distinguish fixed `trusted_policy`, `canonical_fact` declarations,
+`derived_analysis`, `untrusted_repository_text` and `untrusted_request_text`.
+Permissions and preconditions are explicitly `declaredOnly`, never effective
+permissions or runtime authorization. Canonical Markdown titles/excerpts remain
+untrusted text. No selected executors, agents, routing or task lifecycle appears.
+Ambiguous workspace/document identities are rejected; diagnostics and selected
+results are deterministically ordered before public truncation.
+
+### Bounds
+
+| Section | Default | Maximum |
+|---|---:|---:|
+| Files | 16 | 32 |
+| Symbols | 24 | 64 |
+| References | 32 | 64 |
+| Tests | 8 | 16 |
+| Workspaces | 8 | 16 |
+| Documents | 8 | 16 |
+| Constraints | 16 | 32 |
+| Diagnostics | 20 | 40 |
+
+Task and fixed policy sections have fixed bounds. Numeric section requests are
+clamped to non-negative integer limits; zero omits that section's items. Matched
+paths and preconditions are bounded to eight per item. Excerpts are off by
+default; opt-in excerpts use the first 12 lines and at most 512 UTF-8 bytes, with
+common sensitive-pattern redaction. They are not full-file or symbol-centered
+expansion. The default **compact serialized pack** budget is 64 KiB; `maxBytes`
+is clamped to 16–128 KiB. Optional evidence is trimmed in a fixed order, with
+honest truncation; a mandatory header that cannot fit is rejected. HTTP envelope
+and pretty-print overhead are outside that compact-pack budget.
+
+Source collection is capped at depth 8, 10,000 entries plus an overflow probe,
+500 accepted files, 128 KiB per file and 4 MiB read bytes per observation (a
+single extra byte can probe file growth). Rejected binary reads consume the
+budget too. Collection runs twice to detect observed changes. Oversized
+directories are omitted instead of retaining an enumeration-order-dependent
+subset. Sensitive paths, symlinks, unsupported extensions, nested Git boundaries
+and registered subprojects are excluded; both canonical-parent and selected-
+worktree registrations contribute boundaries. Raw internal Git paths are absent.
+
+Opened files and directory anchors are verified through kernel descriptor paths
+before content reads. **Source collection currently requires Linux/WSL with
+`/proc/self/fd`; unavailable descriptor verification fails closed**, yielding
+partial metadata-only results rather than falling back to raceable path checks.
+
+### Revision, determinism and limitations
+
+Git state and bounded source observations are compared before/after composition;
+observed changes reject the pack. Dirty, unborn, non-Git and unavailable states
+retain explicit status and never masquerade as a clean committed snapshot.
+`observation.basis` is `working_tree`; cache reuse is disabled for every state.
+The observation source digest covers only collected sources, **not** the whole
+worktree and not a new project identity or Git dirty-state fingerprint.
+
+Equivalent normalized inputs and unchanged observed state produce byte-identical
+pack JSON. `generatedAt` is deliberately `null`; volatile revision `capturedAt`
+is excluded. Transport time may be conveyed by HTTP Date. This refines the older
+timestamp sketches below without changing the Step 1 revision-reader contract.
+
+There is no atomic whole-repository snapshot or analyzer wall-clock guarantee.
+Source caps can omit relevant evidence; inspect truncation/incomplete flags.
+Secret-pattern redaction is defense in depth, not a complete DLP system. Symbol
+support is inherited from TypeScript/JavaScript and .NET analyzers; mixed-language
+snapshots prefer .NET and other languages have file/document evidence only.
+Expansion means resubmitting narrower paths/symbols or opting into bounded
+excerpts. There is no expansion endpoint, persistent Context Pack cache, stage
+resolver, LLM/provider routing, agent selection, scheduler or Hermes runtime.
+**Impact v2, Effective Scope, conflicts and later phases are not implemented.**
+
+The remaining proposed APIs, richer tiers and output sketches in this document
+describe the longer-term architecture, not the shipped Step 2 interface.
+
 ## ICM responsibilities
 
 ICM should describe:

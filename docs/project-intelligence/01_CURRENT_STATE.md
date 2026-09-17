@@ -6,7 +6,28 @@
 
 Snapshot date: **2026-09-17**
 
-This document is intentionally conservative. It records only state that was confirmed in the project conversations. Before editing production code, verify the repository again.
+This document distinguishes repository-verified checkpoints from the original
+conversation-derived snapshot. Before editing production code, verify the
+repository again; the tracked active plan remains the implementation authority.
+
+## Repository-verified Step 2 checkpoint
+
+At `93e2dd3 test: verify task context isolation and bounded output`:
+
+- Step 1 identity/revision model is preserved.
+- Step 2 Task Context Pack is implemented, including the read-only
+  `POST /api/intelligence/projects/:projectId/task-context` operation.
+- 285 tests pass, 0 fail, 0 skip; npm run check and git diff --check pass.
+- 23 changed JavaScript files pass explicit syntax checks.
+- User changes in `.env` and `data/projects.json` remain unstaged and were not
+  included in implementation commits; the working tree is not globally clean.
+- No dependency, persistent Context Pack cache, registry migration, Hermes
+  runtime implementation or later phase was introduced.
+
+See `04_ICM_AND_CONTEXT_PACK.md` for the exact contract, provenance, bounded
+retrieval, Linux/WSL descriptor requirement and limitations. Step 3 is not
+started. Historical foundation records below are retained as historical evidence,
+not as the latest source/test checkpoint.
 
 ## Repository
 
@@ -16,7 +37,7 @@ This document is intentionally conservative. It records only state that was conf
 - Branch discussed: `feat/project-intelligence-service`
 - Architectural role: **Project Intelligence Service**, separate from Hermes agent/runtime orchestration.
 
-## Latest verified checkpoint from conversation
+## Historical verified checkpoint from conversation
 
 **VERIFIED/CURRENT**
 

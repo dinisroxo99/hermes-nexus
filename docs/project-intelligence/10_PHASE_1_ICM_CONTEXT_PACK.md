@@ -4,7 +4,31 @@
 > Companion review: `reviews/10_PHASE_1_ICM_CONTEXT_PACK_ROUNDTABLE.md`
 
 
-Status: **PLANNED**
+Status: **Step 2 Task Context Pack IMPLEMENTED**. Broader stage/tool sketches
+below remain planned; they are not authorization for later implementation.
+
+## Verified implementation
+
+- `buildProjectTaskContext` resolves persisted projectId and an optional verified
+  worktree, collects bounded local sources, and reuses the Project ICM Index,
+  workspace matcher and existing snapshot-mode analyzers.
+- `POST /api/intelligence/projects/:projectId/task-context` is the read-only HTTP
+  operation. There is no Hermes tool/runtime implementation or stage resolver.
+- The versioned pack has independently bounded sections and provenance, no
+  default full files/graphs, and no cache reuse. Dirty/unavailable Git is explicit.
+- `generatedAt: null` and omission of volatile `revision.capturedAt` preserve
+  deterministic serialization. No whole-repository dirty fingerprint is added.
+- Linux/WSL kernel descriptor verification is required for source collection;
+  unavailable verification fails closed to partial metadata-only results.
+- `tests/task-context-benchmark.test.js` is a reproducible task-to-pack fixture;
+  `tests/task-context-routes.test.js` exercises a real loopback HTTP request.
+- The 40-function fixture measured 9,422 compact bytes for graph + ICM versus
+  4,780 for the targeted pack, with two facade calls versus one. These are
+  synthetic response-size measurements, not production latency/token claims.
+
+The exact request, response, limits, trust model and remaining limitations are in
+`04_ICM_AND_CONTEXT_PACK.md` under **Implemented Step 2 contract**. The candidate
+DTOs/functions below are retained as architecture sketches, not current APIs.
 
 ## Objective
 
@@ -129,7 +153,7 @@ Follow current route style instead of inventing a parallel API convention.
 - limits are enforced;
 - unrelated symbols excluded;
 - current revision included;
-- impact/test sections bounded;
+- reference/test sections bounded (Impact v2 remains outside Step 2);
 - empty/simple projects handled;
 - output is agent-friendly.
 
