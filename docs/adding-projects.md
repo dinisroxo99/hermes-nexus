@@ -6,11 +6,11 @@
 
 This guide explains how to add, list, and remove projects in `hermes-project-map`.
 
-Registered projects are stored in `data/projects.json` and read by the API through `src/lib/projects.js`.
+Manual projects are stored in `data/projects.json`; explicitly enrolled discovered projects are stored in `data/discovered-projects.json`. The API uses the effective registry through `src/lib/projects.js`.
 
 ## How it works
 
-`hermes-project-map` does not store absolute project paths. It stores only:
+Registry locations use relative paths, not absolute source paths. A legacy record remains valid without a projectId:
 
 ```json
 {
@@ -23,8 +23,42 @@ Registered projects are stored in `data/projects.json` and read by the API throu
 The real path is calculated like this:
 
 ```txt
-PROJECTS_ROOT_CONTAINER + relativePath
+configured root selected by rootId + relativePath
 ```
+
+Omitted rootId means `default`; legacy configuration still supplies that root through `PROJECTS_ROOT_CONTAINER`/`PROJECTS_ROOT`. Both legacy and intelligence lookup use the selected root, reject unknown roots and verify realpath containment. Name ambiguity is an error, not a first-match selection.
+
+## Stable project identity
+
+Explicit registration now assigns an opaque `prj_<UUID>` ID once, then preserves it on subsequent updates. A supplied `projectId` must be 1–128 ASCII characters, begin with a letter/digit, and otherwise use only letters, digits, `_` or `-`. Values are case-sensitive and are never normalized. Do not derive IDs from names, paths, remotes or commits.
+
+Existing records without IDs are still valid. Reading, listing, discovery and overview do not migrate them. To assign an ID deliberately:
+
+- for a manual record, invoke the existing registration script for that record or edit the manual registry explicitly;
+- for a discovered record, explicitly request it through the guarded discovery-registration API. Only requested ID-less discovered records acquire IDs;
+- never use the discovered-registry writer to rewrite the manual registry.
+
+An absent persisted ID appears as `project.projectId: null` in overview. Explicit `projectId: null` in registry data is invalid, not equivalent to omission.
+
+### Moves, renames, clones and forks
+
+Retain the existing ID and update the existing locator when moving a project. The PowerShell script preserves an ID when re-adding the same name at a new path or renaming the same path; if name and path identify different records it fails without writing. The script remains a legacy single-root registration tool; use explicit registry edits for multi-root locator changes.
+
+Do not delete/re-enroll a moved project and expect automatic identity recovery. Arbitrary moved-and-renamed checkout recognition is not implemented. A colliding identified alias must be relocated explicitly rather than registered as a new project.
+
+Clones and forks are separate registrations by default, even when history/remotes match. Keep aliases distinct within a root. Same-name projects across roots remain separate, but name-only HTTP lookup returns an ambiguity error; internal consumers can use exact ID lookup. Discovered workspace modules remain modules, not new projects.
+
+### Worktrees and revision evidence
+
+Linked worktrees retain their identified registered parent's projectId. Discovery verifies common Git metadata, logical project subdirectory and actual worktree membership. Registering a verified worktree returns `already_registered` with the parent ID and creates no second project record. Unresolved parents or inaccessible Git-file metadata reject the whole registration request before writing.
+
+Do not manually enroll task worktrees as unrelated projects. Project Map reads worktree evidence; Hermes continues to own their lifecycle. Git metadata must be reachable in the runtime/container, otherwise revision evidence is unavailable.
+
+Overview exposes safe revision metadata, not absolute Git paths or remote URLs. `repositoryIdentity` and `worktreeId` are local checkout evidence and can change after a move or remount; neither replaces the stable persisted projectId. Both existing caches bypass dirty, unborn and unavailable Git checkouts. Non-Git compatibility caching remains available without Git revision guarantees.
+
+See [the canonical identity contract](./project-intelligence/18_PROJECT_IDENTITY_AND_ISOLATION.md) for errors, internal lookup APIs and remaining boundaries.
+
+### Docker location example
 
 In Docker, `docker-compose.yml` mounts the host directory at `/projects`:
 

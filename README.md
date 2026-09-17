@@ -130,7 +130,7 @@ The `PROJECTS_ROOT` folder is mounted inside the container at `/projects`.
 
 ## Project Intelligence API
 
-Project Intelligence endpoints are bounded, deterministic, agent-oriented contracts for Hermes and future orchestrators. They are separate from the existing UI/specialist graph endpoints and do not change `/api/projects` or `/api/explore` payloads.
+Project Intelligence endpoints are bounded, agent-oriented contracts for Hermes and future orchestrators. Discovery ordering remains deterministic; live revision timestamps are explicit. These routes remain separate from the existing UI/specialist graph endpoints. Legacy ID-less records remain supported, while ambiguous names and unsafe locations now fail rather than resolving a different project.
 
 Currently implemented:
 
@@ -166,6 +166,8 @@ Query parameters:
 
 Results are ordered by configured root order, then candidate `relativePath`. `truncated` is true only when an additional returnable candidate exists beyond the global limit. Root problems are returned as structured warnings bounded to `20`, such as `{ "code": "root_missing", "rootId": "default" }`. Registered matching uses `rootId + relativePath`, with same-root name compatibility for legacy entries.
 
+Linked worktree candidates additionally expose `isLinkedWorktree` and `parentProjectId` (null when unresolved). A verified parent makes the worktree registered without assigning another projectId. Inaccessible Git-file metadata is marked `identityStatus: "unavailable"`; discovery never invents a parent or persists an ID.
+
 ### Explicit discovered-project registration
 
 `POST /api/intelligence/discover/register` writes only machine-managed discovery state and is disabled by default. Enable it explicitly with:
@@ -191,9 +193,15 @@ Request body is bounded JSON, max `64 KiB`, with at most `100` requested project
 
 The client supplies candidate identity only. The server re-runs current discovery from configured roots, validates requested identities against current candidates, and persists server-derived metadata. Unknown or stale candidates are rejected. Repeated registration is idempotent/update-oriented. Manual `data/projects.json` is never written; machine state is persisted atomically to `data/discovered-projects.json`.
 
+Explicit enrollment assigns `prj_<UUID>` to requested new/ID-less discovered records and preserves existing IDs. Per-result projectId is additive when known. Client projectId/parentProjectId/Git fields are ignored. A verified linked worktree returns `already_registered` with its parent ID and no second registry record. Unresolved worktrees reject the entire batch with `worktree_parent_unresolved` before a write. Identity conflicts return 409; malformed explicit persisted IDs return 400.
+
 ### Bounded project overview
 
 `GET /api/intelligence/projects/:name/overview` returns a compact high-level summary for registered manual or discovered projects. It uses root IDs and relative paths by default and does not expose `absolutePath`.
+
+The schemaVersion remains 1. `project.projectId` is the persisted opaque ID, or null for an unassigned legacy record. The additive `revision` block contains `status` (available/unborn/not_git/unavailable), `commitSha`, `branch`, `dirty`, `repositoryIdentity`, `worktreeId`, `isLinkedWorktree` and `capturedAt`. Unknown evidence is null; detached HEAD has no branch. Local repository/worktree evidence can change after relocation and is not a durable projectId. No raw Git metadata paths or remote URLs are returned.
+
+Ambiguous name/identity lookup returns 409 in the existing error envelope. Internal by-ID/worktree resolution is available; no new public ID/worktree endpoint was added.
 
 Returned categories:
 
@@ -232,6 +240,8 @@ Package-manager precedence is: `package.json.packageManager`, `pnpm-lock.yaml`, 
 
 Overview does not trigger a full analyzer/index run. It uses current structure/cache information. If no analysis exists, `analysis.status` is `"not_analyzed"` and `statistics.nodeCount`/`edgeCount` are `null`. If an analyzed cached graph exists and contains zero nodes or edges, those values are `0`.
 
+Freshness requires exact project/revision/worktree cache identity. Dirty, unborn or Git-unavailable requests bypass both existing caches; overview does not label those graphs fresh. Confirmed non-Git inputs retain compatibility caching without Git freshness guarantees. Git reads have per-command time/output bounds, not a global discovery deadline or an immutable filesystem snapshot guarantee.
+
 ### Phase status
 
 Completed:
@@ -239,10 +249,11 @@ Completed:
 - Phase 0: centralized config, safe roots/path handling, registry ownership, atomic discovered-registry persistence.
 - Phase 1: boundary classification, bounded deterministic discovery, discovery dry-run HTTP API, explicit guarded registration, bounded project overview.
 - Phase 2: canonical `AGENT.md` parser, Workspace Index, contextual ICM Document Index, combined Project ICM Index, compact overview ICM summary.
+- Active-plan Step 1: optional persisted project IDs, unambiguous root-bound lookup, read-only Git/worktree evidence, parent-worktree discovery, revision-aware caches and safe overview projection. No live registry migration was performed.
 
 Next:
 
-- Phase 3: bounded Task Context / `project_task_context` functionality that uses the Project ICM Index to select bounded relevant context for a task.
+- Active-plan Step 2: bounded Task Context Pack using the Project ICM Index. Not started; separate approval is required.
 
 Future:
 
@@ -271,10 +282,12 @@ PROJECTS_ROOTS=[{"id":"personal","path":"/home/user/projects","writableRegistry"
 ### Registry ownership
 
 - `data/projects.json` is the human-managed legacy/manual registry. Existing array entries with `name`, `relativePath`, and optional metadata remain valid.
-- `data/discovered-projects.json` is reserved for future machine-managed discovery state. Its absence is valid and does not cause an error.
-- The effective runtime registry is `manual + discovered`; manual entries win on project-name conflicts and on `rootId + relativePath` conflicts.
+- `data/discovered-projects.json` contains explicitly registered machine-managed discovery state. Its absence is valid and does not cause an error.
+- The effective runtime registry is `manual + discovered`; manual entries retain same-root legacy name/path precedence. Equal names across roots are not collapsed. Conflicting explicit IDs are errors, not silent reassignment.
 
 Runtime normalization may add fields such as `registrySource` and default `rootId` in memory, but it does not rewrite `data/projects.json`. Persisted machine-managed discovered entries use `source: "discovered"`; runtime-only `registrySource` is not persisted.
+
+Both registries accept optional opaque projectIds. Same-location manual overlays may retain a persisted discovered ID in memory. Move/rename a project by updating its existing record while preserving its ID; separate clones/forks remain separate registrations. IDs are never derived from location, name, HEAD or remote. See [identity and migration boundaries](./docs/project-intelligence/18_PROJECT_IDENTITY_AND_ISOLATION.md).
 
 ### Path safety and persistence
 
