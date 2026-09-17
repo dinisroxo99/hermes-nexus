@@ -12,6 +12,14 @@ repository again; the tracked active plan remains the implementation authority.
 
 ## Repository-verified Step 2 checkpoint
 
+Subsequent Step 2.5 adds the AnalyzerProvider abstraction, native adapters,
+deterministic capability/coverage/fallback reporting and a data-only external
+evidence boundary. Task Context Pack consumes the normalized output. Native
+semantic tooling remains .NET and TypeScript/JavaScript; no Serena or language
+server was installed. See `19_ANALYZER_PROVIDER_LAYER.md` and the tracked active
+plan for the latest verification checkpoint. The Step 2 record below is retained
+as historical evidence; Impact v2 is still not started.
+
 At `93e2dd3 test: verify task context isolation and bounded output`:
 
 - Step 1 identity/revision model is preserved.

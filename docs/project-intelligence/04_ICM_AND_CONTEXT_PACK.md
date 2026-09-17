@@ -14,6 +14,15 @@ The Context Pack joins both.
 
 ## Implemented Step 2 contract
 
+**Step 2.5 additive update:** bounded analysis now consumes the normalized
+AnalyzerProvider layer. Existing schema/sections and selection policy remain;
+`analysis` metadata adds provider/version, capabilities, language coverage,
+snapshot binding, attempts and provenance. Symbol/reference sections retain
+external trust labels and validated source lines. Missing operation support is
+not_analyzed; partial language/operation coverage marks the pack incomplete.
+No external tool is executed or made authoritative. The exact provider contract
+and optional Serena/LSP approval proposal are in `19_ANALYZER_PROVIDER_LAYER.md`.
+
 `buildProjectTaskContext(request, options)` in `src/lib/task-context.js` is the
 on-demand composer. HTTP exposure is **read-only**:
 

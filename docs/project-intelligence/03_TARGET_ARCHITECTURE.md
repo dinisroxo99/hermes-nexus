@@ -86,6 +86,19 @@ Build an impact-aware Project Intelligence layer that makes Hermes agents:
 
 ## Responsibility boundary
 
+### Analyzer provider layer — Step 2.5
+
+Project Intelligence consumes a normalized AnalyzerProvider contract over the
+existing native .NET and TypeScript/JavaScript analyzers and an optional,
+snapshot-scoped external evidence boundary. This is language-analysis provider
+selection, **not** LLM/model/provider routing owned by Hermes.
+
+Capabilities, language coverage and fallback are explicit; unsupported languages
+must not masquerade as complete empty graphs. Results remain single-provider,
+revision-associated and project-local. External tools never own project identity,
+Git truth, ICM, Context Packs or cache policy. Serena/LSP process integration is
+not installed. See `19_ANALYZER_PROVIDER_LAYER.md`; Impact v2 remains a later step.
+
 ### Hermes
 
 Must remain responsible for execution mechanics:

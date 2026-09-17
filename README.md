@@ -159,6 +159,18 @@ explicit, and observed changes during construction reject the pack. See the
 [implemented contract](./docs/project-intelligence/04_ICM_AND_CONTEXT_PACK.md)
 for input/output limits, trust labels, HTTP errors and remaining limitations.
 
+### Analyzer providers
+
+Bounded Project Intelligence now uses a normalized AnalyzerProvider contract.
+Native .NET and TypeScript/JavaScript analyzers remain in place; capability levels,
+language coverage, deterministic priority/fallback and provider provenance are
+explicit. Python, Go, Rust, Java, Bash and PowerShell source observation does not
+imply installed semantic analysis. Optional external evidence must match the
+authorized snapshot and provider request; no external tool is executed by this
+data-only adapter. Serena/LSP installation remains a separate approval gate.
+
+See [AnalyzerProvider contract and integration proposal](./docs/project-intelligence/19_ANALYZER_PROVIDER_LAYER.md).
+
 ### Canonical Project ICM
 
 Project ICM separates machine-authoritative workspace contracts from contextual project knowledge:
