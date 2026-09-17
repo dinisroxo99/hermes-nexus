@@ -2,6 +2,8 @@
 
 [← README](../README.md) · [Adding projects](./adding-projects.md) · [Implementation](./analyzers-implementation.md) · [Execution](./analyzers-execution.md) · [Project ICM](./project-icm.md)
 
+[Documentation index](README.md) · [Public architecture](ARCHITECTURE.md) · [Current status](CURRENT_STATUS.md)
+
 ## Purpose
 
 Expose `hermes-project-map` as an independent Project Intelligence HTTP service that Hermes Agent can use directly, so agents can query project graphs without depending on the UI or duplicating repository analysis logic.
@@ -9,8 +11,8 @@ Expose `hermes-project-map` as an independent Project Intelligence HTTP service 
 Architecture boundary:
 
 - `hermes-project-map` owns project analysis, project configuration, registry reading/merging, Project Intelligence APIs, and canonical Project ICM indexing.
-- Hermes should remain a thin client/consumer that calls this HTTP service.
-- The future Hermes Agent OS owns orchestration, policy enforcement, and agent execution. This service may resolve project intelligence; it does not enforce agent policy or run agents.
+- The Hermes adapter should remain a thin client that calls this HTTP service.
+- Hermes owns runtime orchestration and agent execution. The planned Hermes guard integration would enforce task scope; this service provides intelligence, not a replacement runtime.
 
 The integration can be implemented in two ways:
 
@@ -57,15 +59,22 @@ Implemented in Phase 2:
 - combined Project ICM Index;
 - compact `icm` summary in Project Overview.
 
-Next implementation phase:
-
-- Phase 3: bounded Task Context / `project_task_context` functionality that uses the Project ICM Index to select bounded relevant context for a task.
+Also implemented at the [pinned status snapshot](CURRENT_STATUS.md): persisted
+project identity, Git/worktree evidence and the read-only
+`POST /api/intelligence/projects/:projectId/task-context` endpoint. HTTP support
+does not imply that a `project_task_context` Hermes tool is installed.
 
 Future work:
 
-- task routing, impact v2, high-level Hermes `project_*` tools, and Hermes Agent OS orchestration/policy enforcement.
+- Impact v2, effective task scopes, conflicts and high-level Hermes tools/guard
+  integration. Runtime orchestration remains a Hermes responsibility, not a
+  future feature to build inside this service.
 
-The service does not run agents and does not enforce future Hermes Agent OS policy. Hermes remains a thin HTTP consumer; `hermes-project-map` remains the Project Intelligence source of truth.
+The service does not run agents or enforce runtime task policy. Hermes consumes
+its project evidence through an adapter. ICM is one input to Project Intelligence,
+not the complete system. See [current status](CURRENT_STATUS.md) for Phase 2.5
+and the required post-merge refresh; the historical foundation list above is not
+a complete current capability checklist.
 
 The canonical ICM authority rule is: `AGENT.md` YAML front matter is machine-authoritative; `AGENT.md` Markdown body plus `PROJECT.md`, `AGENTS.md`, `CONTEXT.md`, and ADR Markdown are context only. Contextual prose cannot override executor, owner, reviewers, permissions, scope, preconditions, or routing metadata. Detailed schema and bounds are documented in [Project ICM architecture](./project-icm.md).
 
@@ -75,7 +84,12 @@ The canonical ICM authority rule is: `AGENT.md` YAML front matter is machine-aut
 GET  /api/intelligence/discover
 POST /api/intelligence/discover/register
 GET  /api/intelligence/projects/:name/overview
+POST /api/intelligence/projects/:projectId/task-context
 ```
+
+The task-context operation is read-only and requires an existing persisted ID.
+See its [canonical contract](project-intelligence/04_ICM_AND_CONTEXT_PACK.md) for
+request limits, source-platform constraints and provenance semantics.
 
 ### `GET /api/intelligence/discover`
 
@@ -416,9 +430,12 @@ project_impact
 project_refresh
 ```
 
-Underlying HTTP support exists today for discovery, discovery registration, and overview. Overview includes a compact ICM summary, but there is no dedicated ICM endpoint. HTTP support does not yet exist for task context, task routing, impact v2, or refresh. Existing low-level `project_map_*` tools remain the current specialist/compatibility tool tier.
-
-There is no `GET /api/intelligence/projects/:name/icm`, no task-context endpoint, and no route-task endpoint yet.
+Underlying HTTP support exists at the pinned snapshot for discovery, discovery
+registration, overview and read-only task context. Overview includes a compact
+ICM summary; there is no dedicated ICM or route-task endpoint. Impact v2 and the
+proposed high-level refresh contract remain planned. The low-level
+`project_map_*` tools described here are a separate compatibility/specialist
+client tier; they are not proof of automatic task integration or installation.
 
 ## Important rules for the tool
 

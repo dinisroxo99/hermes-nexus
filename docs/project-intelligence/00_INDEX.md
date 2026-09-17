@@ -1,110 +1,105 @@
-# Hermes Project Map — Architecture & Implementation Pack
+# Project Intelligence — technical architecture index
 
-> **Roundtable review v4:** REVISED — approved with refinements — 2026-09-17  
-> Companion review: `reviews/00_INDEX_ROUNDTABLE.md`
+[Project home](../../README.md) · [Documentation](../README.md) · [Public architecture](../ARCHITECTURE.md) · [Current status](../CURRENT_STATUS.md)
 
+This directory contains detailed architecture decisions, implemented contracts,
+target designs and historical checkpoints for `hermes-project-map`.
+For the public story, begin with [Vision](../VISION.md) and [Concepts](../CONCEPTS.md).
 
-Status: **Consolidated from project conversations up to 2026-09-17**
+## How to read this material
 
-This pack consolidates the decisions made across the recent `hermes-project-map` / Hermes conversations and turns them into implementation-oriented Markdown documents.
+**A target schema or API example is not a claim of implementation.** Use the
+commit-pinned [current status](../CURRENT_STATUS.md) for the public capability
+snapshot, then check the source and relevant contract. Phase 2.5 remains in
+progress at that snapshot; refresh it after the phase is merged.
 
-## Reading order
+For implementation, follow [AGENTS.md](../../AGENTS.md): read its active
+implementation plan first, then current state, decisions, target architecture
+and the document for the active phase. The active plan takes precedence over
+archived plans. Broader roadmap phase numbers and active-plan step numbers are
+not interchangeable release numbers.
 
-1. `01_CURRENT_STATE.md` — verified snapshot of what already exists.
-2. `02_DECISIONS_FROM_CHATS.md` — consolidated decisions from the conversations.
-3. `03_TARGET_ARCHITECTURE.md` — target architecture and responsibility boundaries.
-4. `04_ICM_AND_CONTEXT_PACK.md` — ICM integration and bounded context construction.
-5. `05_HERMES_INTEGRATION.md` — how Hermes, Kanban, profiles, Honcho and Project Map fit together.
-6. `06_SCOPE_IMPACT_CONFLICTS.md` — impact-aware WRITE / RESERVED / WATCH / IMPACT scopes.
-7. `07_MEMORY_HONCHO_AND_PROJECT_EXPERT.md` — memory boundaries and the Project Expert.
-8. `08_OBSERVABILITY_AND_LEARNING.md` — logs, event store, datasets and future learning.
-9. `09_IMPLEMENTATION_ROADMAP.md` — recommended implementation order.
-10. `10_PHASE_1_ICM_CONTEXT_PACK.md`
-11. `11_PHASE_2_SCOPE_CONFLICT_ENGINE.md`
-12. `12_PHASE_3_HERMES_GUARD_PLUGIN.md`
-13. `13_PHASE_4_PROJECT_EXPERT.md`
-14. `14_PHASE_5_OBSERVABILITY_TRAINING_DATA.md`
-15. `15_ACCEPTANCE_AND_BENCHMARKS.md`
-16. `16_DEFERRED_AND_REJECTED.md`
-17. `17_REVIEW_FINDINGS.md` — second-pass gaps and corrections.
-18. `18_PROJECT_IDENTITY_AND_ISOLATION.md` — project/board/worktree scoping.
-19. `19_HERMES_TELEMETRY_INGESTION.md` — reuse Hermes runtime telemetry.
-20. `20_API_MCP_CONTRACTS.md` — stable external tool contracts.
-21. `21_RUNTIME_SECURITY_AND_ENFORCEMENT.md` — defense-in-depth guard model.
-22. `22_MODEL_ROUTING_AND_TOKEN_BUDGETS.md` — runtime hints, FAST/STANDARD/DEEP.
-23. `23_24_7_DEPLOYMENT_AND_OPERATIONS.md` — continuous operation topology.
-24. `24_EXTERNAL_COMPONENT_REUSE_MATRIX.md` — what to reuse vs defer.
-25. `25_CURRENT_TO_TARGET_MIGRATION.md` — additive migration from current branch.
-26. `26_PROJECT_EXPERT_DATA_PIPELINE.md` — validated history → Project Expert.
-27. `27_DESIGN_MEMORY_AND_IDEA_LIFECYCLE.md` — separate current truth from proposals/ideas.
-28. `28_KNOWLEDGE_PRECEDENCE_AND_DRIFT.md` — source priority, staleness and supersession.
-29. `29_PROFILE_CATALOG_AND_CAPABILITIES.md` — reusable Hermes roles and routing hints.
+Read only the relevant cross-cutting documents for a task. Historical reviews
+are an audit trail, not required context for normal implementation work.
 
-## Status labels
+## Foundations and contracts
 
-- **VERIFIED/CURRENT** — confirmed in the conversations, commits or test results.
-- **PLANNED** — target architecture not yet confirmed as implemented.
-- **DEFERRED** — intentionally not implemented now.
-- **REJECTED** — architecture explicitly avoided.
+1. [Current-state checkpoints](01_CURRENT_STATE.md) — revision-specific evidence;
+   historical records below a checkpoint do not become current facts.
+2. [Architecture decisions](02_DECISIONS_FROM_CHATS.md) — responsibility boundaries
+   and accepted design principles.
+3. [Target architecture](03_TARGET_ARCHITECTURE.md) — the intended system.
+4. [ICM and Context Pack](04_ICM_AND_CONTEXT_PACK.md) — implemented Step 2 contract
+   followed by longer-term designs.
+5. [Hermes integration](05_HERMES_INTEGRATION.md) — client/guard boundary.
+6. [Scope, impact and conflicts](06_SCOPE_IMPACT_CONFLICTS.md) — planned coordination
+   semantics: WRITE / RESERVED / WATCH / IMPACT.
+7. [Memory and Project Expert](07_MEMORY_HONCHO_AND_PROJECT_EXPERT.md) — separate
+   current project evidence, experiential memory and a future read-only expert.
+8. [Observability and learning](08_OBSERVABILITY_AND_LEARNING.md) — target telemetry
+   and validated learning data.
+9. [Technical roadmap](09_IMPLEMENTATION_ROADMAP.md) — architectural sequencing,
+   not an up-to-date completion checklist.
 
-## Core principle
+## Phase designs and evaluation
 
-`hermes-project-map` is a **shared Project Intelligence / Context / Impact tool** used by agents.
+- [ICM / Context Pack phase design](10_PHASE_1_ICM_CONTEXT_PACK.md).
+- [Scope / conflict phase design](11_PHASE_2_SCOPE_CONFLICT_ENGINE.md).
+- [Hermes guard phase design](12_PHASE_3_HERMES_GUARD_PLUGIN.md).
+- [Project Expert phase design](13_PHASE_4_PROJECT_EXPERT.md).
+- [Observability / training-data phase design](14_PHASE_5_OBSERVABILITY_TRAINING_DATA.md).
+- [Acceptance and benchmarks](15_ACCEPTANCE_AND_BENCHMARKS.md) — evaluation criteria,
+  not measured public performance claims.
+- [Deferred and rejected directions](16_DEFERRED_AND_REJECTED.md).
 
-It is **not** the agent runtime, global orchestrator, provider router, Kanban implementation, or general memory system.
+## Cross-cutting architecture
 
-The target relationship is:
+- [Project identity and isolation](18_PROJECT_IDENTITY_AND_ISOLATION.md) — implemented
+  identity/revision foundation plus wider planned bindings.
+- [Hermes telemetry ingestion](19_HERMES_TELEMETRY_INGESTION.md).
+- [API / MCP contract design](20_API_MCP_CONTRACTS.md) — target tool interfaces;
+  see [current HTTP endpoints](../CURRENT_STATUS.md#current-intelligence-endpoints).
+- [Runtime security and enforcement](21_RUNTIME_SECURITY_AND_ENFORCEMENT.md).
+- [Model routing and token budgets](22_MODEL_ROUTING_AND_TOKEN_BUDGETS.md) — Hermes
+  runtime policy; this service supplies project evidence, not model execution.
+- [Deployment and operations](23_24_7_DEPLOYMENT_AND_OPERATIONS.md).
+- [External component reuse](24_EXTERNAL_COMPONENT_REUSE_MATRIX.md).
+- [Current-to-target migration](25_CURRENT_TO_TARGET_MIGRATION.md).
+- [Project Expert data pipeline](26_PROJECT_EXPERT_DATA_PIPELINE.md).
+- [Design memory and idea lifecycle](27_DESIGN_MEMORY_AND_IDEA_LIFECYCLE.md).
+- [Knowledge precedence and drift](28_KNOWLEDGE_PRECEDENCE_AND_DRIFT.md).
+- [Profile catalog and capabilities](29_PROFILE_CATALOG_AND_CAPABILITIES.md).
+- [State and data model](30_STATE_AND_DATA_MODEL.md).
+- [Threat model and trust boundaries](31_THREAT_MODEL_AND_TRUST_BOUNDARIES.md).
+- [Event versioning and idempotency](32_EVENT_SCHEMA_VERSIONING_AND_IDEMPOTENCY.md).
+- [Governance and approval](33_GOVERNANCE_APPROVAL_AND_AUTONOMY.md).
+- [Backup, recovery and runbooks](34_BACKUP_RECOVERY_AND_RUNBOOKS.md).
+- [Cache and derived state](35_CACHE_AND_DERIVED_STATE.md).
 
-```text
-Hermes
-  ├─ Profiles / SOULs
-  ├─ Model/provider execution
-  ├─ Kanban / tasks / dispatcher / worktrees
-  ├─ Sessions
-  └─ Honcho memory
-          │
-          │ tool/plugin integration
-          ▼
-hermes-project-map
-  ├─ Project discovery / registry
-  ├─ Project Intelligence
-  ├─ ICM resolver
-  ├─ Context Pack builder
-  ├─ Impact analysis
-  ├─ Scope resolver
-  ├─ Conflict intelligence
-  ├─ Project Expert retrieval
-  └─ Execution telemetry / project knowledge
-```
+## Status and ownership rules
 
-## Second-review correction
+- **Implemented/current** requires source and revision evidence, with limitations.
+- **In progress** means partial work, not a completed capability.
+- **Planned** describes the target, not an available endpoint or integration.
+- **Deferred/rejected** distinguishes later possibilities from intentionally
+  excluded architecture.
+- Older **VERIFIED/CURRENT** labels apply to the checkpoint named in that document,
+  not automatically to the latest branch or working tree.
 
-The second review explicitly reuses Hermes Kanban/run telemetry instead of duplicating it, adds board↔project identity, and treats tool hooks as one enforcement layer rather than a complete sandbox.
+Hermes owns runtime, agents, profiles/SOULs, models/providers, Kanban/tasks,
+workers, dispatch, worktrees, sessions and retries. This project owns project
+understanding, ICM, relevant context, impact, effective scope, conflict intelligence
+and project knowledge. ICM is one input to this layer, not the runtime or the
+entire system. Planned ownership does not imply those features are implemented.
 
-## v4 usage rule
+## Audit and historical provenance
 
-For implementation work, read in this order:
+Retained for architecture review and traceability, not the public starting point:
 
-```text
-01 current state
-02 decisions
-03 target architecture
-30 canonical data model
-09 roadmap
-phase document
-relevant cross-cutting documents
-```
+- [Review findings](17_REVIEW_FINDINGS.md).
+- [Decision extraction ledger](36_CONVERSATION_EXTRACTION_LEDGER.md).
+- [Architecture review report](37_MASTER_ROUNDTABLE_REPORT.md).
+- [Companion review index](reviews/00_INDEX_ROUNDTABLE.md).
 
-The companion `reviews/` directory is an audit trail, not required prompt context for every coding task.
-
-New cross-cutting documents introduced by the roundtable:
-
-```text
-30_STATE_AND_DATA_MODEL.md
-31_THREAT_MODEL_AND_TRUST_BOUNDARIES.md
-32_EVENT_SCHEMA_VERSIONING_AND_IDEMPOTENCY.md
-33_GOVERNANCE_APPROVAL_AND_AUTONOMY.md
-34_BACKUP_RECOVERY_AND_RUNBOOKS.md
-35_CACHE_AND_DERIVED_STATE.md
-36_CONVERSATION_EXTRACTION_LEDGER.md
-```
+Historical filenames and review documents remain intact. Architecture decisions
+are presented by topic in the public navigation without erasing their provenance.

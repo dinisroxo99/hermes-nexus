@@ -2,6 +2,12 @@
 
 [← README](../README.md) · [Hermes tool integration](./hermes-tool-integration.md) · [Project ICM](./project-icm.md) · [Adding projects](./adding-projects.md)
 
+[Documentation index](README.md) · [Public architecture](ARCHITECTURE.md) · [Current status](CURRENT_STATUS.md)
+
+This is a setup example for a separately configured low-level HTTP client, not
+a bundled plugin or an automatic task/scope guard. For current Hermes runtime
+commands, consult the [official documentation](https://hermes-agent.nousresearch.com/docs/).
+
 ## Purpose
 
 This guide explains how to install `hermes-project-map` as a local Hermes plugin so Hermes agents can query the project map directly through tools, without using the web UI.
@@ -20,7 +26,14 @@ After this setup, a Hermes profile can call tools such as:
 
 The plugin is intentionally small. It does not reimplement the analyzer. It calls the existing `hermes-project-map` HTTP API.
 
-The currently documented plugin tools are the low-level `project_map_*` compatibility/specialist tools. Future high-level Hermes `project_*` tools may consume the Project Intelligence endpoints (`/api/intelligence/discover`, `/api/intelligence/discover/register`, and `/api/intelligence/projects/:name/overview`). The overview endpoint now includes only a compact Project ICM summary. High-level `project_*` tools are not implemented in this plugin yet, and there is no dedicated ICM, task-context, or route-task endpoint yet.
+The tools in this example are the low-level `project_map_*` compatibility/specialist
+client tier. The service also exposes discovery, guarded registration, overview
+and read-only `POST /api/intelligence/projects/:projectId/task-context`. That
+endpoint requires an existing persisted ID; it is not a tool implemented by the
+plugin example below. Overview includes only a compact ICM summary. Dedicated
+ICM and route-task endpoints, high-level tools and automatic guard integration
+remain outside this example. See [Current status](CURRENT_STATUS.md) and the
+[Context Pack contract](project-intelligence/04_ICM_AND_CONTEXT_PACK.md).
 
 Canonical ICM indexing stays inside `hermes-project-map`. Hermes plugins should remain thin HTTP clients and must not duplicate AGENT.md parsing, Workspace Index scanning, contextual document indexing, task routing, or policy enforcement. See [Project ICM architecture](./project-icm.md).
 
