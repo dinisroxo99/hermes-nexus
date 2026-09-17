@@ -4,7 +4,7 @@
 
 ## Purpose
 
-This operational guide explains how to run, validate, and diagnose `hermes-project-map` after the introduction of `analyzer-service` and the initial TypeScript analyzer.
+This operational guide explains how to run, validate, and diagnose `hermes-nexus` after the introduction of `analyzer-service` and the initial TypeScript analyzer.
 
 ## Prerequisites
 

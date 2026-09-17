@@ -128,7 +128,7 @@ Step 1 final verification (at `f8adc7c`):
 - worktrees
 - runtime execution
 
-### hermes-project-map owns
+### hermes-nexus owns
 
 - project discovery and registry
 - Project Intelligence

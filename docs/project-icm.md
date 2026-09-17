@@ -429,7 +429,7 @@ POST /api/intelligence/projects/:name/route
 ## Architecture boundary
 
 ```txt
-hermes-project-map
+hermes-nexus
   = Project Intelligence service and source of truth
 
 Hermes

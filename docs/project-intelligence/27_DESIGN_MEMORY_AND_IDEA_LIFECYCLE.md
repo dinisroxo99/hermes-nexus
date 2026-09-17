@@ -24,7 +24,7 @@ Without this separation, Project Expert retrieval can accidentally present a pro
 
 ## Boundary
 
-### `hermes-project-map`
+### `hermes-nexus`
 
 Represents:
 

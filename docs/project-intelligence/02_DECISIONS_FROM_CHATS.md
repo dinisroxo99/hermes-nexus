@@ -6,7 +6,7 @@
 
 This document extracts the final decisions that survived the architecture discussions.
 
-## 1. `hermes-project-map` remains an external/shared tool
+## 1. `hermes-nexus` remains an external/shared tool
 
 **DECISION**
 
@@ -28,7 +28,7 @@ Project Map contains Hermes runtime
 
 **DECISION**
 
-`hermes-project-map` owns:
+`hermes-nexus` owns:
 
 - discovery;
 - registry;

@@ -171,14 +171,14 @@ The latest documented checkpoint intentionally did **not** introduce:
 The accepted boundary is:
 
 ```text
-hermes-project-map
+hermes-nexus
   = project understanding / context / impact / ICM
 
 Hermes
   = runtime / profiles / agents / providers / execution
 ```
 
-Do not add provider/model routing to `hermes-project-map`.
+Do not add provider/model routing to `hermes-nexus`.
 
 ## Things that must be verified again before coding
 

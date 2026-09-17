@@ -6,11 +6,11 @@
 
 ## Purpose
 
-Expose `hermes-project-map` as an independent Project Intelligence HTTP service that Hermes Agent can use directly, so agents can query project graphs without depending on the UI or duplicating repository analysis logic.
+Expose `hermes-nexus` as an independent Project Intelligence HTTP service that Hermes Agent can use directly, so agents can query project graphs without depending on the UI or duplicating repository analysis logic.
 
 Architecture boundary:
 
-- `hermes-project-map` owns project analysis, project configuration, registry reading/merging, Project Intelligence APIs, and canonical Project ICM indexing.
+- `hermes-nexus` owns project analysis, project configuration, registry reading/merging, Project Intelligence APIs, and canonical Project ICM indexing.
 - The Hermes adapter should remain a thin client that calls this HTTP service.
 - Hermes owns runtime orchestration and agent execution. The planned Hermes guard integration would enforce task scope; this service provides intelligence, not a replacement runtime.
 
@@ -21,7 +21,7 @@ The integration can be implemented in two ways:
 
 ## Recommended option
 
-For this project, the cleanest option is to keep `hermes-project-map` as an HTTP service and create a Hermes plugin/tool that calls the existing endpoints.
+For this project, the cleanest option is to keep `hermes-nexus` as an HTTP service and create a Hermes plugin/tool that calls the existing endpoints.
 
 Reasons:
 
@@ -191,7 +191,7 @@ These are low-level graph/project-map tools for the existing endpoints. They are
 
 ### `project_map_projects`
 
-Lists the projects available in `hermes-project-map`.
+Lists the projects available in `hermes-nexus`.
 
 Input:
 
@@ -332,7 +332,7 @@ registry.register(
     toolset="project_map",
     schema={
         "name": "project_map_search",
-        "description": "Search symbols in a project registered in hermes-project-map.",
+        "description": "Search symbols in a project registered in hermes-nexus.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -369,7 +369,7 @@ PROJECT_MAP_URL=http://localhost:8770
 If Hermes runs in another container or host, use the correct hostname:
 
 ```bash
-PROJECT_MAP_URL=http://hermes-project-map:8770
+PROJECT_MAP_URL=http://hermes-nexus:8770
 ```
 
 ### Toolset
@@ -404,7 +404,7 @@ Advantages:
 
 ## MCP alternative
 
-Another option is to expose `hermes-project-map` as an MCP server.
+Another option is to expose `hermes-nexus` as an MCP server.
 
 Use MCP when:
 
@@ -462,7 +462,7 @@ Suggested message:
 {
   "success": false,
   "error": "project_map_unavailable",
-  "message": "hermes-project-map is not reachable at PROJECT_MAP_URL. Start it with npm start or docker compose up."
+  "message": "hermes-nexus is not reachable at PROJECT_MAP_URL. Start it with npm start or docker compose up."
 }
 ```
 

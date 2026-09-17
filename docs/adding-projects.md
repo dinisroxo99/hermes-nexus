@@ -4,7 +4,7 @@
 
 ## Purpose
 
-This guide explains how to add, list, and remove projects in `hermes-project-map`.
+This guide explains how to add, list, and remove projects in `hermes-nexus`.
 
 Manual projects are stored in `data/projects.json`; explicitly enrolled discovered projects are stored in `data/discovered-projects.json`. The API uses the effective registry through `src/lib/projects.js`.
 

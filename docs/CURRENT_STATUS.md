@@ -7,7 +7,7 @@
 This is a linked public summary of the implementation checkpoint, not a separate
 implementation plan or a live view of another checkout.
 
-- Repository: `dinisroxo99/hermes-project-map`.
+- Repository: `dinisroxo99/hermes-nexus`.
 - Implementation branch: `feat/project-intelligence-service`.
 - Exact base revision: **`be0cb2c7b30d9f082e02df24a4113ddffc8c9ab2`**
   (`be0cb2c`, `docs: checkpoint polyglot analyzer provider step`).

@@ -2,7 +2,7 @@
 
 [Home](../README.md) · [Vision](VISION.md) · [Concepts](CONCEPTS.md) · [Current status](CURRENT_STATUS.md)
 
-Hermes Project Map is an external Project Intelligence service. Its existing
+Hermes Nexus is an external Project Intelligence service. Its existing
 HTTP API and graph UI provide a foundation for the broader coordination layer.
 It is not an agent runtime, scheduler or replacement for Hermes.
 

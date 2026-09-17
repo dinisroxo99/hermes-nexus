@@ -1,4 +1,4 @@
-# Hermes Project Map plugin installation for Hermes profiles
+# Hermes Nexus plugin installation for Hermes profiles
 
 [← README](../README.md) · [Hermes tool integration](./hermes-tool-integration.md) · [Project ICM](./project-icm.md) · [Adding projects](./adding-projects.md)
 
@@ -10,7 +10,7 @@ commands, consult the [official documentation](https://hermes-agent.nousresearch
 
 ## Purpose
 
-This guide explains how to install `hermes-project-map` as a local Hermes plugin so Hermes agents can query the project map directly through tools, without using the web UI.
+This guide explains how to install `hermes-nexus` as a local Hermes plugin so Hermes agents can query the project map directly through tools, without using the web UI.
 
 After this setup, a Hermes profile can call tools such as:
 
@@ -24,7 +24,7 @@ After this setup, a Hermes profile can call tools such as:
 - `project_map_cache_stats`
 - `project_map_clear_cache`
 
-The plugin is intentionally small. It does not reimplement the analyzer. It calls the existing `hermes-project-map` HTTP API.
+The plugin is intentionally small. It does not reimplement the analyzer. It calls the existing `hermes-nexus` HTTP API.
 
 The tools in this example are the low-level `project_map_*` compatibility/specialist
 client tier. The service also exposes discovery, guarded registration, overview
@@ -35,7 +35,7 @@ ICM and route-task endpoints, high-level tools and automatic guard integration
 remain outside this example. See [Current status](CURRENT_STATUS.md) and the
 [Context Pack contract](project-intelligence/04_ICM_AND_CONTEXT_PACK.md).
 
-Canonical ICM indexing stays inside `hermes-project-map`. Hermes plugins should remain thin HTTP clients and must not duplicate AGENT.md parsing, Workspace Index scanning, contextual document indexing, task routing, or policy enforcement. See [Project ICM architecture](./project-icm.md).
+Canonical ICM indexing stays inside `hermes-nexus`. Hermes plugins should remain thin HTTP clients and must not duplicate AGENT.md parsing, Workspace Index scanning, contextual document indexing, task routing, or policy enforcement. See [Project ICM architecture](./project-icm.md).
 
 ## Architecture
 
@@ -43,7 +43,7 @@ Canonical ICM indexing stays inside `hermes-project-map`. Hermes plugins should 
 Hermes agent/profile
   └─ project_map toolset
       └─ local Python plugin
-          └─ HTTP requests to hermes-project-map
+          └─ HTTP requests to hermes-nexus
               ├─ GET  /api/projects
               ├─ GET  /api/projects/:name/structure
               ├─ GET  /api/explore/:project/search?q=...
@@ -59,7 +59,7 @@ Hermes agent/profile
 You need:
 
 1. Hermes Agent installed and working.
-2. `hermes-project-map` running locally or in Docker.
+2. `hermes-nexus` running locally or in Docker.
 3. At least one Hermes profile where you want the tools to be available.
 4. Python available in the same environment that runs Hermes.
 
@@ -70,7 +70,7 @@ hermes --version
 hermes profile list
 ```
 
-Check `hermes-project-map`:
+Check `hermes-nexus`:
 
 ```bash
 curl http://localhost:8770/api/health
@@ -180,7 +180,7 @@ Content:
 ```yaml
 name: project-map
 version: 0.1.0
-description: Hermes Project Map tools for querying project structure, symbol search, graph expansion, and indexing through the local HTTP service.
+description: Hermes Nexus tools for querying project structure, symbol search, graph expansion, and indexing through the local HTTP service.
 provides_tools:
   - project_map_health
   - project_map_projects
@@ -199,7 +199,7 @@ PowerShell example:
 @'
 name: project-map
 version: 0.1.0
-description: Hermes Project Map tools for querying project structure, symbol search, graph expansion, and indexing through the local HTTP service.
+description: Hermes Nexus tools for querying project structure, symbol search, graph expansion, and indexing through the local HTTP service.
 provides_tools:
   - project_map_health
   - project_map_projects
@@ -224,7 +224,7 @@ Create:
 Content:
 
 ```python
-"""Hermes Project Map plugin registration."""
+"""Hermes Nexus plugin registration."""
 
 from . import tools
 
@@ -243,7 +243,7 @@ PowerShell example:
 
 ```powershell
 @'
-"""Hermes Project Map plugin registration."""
+"""Hermes Nexus plugin registration."""
 
 from . import tools
 
@@ -270,9 +270,9 @@ Create:
 Content:
 
 ```python
-"""Hermes Project Map tool handlers.
+"""Hermes Nexus tool handlers.
 
-The tools keep hermes-project-map as the source of truth and call its HTTP API.
+The tools keep hermes-nexus as the source of truth and call its HTTP API.
 Set PROJECT_MAP_URL when the service is not reachable at http://localhost:8770.
 """
 
@@ -352,7 +352,7 @@ def _request(
         return _json_response({
             "ok": False,
             "error": payload.get("error") or "project_map_http_error",
-            "message": payload.get("message") or f"hermes-project-map returned HTTP {exc.code}",
+            "message": payload.get("message") or f"hermes-nexus returned HTTP {exc.code}",
             "status": exc.code,
             "base_url": base_url,
         })
@@ -361,7 +361,7 @@ def _request(
             "ok": False,
             "error": "project_map_unavailable",
             "message": (
-                "hermes-project-map is not reachable. Start it with `npm start` "
+                "hermes-nexus is not reachable. Start it with `npm start` "
                 "or `docker compose up -d`, or set PROJECT_MAP_URL."
             ),
             "base_url": base_url,
@@ -371,7 +371,7 @@ def _request(
         return _json_response({
             "ok": False,
             "error": "project_map_timeout",
-            "message": f"hermes-project-map did not respond within {DEFAULT_TIMEOUT_SECONDS}s",
+            "message": f"hermes-nexus did not respond within {DEFAULT_TIMEOUT_SECONDS}s",
             "base_url": base_url,
         })
 
@@ -381,12 +381,12 @@ def _project_path(project: str) -> str:
 
 
 def project_map_health(args: dict[str, Any], **_: Any) -> str:
-    """Check whether the hermes-project-map service is reachable."""
+    """Check whether the hermes-nexus service is reachable."""
     return _request(args, "/api/health")
 
 
 def project_map_projects(args: dict[str, Any], **_: Any) -> str:
-    """List projects registered in hermes-project-map."""
+    """List projects registered in hermes-nexus."""
     return _request(args, "/api/projects")
 
 
@@ -499,12 +499,12 @@ def _schema(name: str, description: str, properties: dict[str, Any] | None = Non
 TOOL_SPECS = [
     {
         "name": "project_map_health",
-        "schema": _schema("project_map_health", "Check whether the Hermes Project Map HTTP service is reachable."),
+        "schema": _schema("project_map_health", "Check whether the Hermes Nexus HTTP service is reachable."),
         "handler": project_map_health,
     },
     {
         "name": "project_map_projects",
-        "schema": _schema("project_map_projects", "List projects registered in Hermes Project Map."),
+        "schema": _schema("project_map_projects", "List projects registered in Hermes Nexus."),
         "handler": project_map_projects,
     },
     {
@@ -577,7 +577,7 @@ TOOL_SPECS = [
         "name": "project_map_index",
         "schema": _schema(
             "project_map_index",
-            "Trigger project indexing in Hermes Project Map.",
+            "Trigger project indexing in Hermes Nexus.",
             {"project": {"type": "string", "description": "Registered project name."}},
             ["project"],
         ),
@@ -585,7 +585,7 @@ TOOL_SPECS = [
     },
     {
         "name": "project_map_cache_stats",
-        "schema": _schema("project_map_cache_stats", "Get Hermes Project Map symbol cache statistics."),
+        "schema": _schema("project_map_cache_stats", "Get Hermes Nexus symbol cache statistics."),
         "handler": project_map_cache_stats,
     },
     {
@@ -782,7 +782,7 @@ By default the plugin uses:
 http://localhost:8770
 ```
 
-Use this when Hermes and `hermes-project-map` run on the same host.
+Use this when Hermes and `hermes-nexus` run on the same host.
 
 If the service runs elsewhere, set `PROJECT_MAP_URL` before starting Hermes.
 
@@ -802,7 +802,7 @@ hermes -p project-map-main
 
 ### Docker service from host Hermes
 
-If `hermes-project-map` is published to the host port `8770`:
+If `hermes-nexus` is published to the host port `8770`:
 
 ```bash
 export PROJECT_MAP_URL="http://localhost:8770"
@@ -816,10 +816,10 @@ If Hermes runs in a container and needs to reach the host Docker service:
 export PROJECT_MAP_URL="http://host.docker.internal:8770"
 ```
 
-If Hermes and `hermes-project-map` run in the same Compose network:
+If Hermes and `hermes-nexus` run in the same Compose network:
 
 ```bash
-export PROJECT_MAP_URL="http://hermes-project-map:8770"
+export PROJECT_MAP_URL="http://hermes-nexus:8770"
 ```
 
 Always verify from the same environment that runs Hermes:
@@ -1030,7 +1030,7 @@ DELETE /api/cache/symbols?project=my-project
 List projects:
 
 ```txt
-Use project_map_projects to list the projects available in Hermes Project Map.
+Use project_map_projects to list the projects available in Hermes Nexus.
 ```
 
 Search a symbol:
@@ -1195,7 +1195,7 @@ Start a new Hermes session after removing it.
 A profile is correctly configured when all of this is true:
 
 ```txt
-[ ] hermes-project-map is running.
+[ ] hermes-nexus is running.
 [ ] curl http://localhost:8770/api/health returns ok=true.
 [ ] plugin.yaml exists under the profile plugin folder.
 [ ] __init__.py exists under the profile plugin folder.

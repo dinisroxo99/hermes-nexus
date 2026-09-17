@@ -83,13 +83,11 @@ provenance and review/audit documents. They are useful for tracing rationale,
 not proof of the current implementation. They are not required reading for a
 new visitor or normal task context.
 
-**Hermes Project Map** is still the working name. `hermes-project-map`,
-`project_map_*`, `project_map` and `PROJECT_MAP_URL` retain their existing
-repository/integration roles. **Project Intelligence** describes the expanded
-scope, not a finalized replacement brand. Older technical material also uses
-“Project Map” and “Hermes Agent OS”; runtime responsibilities remain with Hermes,
-not a new orchestrator in this repository. No identifier or product rename is
-part of this documentation update.
+**Hermes Nexus** is the current product and repository name. It evolved from
+**Hermes Project Map**, the original working name. `project_map_*`, `project_map`
+and `PROJECT_MAP_URL` remain backward-compatible integration identifiers. Older
+technical material also uses “Project Map” and “Hermes Agent OS”; runtime
+responsibilities remain with Hermes, not a new orchestrator in this repository.
 
 Numbered technical filenames are preserved. Two documents use the `19_` prefix:
 the implemented analyzer-provider contract and the planned Hermes telemetry

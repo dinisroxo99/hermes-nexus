@@ -1,4 +1,4 @@
-# hermes-project-map Agent Rules
+# hermes-nexus Agent Rules
 
 The user writes the production code.
 
@@ -58,7 +58,7 @@ Current repository facts must be verified from the current Git revision
 and Project Intelligence. Historical documentation and memory must not
 override current code.
 
-`hermes-project-map` owns project intelligence, ICM, context, impact,
+`hermes-nexus` owns project intelligence, ICM, context, impact,
 scope and conflict analysis.
 
 Hermes owns profiles, agents, models/providers, Kanban, dispatch,

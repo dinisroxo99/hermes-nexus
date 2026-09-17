@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Create a minimal foundation that allows `hermes-project-map` to support multiple project types without breaking the existing .NET support.
+Create a minimal foundation that allows `hermes-nexus` to support multiple project types without breaking the existing .NET support.
 
 The current implementation keeps the public endpoints unchanged and introduces a dispatcher (`analyzer-service`) that selects the appropriate analyzer based on the project type.
 

@@ -2,8 +2,8 @@
 
 [Home](../README.md) · [Concepts](CONCEPTS.md) · [Architecture](ARCHITECTURE.md) · [Current status](CURRENT_STATUS.md)
 
-This document explains the direction of **Hermes Project Map**, the current
-working name of `hermes-project-map`. It is a vision, not a feature-completion
+This document explains the direction of **Hermes Nexus**, the current product
+name of `hermes-nexus`. It is a vision, not a feature-completion
 claim. The [status overview](CURRENT_STATUS.md) separates implemented behavior
 from planned capabilities and proposals. The story below is the author's
 reported experience, not a claim about every developer or every tool setup.
@@ -149,10 +149,10 @@ There is no public token-reduction percentage or autonomy guarantee here.
 
 ## Name and boundaries
 
-**Hermes Project Map** remains the working name. It reflects the original map
-and still appears in repository, UI and integration identifiers. The scope has
-expanded beyond mapping, but no repository rename or final replacement product
-name has been selected.
+**Hermes Nexus** is the current name. It evolved from **Hermes Project Map**,
+which reflected the original code-map focus. The new name reflects the broader
+Project Intelligence and coordination scope without changing the boundary with
+Hermes runtime.
 
 Continue with [core concepts](CONCEPTS.md), the [public architecture](ARCHITECTURE.md)
 or the [technical architecture index](project-intelligence/00_INDEX.md).

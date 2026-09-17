@@ -3,7 +3,7 @@
 [Project home](../../README.md) · [Documentation](../README.md) · [Public architecture](../ARCHITECTURE.md) · [Current status](../CURRENT_STATUS.md)
 
 This directory contains detailed architecture decisions, implemented contracts,
-target designs and historical checkpoints for `hermes-project-map`.
+target designs and historical checkpoints for `hermes-nexus`.
 For the public story, begin with [Vision](../VISION.md) and [Concepts](../CONCEPTS.md).
 
 ## How to read this material

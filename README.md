@@ -1,13 +1,13 @@
-# Hermes Project Map
+# Hermes Nexus
 
-**Project Intelligence and coordination for AI coding agents.**
+**Project Intelligence and coordination for AI coding agents**
 
 AI models can produce more of the implementation. This project explores the
 context, boundaries and project knowledge needed to make that work inspectable
 and better coordinated, especially when several agents work on the same codebase.
 
-Hermes Project Map is the current working name. Its scope has grown beyond code
-visualization; neither the repository nor the product has been renamed.
+Hermes Nexus evolved from **Hermes Project Map**, its original working name.
+The new name reflects a scope that has grown beyond code visualization.
 
 ## Why this exists
 
