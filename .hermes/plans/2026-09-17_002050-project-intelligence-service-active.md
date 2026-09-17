@@ -6,25 +6,26 @@ Branch:
 
 `feat/project-intelligence-service`
 
-Verified implementation checkpoint:
+Step 1 starting checkpoint:
 
-`9544613 feat: match task paths to workspace scopes`
+`775ef78 feat: validate persisted project identities`
 
-Latest branch documentation checkpoint:
+Final Step 1 checkpoint:
 
-`44f4fa9 docs: old plan`
+`f8adc7c docs: describe stable project identity and revision boundaries`
 
 Architecture pack checkpoint:
 
 `14d9ee0 docs: align project intelligence roadmap with current architecture`
 
-Verification baseline:
+Step 1 final verification (at `f8adc7c`):
 
-- workspace-scope tests: 24 passing
-- complete suite: 200 passing
-- failures: 0
+- 252 tests passed
+- 0 failed
+- 0 skipped
 - npm run check: passed
 - git diff --check: passed
+- working tree: clean
 
 ## Implemented capabilities
 
@@ -40,6 +41,16 @@ Verification baseline:
 - canonical Project ICM Index
 - workspace scope contracts
 - task paths → workspace scope matching
+- stable persisted projectId
+- legacy ID-less records remain supported
+- ambiguous lookup fails safely
+- configured-root isolation
+- Git revision metadata
+- linked worktrees resolve under parent project identity
+- worktrees are not enrolled as separate projects through discovery registration
+- analysis cache revision/worktree isolation
+- .NET symbol cache revision/worktree isolation
+- safe identity/revision overview
 
 ## Architecture boundary
 
@@ -77,23 +88,35 @@ Verification baseline:
 
 Honcho is not authoritative current-code truth.
 
-## Current development frontier
+## Completed implementation step
 
-### Step 1 — Verify project identity/revision model
+### Step 1 — Project Identity / Revision Model: COMPLETE
 
-Inspect the existing registry first.
+Completed by extending the existing registry without introducing a second identity store.
 
 Do not create a second project identity system if the existing model can
 be extended safely.
 
-Required result:
+Verified result:
 
 - stable project identity
 - repository revision identity
 - worktree → parent project relationship
 - no cross-project ambiguity
 
+Known Step 1 limitations:
+
+- legacy records require explicit identity assignment before ID-dependent workflows;
+- relocation remains explicit registry maintenance;
+- public HTTP lookup is still name-based and fails on ambiguity;
+- PowerShell registration remains a legacy single-root tool;
+- dirty-content fingerprints are deferred.
+
+## Current development frontier
+
 ### Step 2 — Task Context Pack
+
+Next implementation frontier. Not started.
 
 Build a bounded, deterministic, revision-aware task context from:
 
