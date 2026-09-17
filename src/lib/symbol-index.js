@@ -1,4 +1,5 @@
 import path from "node:path";
+import { getProjectCacheIdentity } from "./project-revision.js";
 import { inferFeatureFromSymbol, inferLayerFromProjectName } from "./project-structure.js";
 import { findFiles, normalizePath, readText, relative } from "../utils/fs-utils.js";
 
@@ -6,17 +7,24 @@ const INDEX_CACHE = new Map();
 const CACHE_TTL_MS = Number(process.env.SYMBOL_CACHE_TTL_MS || 10 * 60 * 1000);
 
 function getSymbolIndex(project) {
-  const key = `${project.name}:${project.absolutePath}`;
+  const identity = getProjectCacheIdentity(project);
+  const key = identity.key;
   const cached = INDEX_CACHE.get(key);
   const now = Date.now();
 
-  if (cached && now - cached.createdAt < CACHE_TTL_MS) {
+  if (identity.reusable && cached && now - cached.createdAt < CACHE_TTL_MS) {
     return cached.index;
   }
 
+  for (const [oldKey, entry] of INDEX_CACHE) {
+    if (entry.contextKey === identity.contextKey) INDEX_CACHE.delete(oldKey);
+  }
   const index = createSymbolIndex(project);
 
-  INDEX_CACHE.set(key, {
+  if (identity.reusable) INDEX_CACHE.set(key, {
+    contextKey: identity.contextKey,
+    projectName: project.name,
+    projectId: project.projectId ?? null,
     createdAt: now,
     index
   });
@@ -32,6 +40,8 @@ export function getSymbolIndexCacheStats() {
     size: INDEX_CACHE.size,
     entries: Array.from(INDEX_CACHE.entries()).map(([key, value]) => ({
       key,
+      project: value.projectName,
+      projectId: value.projectId,
       ageMs: now - value.createdAt,
       expiresInMs: Math.max(0, CACHE_TTL_MS - (now - value.createdAt)),
       expired: now - value.createdAt >= CACHE_TTL_MS,
@@ -44,8 +54,8 @@ export function getSymbolIndexCacheStats() {
 export function clearSymbolIndexCache(projectName = null) {
   let removed = 0;
 
-  for (const key of Array.from(INDEX_CACHE.keys())) {
-    if (!projectName || key.startsWith(`${projectName}:`)) {
+  for (const [key, entry] of Array.from(INDEX_CACHE.entries())) {
+    if (!projectName || entry.projectName === projectName) {
       INDEX_CACHE.delete(key);
       removed += 1;
     }

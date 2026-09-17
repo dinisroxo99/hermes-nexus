@@ -4,7 +4,44 @@ import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { getFullGraphExplorer } from "../src/lib/symbol-index.js";
+import { getFullGraphExplorer, searchSymbolExplorer, clearSymbolIndexCache, getSymbolIndexCacheStats } from "../src/lib/symbol-index.js";
+import { gitFixture } from "./helpers/git-fixture.js";
+
+test("direct .NET symbol queries reject stale revisions and successive dirty edits", (t) => {
+  const f = gitFixture(t);
+  clearSymbolIndexCache();
+  t.after(() => clearSymbolIndexCache());
+  f.write("Core.csproj", "<Project />\n");
+  f.write("Source.cs", "namespace Sample; public class Original {}\n");
+  f.commit();
+  assert.ok(searchSymbolExplorer(f.project, "Original").nodes.length);
+  f.write("Source.cs", "namespace Sample; public class Committed {}\n");
+  f.commit("changed");
+  assert.ok(searchSymbolExplorer(f.project, "Committed").nodes.length);
+  assert.equal(searchSymbolExplorer(f.project, "Original").nodes.length, 0);
+  assert.equal(getSymbolIndexCacheStats().size, 1);
+  for (const name of ["DirtyOne", "DirtyTwo"]) {
+    f.write("Source.cs", `namespace Sample; public class ${name} {}\n`);
+    assert.ok(getFullGraphExplorer(f.project).nodes.some((node) => node.label === name));
+    assert.equal(getSymbolIndexCacheStats().size, 0);
+  }
+});
+
+test(".NET symbol cache separates worktrees and retains name-based clearing", (t) => {
+  const f = gitFixture(t);
+  clearSymbolIndexCache();
+  t.after(() => clearSymbolIndexCache());
+  f.write("Core.csproj", "<Project />\n");
+  f.write("Source.cs", "namespace Sample; public class ParentOnly {}\n");
+  f.commit();
+  const linked = { ...f.project, absolutePath: f.worktree() };
+  f.write("Source.cs", "namespace Sample; public class ChildOnly {}\n", linked.absolutePath);
+  f.commit("child", linked.absolutePath);
+  assert.ok(searchSymbolExplorer(linked, "ChildOnly").nodes.length);
+  assert.equal(searchSymbolExplorer(f.project, "ChildOnly").nodes.length, 0);
+  assert.equal(getSymbolIndexCacheStats().size, 2);
+  assert.equal(clearSymbolIndexCache(f.project.name).removed, 2);
+});
 
 function makeGraphProject() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hermes-dotnet-graph-"));
