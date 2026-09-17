@@ -73,7 +73,7 @@ Native abilities are always available; the Python row requires the separately bu
 |---|---|---|---|---|---|---|
 | C# / .NET | native.dotnet | structural | structural | unsupported | unsupported | unsupported |
 | TypeScript | native.typescript | structural | structural | unsupported | unsupported | unsupported |
-| JavaScript / JSX | native.typescript | structural | structural | unsupported | unsupported | unsupported |
+| JavaScript / JSX / Node.js | native.typescript | structural | structural | unsupported | unsupported | unsupported |
 | Python | optional external.serena-python | semantic | semantic references; dependencies unsupported | semantic | unsupported | unsupported |
 | Go | none | unsupported | unsupported | unsupported | unsupported | unsupported |
 | Rust | none | unsupported | unsupported | unsupported | unsupported | unsupported |

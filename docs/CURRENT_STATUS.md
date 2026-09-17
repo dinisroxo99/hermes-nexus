@@ -62,7 +62,7 @@ installed Hermes tool or automatic guard integration.
 |---|---|
 | C# / .NET | Native structural analysis. |
 | TypeScript | Native structural analysis. |
-| JavaScript / JSX | Native structural analysis through the TypeScript provider. |
+|| JavaScript / JSX / Node.js | Native structural analysis through the TypeScript provider. |
 | Python | Observation by default; optional image enables semantic symbols, definitions and references. |
 | Go / Rust / Java | Language observation only; no semantic analysis. |
 | Bash / PowerShell | Bounded text observation, without execution; no semantic analysis by default. |

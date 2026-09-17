@@ -87,7 +87,7 @@ on `feat/serena-external-provider`.
   and references for Python. [Pinned image and runtime guide](docker/serena-python/README.md).
   No runtime network, live-repository mount, editor, memory or agent operations.
 
-Native C#/.NET, TypeScript and JavaScript/JSX analysis is **structural**, not
+Native C#/.NET, TypeScript, JavaScript/JSX, and Node.js analysis is **structural**, not
 compiler-grade semantic analysis. Python has semantic evidence only when the
 optional image is built and enabled; Go/Rust/Java remain observation-only.
 Bash/PowerShell have bounded text observation. Provider

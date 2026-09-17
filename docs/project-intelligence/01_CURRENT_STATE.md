@@ -15,7 +15,7 @@ repository again; the tracked active plan remains the implementation authority.
 Subsequent Step 2.5 adds the AnalyzerProvider abstraction, native adapters,
 deterministic capability/coverage/fallback reporting and a data-only external
 evidence boundary. Task Context Pack consumes the normalized output. Native
-structural analysis remains .NET and TypeScript/JavaScript. The subsequent
+Native structural analysis remains .NET and TypeScript, JavaScript/JSX, and Node.js. The subsequent
 `feat/serena-external-provider` checkpoint adds opt-in, snapshot-only Docker
 Serena/Pyright semantic symbols, definitions and references for Python, verified
 with real containers; no runtime network or persistent project index. It does
