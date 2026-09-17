@@ -292,7 +292,7 @@ Compare active task scopes and return explainable conflict evidence.
 
 ### Step 6 — Hermes Guard integration
 
-Project Map calculates context/scope.
+Hermes Nexus calculates context/scope.
 
 Hermes enforces execution.
 
@@ -316,10 +316,10 @@ Do not implement now:
 
 - custom Hermes Agent OS
 - custom Kanban
-- Global Orchestrator inside Project Map
+- Global Orchestrator inside Hermes Nexus
 - Agent Factory
 - Team Factory
 - Project Factory
-- model/provider execution inside Project Map
+- model/provider execution inside Hermes Nexus
 - Project Expert fine-tuning
 - autonomous agent swarm generation
