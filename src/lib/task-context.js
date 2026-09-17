@@ -54,7 +54,7 @@ export function buildProjectTaskContext(input, options = {}) {
     project: { name: project.name, rootId: project.rootId, relativePath: project.relativePath },
     revision, generatedAt: null,
     observation: { basis: "working_tree", cacheReuse: "disabled", sourceDigest: snapshot.digest, digestCoverage: "bounded_collected_sources",
-      incomplete: Boolean(snapshot.truncated || !graph.success || graph.limited || !icm.valid || icm.truncated.workspaces || icm.truncated.documents || revision.status === "unavailable") },
+      incomplete: Boolean(snapshot.truncated || !graph.success || graph.limited || !icm.valid || icm.truncated.workspaces || icm.truncated.documents || revision.status === "unavailable" || Object.values(sections).some((section) => section.truncated)) },
     limits: { ...request.limits, source: snapshot.limits, excerptLines: 12, excerptBytes: 512, matchedPathsPerWorkspace: 8, preconditionsPerConstraint: 8 },
     sections,
     expansion: { method: "resubmit_narrower_paths_or_symbols", excerptsOptIn: true, fullFiles: false, provenance: provenance("trusted_policy", "task-context-v1") }

@@ -73,7 +73,9 @@ export function collectContextSources(project, options = {}) {
       if (!isContextPathAllowed(relative) || entry.isSymbolicLink()
         || excluded.some((p) => relative === p || relative.startsWith(`${p}/`))) continue;
       if (entry.isDirectory()) {
-        if (fs.existsSync(path.join(absolute, ".git"))) continue;
+        try { fs.lstatSync(path.join(absolute, ".git")); continue; } catch (error) {
+          if (error.code !== "ENOENT") { issue("source_unavailable", relative); continue; }
+        }
         if (depth >= limits.maxDepth) { issue("source_depth_limit", relative); continue; }
         visit(absolute, depth + 1);
       } else if (entry.isFile() && EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {

@@ -54,3 +54,11 @@ test("context source bounds report real omission and reject unsafe supplied snap
   }
   assert.throws(() => normalizeContextSources([{ path: "a.ts", text: "a" }, { path: "a.ts", text: "b" }]), { code: "invalid_context_sources" });
 });
+
+test("a dangling nested Git marker remains a context boundary", async (t) => {
+  const { collectContextSources } = await api();
+  const f = fixture(t);
+  f.write("nested/private.ts", "NESTED_PROJECT_SENTINEL");
+  fs.symlinkSync(path.join(f.root, "missing-git-metadata"), path.join(f.root, "nested", ".git"));
+  assert.equal(collectContextSources({ absolutePath: f.root }).files.length, 0);
+});

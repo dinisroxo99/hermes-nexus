@@ -106,3 +106,11 @@ test("pack enforces a serialized byte budget and reports omitted evidence", asyn
   assert.ok(Object.values(pack.sections).some((section) => section.truncated));
   assert.equal(pack.observation.incomplete, true);
 });
+
+test("per-section omissions mark the pack incomplete even when the byte budget fits", async (t) => {
+  const build = await builder();
+  const f = taskContextFixture(t);
+  const pack = build({ ...f.request, limits: { files: 0, symbols: 0 } }, f.options);
+  assert.equal(pack.sections.files.truncated, true);
+  assert.equal(pack.observation.incomplete, true);
+});
