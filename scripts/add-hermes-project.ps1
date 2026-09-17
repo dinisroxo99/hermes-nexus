@@ -85,9 +85,22 @@ if (!(Test-Path $projectsFile)) {
 }
 
 $projects = @(Read-ProjectRegistry)
-$projects = @($projects | Where-Object { $_.name -ne $Name })
+$existing = @($projects | Where-Object { $_.name -eq $Name -or $_.relativePath -eq $relativePath })
+if ($existing.Count -gt 1) {
+  throw "Ambiguous project registration: name and path must identify one record."
+}
+
+$projectId = "prj_$([Guid]::NewGuid())"
+if ($existing.Count -eq 1 -and $existing[0].PSObject.Properties.Name -contains "projectId") {
+  $projectId = $existing[0].projectId
+  if ($projectId -isnot [string] -or $projectId -cnotmatch '\A[A-Za-z0-9][A-Za-z0-9_-]{0,127}\z') {
+    throw "Invalid projectId."
+  }
+}
+$projects = @($projects | Where-Object { $_.name -ne $Name -and $_.relativePath -ne $relativePath })
 
 $projects += [PSCustomObject]@{
+  projectId = $projectId
   name = $Name
   relativePath = $relativePath
   addedAt = (Get-Date).ToString("s")
