@@ -5,32 +5,38 @@
 This document explains the direction of **Hermes Project Map**, the current
 working name of `hermes-project-map`. It is a vision, not a feature-completion
 claim. The [status overview](CURRENT_STATUS.md) separates implemented behavior
-from work in progress and planned capabilities.
+from planned capabilities and proposals. The story below is the author's
+reported experience, not a claim about every developer or every tool setup.
 
 ## How the problem emerged
 
 The project began as a code map: a way to inspect structure, find symbols and
 follow dependencies. That remains useful, but the development workflow changed.
 
-Initially, Codex served as a coding assistant. As more implementation was
-delegated to AI, the developer's work shifted toward deciding the architecture,
+Initially, the author used Codex as a coding assistant. As more implementation was
+delegated to AI, the author's work shifted toward deciding the architecture,
 decomposing changes into tasks, setting boundaries and validating the result.
 Writing code did not disappear; directing and checking larger amounts of
 AI-written code became a more important part of the job.
 
-Hermes made multi-agent execution a more useful direction to explore. A task
-could involve an architect, an implementer, a tester and a reviewer rather than
-one long coding conversation. These capabilities needed to be reusable across
-projects, without making a particular role depend on one model or provider.
-That led to **Profile != Model**: the role describes the work; Hermes chooses
-and executes the model.
+Experimenting with Hermes made multi-agent workflows more attractive. In the
+author's setup at that time, subagents used the same model. The author built a
+tool to delegate to different profiles. This is a historical description of
+that setup, not a claim about current Hermes limitations or a bundled feature
+of this service.
+
+A task could involve an architect, an implementer, a tester and a reviewer
+rather than one long coding conversation. These responsibilities needed to be
+reusable across projects without tying each role to one model or provider.
+That led to **Profile != Model**: the role expresses responsibilities;
+model/provider selection, execution and fallbacks belong to Hermes runtime policy.
 
 ```mermaid
 flowchart LR
-    C["Codex: coding assistant"] --> H["Hermes: multi-agent execution"]
+    C["Codex: author's coding assistant"] --> H["Hermes: multi-agent experiments"]
     H --> P["Profiles: reusable capabilities, independent of models"]
     P --> I["ICM: selective, bounded context"]
-    I --> PI["Project Intelligence: context plus coordination"]
+    I --> PI["Project Intelligence: current context, planned coordination"]
 ```
 
 This is the evolution of the project's motivation, not a release timeline or a
@@ -38,10 +44,13 @@ claim that the full coordination layer is available today.
 
 ## What ICM taught us
 
-ICM / Clif Notes contributed a practical idea: an agent should receive the
-context needed for the task, not an undifferentiated dump of the repository.
-Versioned workspace contracts and localized project documents can describe
-inputs, constraints, expected outputs and success criteria.
+Discovering ICM through Clif Notes influenced the author's approach: give an
+agent structured, selective project context rather than an undifferentiated
+repository dump. In this project, versioned workspace contracts and localized
+documents describe inputs, constraints, expected outputs and success criteria.
+
+This is a design choice and source of inspiration, not a claim that ICM requires
+one model, forbids multiple agents or cannot support other workflows.
 
 This makes context selection an explicit part of the system. It also makes the
 limits visible: a short context is not necessarily a correct context. Documents
@@ -87,10 +96,15 @@ Task
  = bounded Context Pack / coordination intelligence
 ```
 
-The current Context Pack implements a bounded subset of this equation: task,
-identity/revision, ICM declarations, file/symbol/direct-reference evidence and
-heuristic test candidates. Richer impact, effective scopes, concurrent-task
-conflicts and validated historical retrieval remain planned.
+Steps 1, 2 and 2.5 are complete at the documented checkpoint. The current Context
+Pack implements a bounded subset of this equation: task, identity/revision, ICM
+declarations, file/symbol/direct-reference evidence and heuristic test candidates.
+It now consumes normalized analyzer providers, retaining capability and coverage
+limits rather than assuming all observed languages were analyzed. Native
+analysis is structural, not compiler-grade semantic truth.
+
+Impact v2 is next and not started. Effective scopes, concurrent-task conflicts
+and validated historical retrieval remain planned.
 
 The direction is to provide:
 

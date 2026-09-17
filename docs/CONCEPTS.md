@@ -24,8 +24,8 @@ and [runtime routing boundaries](project-intelligence/22_MODEL_ROUTING_AND_TOKEN
 
 ## ICM != Runtime
 
-ICM is the versioned workflow/context input: what is being done, its inputs,
-constraints, process, outputs and success criteria. It is not the machinery
+In this project's design, ICM is the versioned workflow/context input: what is
+being done, its inputs, constraints, process, outputs and success criteria. It is not the machinery
 that launches a worker, chooses a provider, retries execution or manages tasks.
 Folders and workspace documents are not agents.
 
@@ -83,6 +83,11 @@ parent's projectId. Local repository/worktree evidence is distinct from the
 stable projectId. Dirty, unborn, non-Git and unavailable evidence is explicit;
 a parent commit is not proof that dirty content equals that commit.
 
+Configured-root-bound lookup and safe overview projection preserve this
+distinction. Both the analysis cache and the .NET symbol cache are bound to
+project/revision/worktree evidence; dirty, unborn or unavailable Git states
+bypass their normal cache reuse rather than borrowing a clean checkout's result.
+
 Hermes owns worktree creation and lifecycle. This service reads worktree
 identity and sources. Worktrees provide physical separation; the planned
 scope/conflict layer provides semantic coordination.
@@ -98,6 +103,13 @@ test candidates. Section and serialized-byte limits prevent an unrestricted
 prompt dump; excerpts are opt-in. The builder does not require an LLM and does
 not persist or cache packs.
 
+Step 2.5 adds normalized provider metadata and evidence without replacing the
+Step 2 request/section contract. `analysis` reports provider/version, capabilities,
+observed/covered/uncovered languages, snapshot binding and attempts. Symbol and
+reference sections preserve `partial` or `not_analyzed` status as appropriate;
+missing analysis is not a proven empty graph. External evidence retains its
+untrusted provenance and validated source lines where known.
+
 Bounded is not complete: source caps can omit relevant evidence. Current source
 retrieval requires Linux/WSL descriptor verification through `/proc/self/fd`;
 when unavailable it fails closed to partial metadata-only results. This is a
@@ -107,6 +119,58 @@ are **planned**, not current request modes.
 
 See the [implemented contract and limitations](project-intelligence/04_ICM_AND_CONTEXT_PACK.md).
 
+## Analyzer Provider Layer
+
+**Implemented in Step 2.5.** An **AnalyzerProvider** is a language-analysis
+contract, not an LLM provider or agent profile. Task Context Pack consumers use
+normalized evidence instead of depending directly on a concrete native analyzer.
+
+The existing .NET and TypeScript/JavaScript analyzers are retained behind native
+adapters. Descriptors declare provider ID/version, kind, priority, languages and
+per-operation capability levels. Selection/fallback is deterministic: native
+.NET, then native TypeScript/JavaScript, then configured external providers.
+Eligibility respects language and capability requirements. The first usable
+result may be partial; graphs from different providers are not silently merged.
+
+The external boundary is **data-only**. Bounded JSON evidence must match its
+authorized project/revision/worktree snapshot, request and provider ID/version.
+Paths, source positions, IDs and advertised operations are validated. Neither
+the request DTO nor its response validator launches a process or executes an
+arbitrary analyzer plugin. Provider configuration and external responses are
+server-side inputs, not fields exposed in the task-context HTTP request.
+
+Printable, bounded polyglot symbol names can include qualified names or names
+such as `Get-Thing`; they need not follow JavaScript identifier syntax. That
+normalization improvement does not supply a semantic analyzer for those languages.
+
+### Structural vs semantic evidence
+
+Capability levels are per operation, not a blanket quality label for a language:
+
+| Level | Meaning |
+|---|---|
+| `unsupported` | The provider does not supply the operation. Missing entries normalize to this level. |
+| `structural` | Source/AST/heuristic evidence of symbols and relationships, without a compiler-grade semantic claim. |
+| `semantic` | A declared language-aware operation requiring appropriate evidence and conformance validation; no current native provider offers this level. |
+
+Default installed analysis at the documented checkpoint:
+
+| Language | Current evidence |
+|---|---|
+| C# / .NET | Native structural symbols and references/import dependencies. |
+| TypeScript | Native structural symbols and references/import dependencies. |
+| JavaScript / JSX | Native structural analysis through the TypeScript provider. |
+| Python / Go / Rust / Java | Language observation only by default; semantic analysis is not implemented. |
+| Bash / PowerShell | Bounded text observation, without execution; semantic analysis is not implemented. |
+
+Native precise definitions, implementations and compiler diagnostics are
+`unsupported`. Extensibility and protocol fixtures are not proof of installed
+semantic support. Optional Serena/Pyright execution is a **proposal**, subject
+to a separately approved snapshot-only sandbox and real-server conformance tests.
+
+See the [provider contract and language matrix](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md)
+and [proposed integration boundary](ARCHITECTURE.md#proposed-serena--lsp-integration).
+
 ## Impact
 
 **Impact** asks what else may be affected by a change, beyond its edit targets.
@@ -115,8 +179,8 @@ Impact is neither permission to edit nor an automatic lock.
 
 **Implemented:** existing exploration endpoints provide bounded graph-based
 impact around a node. Task Context Packs select direct references and heuristic
-tests. **Planned:** Impact v2, including task/file-oriented impact suitable for
-effective scopes and conflict analysis. Existing graph impact must not be
+tests. **Next, not started:** Impact v2, including task/file-oriented impact
+suitable for effective scopes and conflict analysis. Existing graph impact must not be
 mistaken for that future coordination contract.
 
 ## Workspace Scope
@@ -155,6 +219,7 @@ The following is an **illustrative future policy example**, not a live scope:
 
 ```mermaid
 flowchart LR
+    subgraph FUTURE["PLANNED coordination policy - illustrative"]
     A["Task A: change service contract"] --> W["WRITE: interface"]
     A --> R["RESERVED: implementation"]
     A --> V["WATCH: consumer and tests"]
@@ -166,6 +231,7 @@ flowchart LR
     I --> C
     C --> O["Block, replan or allow with revalidation"]
     O --> H["Hermes applies runtime policy"]
+    end
 ```
 
 If Task B edits the interface, WRITE overlaps WRITE. If it edits the

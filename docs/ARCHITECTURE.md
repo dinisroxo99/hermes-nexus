@@ -6,8 +6,9 @@ Hermes Project Map is an external Project Intelligence service. Its existing
 HTTP API and graph UI provide a foundation for the broader coordination layer.
 It is not an agent runtime, scheduler or replacement for Hermes.
 
-The diagrams below describe responsibility boundaries and the target design.
-**Planned nodes are labelled explicitly.** Consult
+The diagrams distinguish current composition from planned integration. Solid
+arrows show current evidence flow; dashed paths and labelled groups identify
+future layers. **Planned/proposed nodes are labelled explicitly.** Consult
 [Current status](CURRENT_STATUS.md) for the implementation snapshot.
 
 ## System boundary
@@ -44,10 +45,13 @@ automatic guard integration are not established by the current service API.
 | Discovery and overview | Return bounded candidate discovery and compact project/revision summaries. |
 | Analyzer service and graph UI | Inspect supported code, search symbols and explore relationships; provide existing node-based graph impact/context. |
 | ICM foundation | Parse workspace contracts, index contextual documents and match task paths to declared workspace scope. |
+| Analyzer Provider Layer | Adapt native analyzers, select/fall back deterministically and validate snapshot-bound external JSON evidence. |
 | Task Context Pack builder | Compose bounded, revision-aware evidence for a task without an LLM or persistent pack cache. |
 
-Analyzer-provider normalization is **Phase 2.5, in progress** at this document's
-base. Do not infer a completed provider pipeline from the table above.
+Project Identity / Revision, Task Context Pack and the Analyzer Provider Layer
+are **complete** at `be0cb2c`. Installed native analysis remains structural;
+Serena/LSP process integration is **proposed**, not installed or running as part
+of this service.
 
 The API offers discovery, explicit guarded discovered-project registration,
 project overview and a read-only task-context POST. Legacy exploration/indexing
@@ -57,8 +61,8 @@ for methods and paths, rather than treating proposed tool names as existing APIs
 ### A Context Pack is a join, not an ICM dump
 
 The current builder resolves a persisted projectId and optional verified
-worktree, observes bounded sources and Git state, then reuses ICM and analyzer
-logic to select task-relevant evidence. It returns bounded sections with
+worktree, observes bounded sources and Git state, then composes ICM declarations
+and normalized analyzer-provider evidence. It returns bounded sections with
 provenance and omission indicators, and rejects observed changes during
 construction. It does not create a whole-repository atomic snapshot.
 
@@ -69,25 +73,84 @@ validated historical knowledge.
 
 ## Task flow
 
-**Target flow:** the first context capability exists; Impact v2, effective scope,
-conflict checking and the automatic Hermes enforcement path remain planned.
-Existing node-based graph impact is a separate current capability.
+The **current composition** joins task, identity/revision, ICM and normalized
+code evidence. The separate **planned integration** adds Impact v2, effective
+scope and conflicts before Hermes runtime execution. Step 3 — Impact v2 is next
+and not started. Existing node-based graph impact is a separate current capability.
 
 ```mermaid
-flowchart LR
-    T[Task] --> C["Context: identity, revision, ICM and code evidence"]
-    C --> P["Bounded Context Pack"]
-    P --> I["Impact v2: planned"]
-    I --> S["Effective Scope: planned"]
-    S --> F["Conflict Check: planned"]
-    F --> H["Hermes policy and dispatch integration: planned"]
-    H --> A[Agent]
+flowchart TB
+    subgraph CURRENT["IMPLEMENTED: context composition"]
+        T[Task] --> P["Bounded Task Context Pack"]
+        R["Project identity and Git/worktree revision"] --> P
+        ICM["ICM declarations and contextual documents"] --> P
+        S["Authorized bounded source snapshot"] --> AP["Analyzer Provider Layer"]
+        AP --> E["Normalized evidence, capabilities and coverage"]
+        E --> P
+    end
+    subgraph FUTURE["PLANNED: coordination and runtime integration"]
+        I["Impact v2: NEXT, NOT STARTED"] -.-> ES["Effective Task Scope"]
+        ES -.-> F["Conflict Check"]
+        F -.-> H["Hermes guard and dispatch integration"]
+        H -.-> A["Agent execution in Hermes"]
+    end
+    P -.-> I
 ```
 
 This is a conceptual sequence, not a series of endpoints to call today. Impact
 can also feed back into context selection. In the intended integration, a
 conflict result may lead Hermes to block, serialize or request replanning rather
 than starting the agent.
+
+## Provider independence
+
+The provider layer is a completed **extensibility boundary**, not universal
+semantic analysis. It normalizes provider ID/version, operation levels and
+language coverage for consumers such as Task Context Pack. The existing native
+C#/.NET and TypeScript/JavaScript/JSX analyzers provide structural evidence;
+precise definitions, implementations and compiler diagnostics are unsupported
+natively. Python/Go/Rust/Java have language observation only by default;
+Bash/PowerShell have bounded text observation, not semantic analysis.
+
+Selection chooses one usable provider, with deterministic priority/fallback.
+Partial coverage remains explicit instead of silently stitching graphs together.
+The pack carries provider provenance and `partial`/`not_analyzed` section states
+where evidence is incomplete or an operation is unsupported.
+
+The external adapter validates bounded JSON against the authorized snapshot,
+provider/version and request. It rejects out-of-snapshot evidence and unsupported
+operation claims. This is not permission to run arbitrary plugins: the adapter
+does not execute external code, perform transport or create a sandbox. Server-side
+provider options are distinct from the public task-context HTTP body.
+
+See [capability levels](CONCEPTS.md#structural-vs-semantic-evidence) and the
+[AnalyzerProvider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md).
+
+## Proposed Serena / LSP integration
+
+**PROPOSED ONLY — separate approval required.** No Serena/LSP execution was
+installed or integrated by Step 2.5. The first candidate is optional local Python,
+with Serena pinned to source revision `f8f53b77f04e50aadf9e5789841ec6a95c874514`
+and its pinned Pyright adapter dependency `1.1.403`, as recorded in the
+[exact proposal](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md#exact-serenalsp-integration-proposal--approval-required).
+These are proposal pins, not installed versions or recommendations to install now.
+
+The proposed boundary requires:
+
+- a sandboxed, read-only **exported snapshot**, never a live repository mount;
+- no `.git`, host HOME, credentials, other projects or container socket;
+- no network egress or runtime dependency downloads;
+- bounded private temporary storage, non-root execution and dropped capabilities;
+- a semantic read-only tool allowlist, excluding editing, shell execution,
+  project switching, memory actions and onboarding;
+- bounded CPU, memory, total time and response size: the proposal starts at
+  two CPUs, 1 GiB, 30 seconds and 256 KiB per request;
+- pinned dependencies/image provenance, validated URI-to-snapshot mapping,
+  process cleanup and real-server conformance tests before capability claims.
+
+The service would validate normalized evidence again after that transport.
+Tool configuration alone is not the sandbox. Additional language integrations
+would require their own approval, pinned dependencies and capability tests.
 
 ## Scope and parallel work
 
@@ -115,14 +178,16 @@ project evidence, not a coder or a new authority over the repository.
 
 ```mermaid
 flowchart LR
-    A[Agents] -->|"project-scoped question"| E["Project Expert: planned, read-only"]
-    E --> C["Current code and graph at observed revision"]
-    E --> I["ICM workspace contracts"]
-    E --> D["Canonical documents and active ADRs"]
-    E --> V["Validated project history: planned"]
-    E -->|"answer with evidence and uncertainty"| A
-    H["Hermes run records"] --> Q["Validation: tests, review, human feedback"]
-    Q --> V
+    subgraph FUTURE["PLANNED: read-only Project Expert and history retrieval"]
+        A[Agents] -.->|"project-scoped question"| E["Project Expert: read-only"]
+        E -.-> C["Current code and graph at observed revision"]
+        E -.-> I["ICM workspace contracts"]
+        E -.-> D["Canonical documents and active ADRs"]
+        E -.-> V["Validated project history"]
+        E -.->|"answer with evidence and uncertainty"| A
+        H["Hermes run records"] -.-> Q["Validation: tests, review, human feedback"]
+        Q -.-> V
+    end
 ```
 
 Current truth is retrieved, not assumed from model weights. Historical
@@ -158,6 +223,7 @@ code. Future learning/adaptation depends on validated data and evaluation.
 |---|---|
 | Responsibility boundary and target flow | [Target architecture](project-intelligence/03_TARGET_ARCHITECTURE.md) |
 | Current pack contract and longer-term context design | [ICM and Context Pack](project-intelligence/04_ICM_AND_CONTEXT_PACK.md) |
+| Normalized analyzers and proposed semantic integration | [Analyzer Provider Layer](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md) |
 | Client/guard integration | [Hermes integration](project-intelligence/05_HERMES_INTEGRATION.md) |
 | Project/revision/worktree identity | [Identity and isolation](project-intelligence/18_PROJECT_IDENTITY_AND_ISOLATION.md) |
 | Scope and conflict policy | [Scope, impact and conflicts](project-intelligence/06_SCOPE_IMPACT_CONFLICTS.md) |
