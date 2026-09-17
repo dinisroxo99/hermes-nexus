@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { contextDigest } from "../src/lib/project-context-files.js";
 import { createProviderSnapshot } from "../src/analyzers/common/analyzer-provider-contract.js";
 import { createExternalSnapshotRequest, readExternalSnapshotResponse } from "../src/analyzers/external/snapshot-provider.js";
+import { runSerenaSnapshot } from "../src/analyzers/external/serena-transport.js";
 
 const enabled = process.env.SERENA_DOCKER_TESTS === "1";
 const provider = { id: "external.serena-python", version: "1-f8f53b77-pyright-1.1.403", kind: "external", priority: 50, languages: ["python"],
@@ -57,4 +58,20 @@ test("real Pyright resolves cross-file Python definitions and references", { ski
   assert.ok(greet); assert.ok(caller);
   assert.ok(result.definitions.some((d) => d.symbolId === greet.id && d.target.path === "models.py" && d.target.line === 1 && d.target.column === 5));
   assert.ok(result.edges.some((e) => e.from === caller.id && e.to === greet.id && e.relation === "references" && e.location.path === "usage.py" && e.location.line === 4 && e.location.column === 12));
+});
+
+test("real Docker transport validates and disposes a Python snapshot", { skip: !enabled }, () => {
+  const image = spawnSync("docker", ["image", "inspect", "project-map-serena-python:1", "--format", "{{.Id}}"], { encoding: "utf8" }).stdout.trim();
+  const snapshot = createProviderSnapshot({ projectId: "Prj_Transport" }, files, { status: "not_git" });
+  const result = runSerenaSnapshot(snapshot, { image });
+  assert.equal(result.status, "available");
+  const graph = readExternalSnapshotResponse(snapshot, provider, result.response, { requireObservedSource: true });
+  assert.ok(graph.nodes.some((node) => node.label === "Greeter"));
+  for (const other of [
+    createProviderSnapshot({ projectId: "Other_Project" }, files, { status: "not_git" }),
+    createProviderSnapshot({ projectId: "Prj_Transport" }, files, { status: "available", commitSha: "a".repeat(40) }),
+    createProviderSnapshot({ projectId: "Prj_Transport" }, files, { status: "not_git", worktreeId: "other_worktree" }),
+    createProviderSnapshot({ projectId: "Prj_Transport" }, [{ ...files[0], text: "class Changed: pass\n" }], { status: "not_git" })
+  ]) assert.throws(() => readExternalSnapshotResponse(other, provider, result.response, { requireObservedSource: true }), { code: "invalid_external_evidence" });
+  assert.equal(spawnSync("docker", ["ps", "-aq", "--filter", "name=project-map-serena-"], { encoding: "utf8" }).stdout.trim(), "");
 });
