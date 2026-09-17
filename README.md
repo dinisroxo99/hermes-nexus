@@ -121,8 +121,11 @@ UI and HTTP service remain independently usable.
 
 ## Try the current service
 
-With Node.js and npm installed, configure trusted project roots using
-[Adding projects](docs/adding-projects.md), then run from the repository root:
+With Node.js and npm installed, follow the
+[first-run setup](docs/adding-projects.md#first-run-setup) to initialize local,
+untracked configuration without overwriting existing files, adapt the project
+locator and assign a persisted ID for Task Context Pack. Then run from the
+repository root:
 
 ```bash
 npm ci

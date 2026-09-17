@@ -77,8 +77,11 @@ data/
 
 ## Local quick start
 
-Run commands from the repository root. Configure trusted project roots using
-[Adding projects](adding-projects.md). Install locked dependencies:
+Run commands from the repository root. Complete the
+[first-run setup](adding-projects.md#first-run-setup): initialize local, untracked
+`.env` and `data/projects.json` without overwriting existing files, configure
+roots and the project locator, and explicitly assign an ID if using Task Context
+Pack. Install locked dependencies:
 
 ```bash
 npm ci
@@ -116,19 +119,9 @@ curl http://localhost:8770/api/health
 
 ## Docker quick start
 
-Create `.env`:
-
-```powershell
-copy .env.example .env
-```
-
-Example:
-
-```env
-PROJECTS_ROOT=/home/user/projects
-PORT=8770
-DOTNET_VERSION=10.0
-```
+Complete the [first-run setup](adding-projects.md#first-run-setup) for both local
+configuration files, using the Docker root mapping described there. Do not
+overwrite an existing `.env` or manual registry with the examples.
 
 Start with a rebuild:
 
