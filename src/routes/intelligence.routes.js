@@ -16,6 +16,7 @@ import {
 import { readJsonBody } from "../utils/request-body.js";
 import { sendOk, sendError } from "../utils/response.js";
 import { parseLimit, validateProjectName } from "../utils/validation.js";
+import { createTaskContextHandler } from "./task-context.routes.js";
 
 const MAX_REGISTRATION_PROJECTS = 100;
 const DEFAULT_BODY_LIMIT_BYTES = 64 * 1024;
@@ -24,6 +25,7 @@ export function registerIntelligenceRoutes(router, dependencies = {}) {
   router.add("GET", "/api/intelligence/discover", createDiscoverProjectsHandler(dependencies));
   router.add("POST", "/api/intelligence/discover/register", createRegisterDiscoveredProjectsHandler(dependencies));
   router.add("GET", "/api/intelligence/projects/:name/overview", createProjectOverviewHandler(dependencies));
+  router.add("POST", "/api/intelligence/projects/:projectId/task-context", createTaskContextHandler(dependencies));
 }
 
 export function createDiscoverProjectsHandler(dependencies = {}) {
