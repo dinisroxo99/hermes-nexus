@@ -175,7 +175,8 @@ export function upsertDiscoveredProjects({
     const addedAt = existing?.addedAt;
     const nextProject = {
       ...existing,
-      ...toDiscoveredRegistryEntry(candidate, { discoveredAt, now })
+      ...toDiscoveredRegistryEntry(candidate, { discoveredAt, now }),
+      projectId: existing?.projectId || `prj_${randomUUID()}`
     };
 
     if (addedAt) {
@@ -186,10 +187,10 @@ export function upsertDiscoveredProjects({
 
     if (existing) {
       updatedCount += 1;
-      results.push({ ...identity, status: "updated" });
+      results.push({ ...identity, projectId: nextProject.projectId, status: "updated" });
     } else {
       registeredCount += 1;
-      results.push({ ...identity, status: "registered" });
+      results.push({ ...identity, projectId: nextProject.projectId, status: "registered" });
     }
   }
 

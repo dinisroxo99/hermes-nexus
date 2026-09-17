@@ -10,6 +10,7 @@ import {
   readDiscoveredProjectRegistry,
   readEffectiveProjectRegistry,
   readManualProjectRegistry,
+  upsertDiscoveredProjects,
   writeDiscoveredProjectRegistryAtomic
 } from "../src/lib/project-registry.js";
 
@@ -22,6 +23,39 @@ const INVALID_PROJECT_ID_ERROR = {
   code: "invalid_project_identity",
   message: "Invalid projectId: expected 1-128 ASCII letters, digits, underscores or hyphens, starting with a letter or digit."
 };
+
+test("discovered enrollment assigns a persisted opaque ID and preserves it on refresh", (t) => {
+  const dir = makeTempRoot("project-map-enrollment-");
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "discovered-projects.json");
+  const candidate = { name: "service", rootId: "default", relativePath: "service", projectId: "untrusted" };
+  const options = { candidates: [candidate], requestedProjects: [candidate], now: "2026-01-01T00:00:00Z" };
+  const first = upsertDiscoveredProjects(options);
+  const id = first.projects[0].projectId;
+  assert.match(id || "", /^prj_[0-9a-f-]{36}$/);
+  assert.equal(first.result.results[0].projectId, id);
+  writeDiscoveredProjectRegistryAtomic(file, first.projects);
+  const refreshed = upsertDiscoveredProjects({ ...options, discoveredProjects: readDiscoveredProjectRegistry(file) });
+  assert.equal(refreshed.projects[0].projectId, id);
+  assert.equal(refreshed.result.results[0].projectId, id);
+  assert.notEqual(upsertDiscoveredProjects(options).projects[0].projectId, id);
+});
+
+test("discovered enrollment assigns IDs only to requested legacy entries and never manual records", () => {
+  const legacy = [
+    { name: "requested", relativePath: "requested" },
+    { name: "untouched", relativePath: "untouched" }
+  ];
+  const options = { candidates: legacy, requestedProjects: [legacy[0]] };
+  const result = upsertDiscoveredProjects({ ...options, discoveredProjects: legacy });
+  assert.ok(result.projects.find((p) => p.name === "requested").projectId);
+  assert.equal(Object.hasOwn(result.projects.find((p) => p.name === "untouched"), "projectId"), false);
+  assert.equal(Object.hasOwn(legacy[0], "projectId"), false);
+  const skipped = upsertDiscoveredProjects({ ...options, manualProjects: legacy });
+  assert.deepEqual(skipped.projects, []);
+  assert.equal(skipped.result.results[0].status, "already_registered");
+  assert.equal(Object.hasOwn(skipped.result.results[0], "projectId"), false);
+});
 
 test("normalizeProjectEntryForRuntime keeps projectId optional without generating one", () => {
   const input = Object.freeze({ name: "legacy-service", relativePath: "legacy-service" });

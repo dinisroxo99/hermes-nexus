@@ -526,7 +526,7 @@ test("POST registration persists server-discovered candidates through the discov
     registeredCount: 1,
     updatedCount: 0,
     skippedCount: 0,
-    results: [{ rootId: "default", relativePath: "sample-service", status: "registered" }],
+    results: [{ rootId: "default", relativePath: "sample-service", projectId: payload.data.results[0].projectId, status: "registered" }],
     warnings: []
   });
   assert.equal(fs.readFileSync(fixture.manualProjectsFile, "utf8"), manualContents);
@@ -536,6 +536,8 @@ test("POST registration persists server-discovered candidates through the discov
   assert.equal(discovered.length, 1);
   assert.equal(discovered[0].name, "sample-service");
   assert.equal(discovered[0].rootId, "default");
+  assert.match(discovered[0].projectId, /^prj_[0-9a-f-]{36}$/);
+  assert.equal(payload.data.results[0].projectId, discovered[0].projectId);
   assert.equal(discovered[0].relativePath, "sample-service");
   assert.equal(discovered[0].projectType, "typescript");
   assert.equal(discovered[0].boundaryKind, "repository");
@@ -565,11 +567,13 @@ test("POST registration ignores arbitrary client metadata and rejects unsafe ide
   const accepted = await dispatchRegister({
     roots: [{ id: "default", path: root }],
     registryDir: fixture.registryDir,
-    body: { projects: [{ name: "evil", rootId: "default", relativePath: "sample-service", projectType: "dotnet" }] }
+    body: { projects: [{ name: "evil", rootId: "default", relativePath: "sample-service", projectType: "dotnet", projectId: "client-id" }] }
   });
 
   assert.equal(accepted.status, 200);
   const discovered = JSON.parse(fs.readFileSync(fixture.discoveredProjectsFile, "utf8"));
+  assert.match(discovered[0].projectId, /^prj_[0-9a-f-]{36}$/);
+  assert.notEqual(discovered[0].projectId, "client-id");
   assert.equal(discovered[0].name, "sample-service");
   assert.equal(discovered[0].projectType, "typescript");
 });
@@ -659,7 +663,7 @@ test("POST registration is idempotent for already discovered entries and preserv
   assert.equal(payload.data.registeredCount, 0);
   assert.equal(payload.data.updatedCount, 1);
   assert.deepEqual(payload.data.results, [
-    { rootId: "default", relativePath: "sample-service", status: "updated" }
+    { rootId: "default", relativePath: "sample-service", projectId: payload.data.results[0].projectId, status: "updated" }
   ]);
 
   const discovered = JSON.parse(fs.readFileSync(fixture.discoveredProjectsFile, "utf8"));
