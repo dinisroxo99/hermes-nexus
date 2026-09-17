@@ -54,7 +54,10 @@ Required result:
 fail 0
 ```
 
-Phase 2 completed with 176 passing tests. Treat `fail 0` as the durable requirement because the exact passing count will grow as coverage is added.
+Use the revision-pinned [current status](CURRENT_STATUS.md), not an older test
+count, as the capability baseline. The `be0cb2c` implementation checkpoint reports
+306 passed, zero failed and zero skipped. Run the suite in the checkout being
+validated and report skips explicitly; `fail 0` alone does not prove full coverage.
 
 ### Validate the `analyzer-service` import
 
@@ -114,7 +117,19 @@ Discovery is dry-run and non-mutating. Explicit registration writes only `data/d
 
 Overview is cheap and bounded. It reports project identity, stack, architecture, statistics, compact ICM availability/health/count metadata, analysis/cache state, analyzer capabilities, and warnings without returning absolute paths by default or triggering a full analyzer/index run.
 
-The overview `icm` summary is health/count metadata only. It does not return `AGENT.md` Markdown instructions, contextual document content, executor IDs, owner/reviewer identities, routing maps, permission contracts, or scope patterns. There is no dedicated `/api/intelligence/projects/:name/icm` endpoint, no task-context endpoint, and no route-task endpoint yet.
+The overview `icm` summary is health/count metadata only. It does not return
+`AGENT.md` Markdown instructions, contextual document content, executor IDs,
+owner/reviewer identities, routing maps, permission contracts or scope patterns.
+There is no dedicated ICM or route-task endpoint.
+
+Read-only task context is implemented at
+`POST /api/intelligence/projects/:projectId/task-context`, requiring an existing
+persisted ID. Step 2.5 adds normalized analyzer-provider evidence and explicit
+coverage, not an external tool launcher or runtime guard. Native analysis remains
+structural; source retrieval requires Linux/WSL descriptor verification.
+See the [Context Pack contract](project-intelligence/04_ICM_AND_CONTEXT_PACK.md)
+and [Analyzer Provider Layer](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md)
+for exact limits and the separately proposed Serena/LSP integration.
 
 ### List projects
 

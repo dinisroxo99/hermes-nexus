@@ -179,8 +179,9 @@ Missing section operations are `not_analyzed`, not evidence of an empty graph.
 
 The external boundary validates bounded, snapshot-scoped JSON data; it does not
 execute tools, launch LSP servers or provide a sandbox for arbitrary plugins.
-Descriptors and external responses are trusted server-side options, not fields
-accepted from a task-context HTTP body. Legacy UI/graph APIs and cache ownership
+Descriptors and response maps are supplied through trusted server-side options,
+not fields accepted from a task-context HTTP body. JSON evidence remains
+untrusted. Legacy UI/graph APIs and cache ownership
 remain unchanged. There is no new public provider-execution endpoint.
 
 Serena/Pyright runtime integration is **proposed only**, not installed or enabled

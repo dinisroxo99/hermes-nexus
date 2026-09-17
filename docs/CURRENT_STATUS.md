@@ -4,48 +4,40 @@
 
 ## Verification boundary
 
-This is a **repository snapshot**, not a release announcement or a live view of
-another checkout.
+This is a linked public summary of the implementation checkpoint, not a separate
+implementation plan or a live view of another checkout.
 
 - Repository: `dinisroxo99/hermes-project-map`.
-- Base branch inspected: `feat/project-intelligence-service`.
-- Pinned base commit: `6b9c53cb3ed30090b5a5958ae7ce61f9f6815085`
-  (`6b9c53c`, `feat: adapt native analyzers to normalized providers`).
-- Documentation prepared on `docs/project-intelligence-public-overview`, in an
-  isolated worktree derived from that commit.
-- Evidence: committed source, route registration, tests and recent Git history
-  at that base. Uncommitted work and later commits in other sessions are excluded.
+- Implementation branch: `feat/project-intelligence-service`.
+- Exact base revision: **`be0cb2c7b30d9f082e02df24a4113ddffc8c9ab2`**
+  (`be0cb2c`, `docs: checkpoint polyglot analyzer provider step`).
+- Implementation authority: the [active plan](../.hermes/plans/2026-09-17_002050-project-intelligence-service-active.md),
+  read with current source and the detailed contracts linked below.
+- Documentation branch: `docs/project-intelligence-public-overview`, rebased onto
+  that exact locally available revision. Later or uncommitted work is excluded.
 
-**Phase 2.5 is IN PROGRESS. Refresh CURRENT_STATUS after Phase 2.5 is merged.**
-The base includes partial analyzer-provider work, not a verified completion of
-that phase. This document deliberately does not predict its final interface,
-coverage or test outcome.
+**Steps 1, 2 and 2.5 are COMPLETE. Step 3 — Impact v2 is NEXT and NOT STARTED.**
+No additional implementation task is represented as in progress at this checkpoint.
 
-Status labels used in the public docs:
+The implementation checkpoint reports **306 tests passed, 0 failed, 0 skipped**,
+plus passing `npm run check`, explicit syntax checks and `git diff --check`.
+That is the implementation verification record, not a claim that every command
+was rerun by a reader of this page. Older test counts and historical snapshots
+are not the current baseline.
 
-- **Implemented:** present in the pinned source; limitations still apply.
-- **In progress:** partial work, not a completed end-to-end capability.
-- **Planned:** target design, not a current service feature.
-- **Deferred:** not part of the near-term implementation.
+## Implemented
 
-## Implemented foundation
-
-Paths below link to source/tests for inspection, not claims that every test or
-runtime dependency works on every platform.
-
-| Capability | Present at the base | Evidence |
+| Capability | What is present | Detailed evidence / contract |
 |---|---|---|
-| Local HTTP service and graph UI | Project listing/structure, search, graph expansion, indexing/cache operations and static UI. | [Server routes](../src/server.js), [exploration handlers](../src/routes/explore.routes.js) |
-| Code analysis and graph intelligence | .NET and initial TypeScript analysis; existing bounded node-based impact, symbol context and insights. Not Impact v2. | [Analyzer service](../src/lib/analyzer-service.js), [graph intelligence](../src/lib/graph-intelligence.js), [tests](../tests/analyzer-service.test.js) |
-| Configuration and discovery | Trusted roots, manual/discovered registry separation, bounded discovery, guarded explicit registration and compact overview. | [Intelligence routes](../src/routes/intelligence.routes.js), [discovery tests](../tests/project-discovery.test.js), [registry tests](../tests/project-registry.test.js) |
-| Stable identity and Git/worktree evidence | Persisted project IDs, ambiguity rejection, verified parent-worktree resolution and revision/worktree-aware caches. Legacy ID-less records remain supported outside ID-required workflows. | [Project resolution](../src/lib/projects.js), [revision reader](../src/lib/project-revision.js), [revision tests](../tests/project-revision.test.js), [cache tests](../tests/analysis-cache.test.js) |
-| Canonical ICM foundation | `AGENT.md` front-matter parsing, Workspace Index, contextual document index and combined Project ICM Index. No persistent ICM store. | [ICM composer](../src/lib/icm-index.js), [ICM tests](../tests/icm-index.test.js) |
-| Workspace declarations and path matching | Deterministic matching of task paths to declared workspace include/exclude scope. Not authorization or reservation. | [Scope matcher](../src/lib/workspace-scope.js), [matching tests](../tests/workspace-scope.test.js) |
-| Task Context Pack | Read-only projectId-based POST; bounded source observations, selected ICM/code/test evidence, provenance, revision/change checks and omission indicators. No LLM, runtime dispatch or persistent pack cache. | [Builder](../src/lib/task-context.js), [route](../src/routes/task-context.routes.js), [pack tests](../tests/task-context.test.js), [HTTP tests](../tests/task-context-routes.test.js) |
+| Project foundation | Local HTTP API and graph UI; configured roots, manual/discovered registry, bounded discovery/overview, ICM indexing and workspace-path matching. | [Service reference](SERVICE_REFERENCE.md), [route registration](../src/routes/intelligence.routes.js), [ICM contract](project-icm.md) |
+| Step 1 — Project Identity / Revision | Optional persisted opaque projectId, independent of name/path/HEAD/remote; compatible legacy records; unambiguous configured-root-bound lookup; safe overview identity/revision projection. Linked worktrees reuse verified parent identity. Both existing analysis and .NET symbol caches are revision/worktree-aware. | [Identity contract](project-intelligence/18_PROJECT_IDENTITY_AND_ISOLATION.md), [project resolution](../src/lib/projects.js), [revision tests](../tests/project-revision.test.js) |
+| Step 2 — Task Context Pack | Bounded, project/revision-scoped composition of task, ICM, files, symbols, direct references and heuristic tests, with provenance and omission indicators. Deterministic selection, not a repository prompt dump or arbitrary LLM summary. Read-only; no persistent pack cache. | [Context Pack contract](project-intelligence/04_ICM_AND_CONTEXT_PACK.md), [builder](../src/lib/task-context.js), [HTTP tests](../tests/task-context-routes.test.js) |
+| Step 2.5 — Analyzer Provider Layer | Normalized contract and native adapters; deterministic selection/fallback; provider/version/capability/language metadata; bounded snapshot-scoped external evidence validation; polyglot symbol-name normalization. Task Context Pack consumes normalized providers and exposes partial/not_analyzed coverage. | [Provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md), [provider selection](../src/analyzers/common/analyzer-providers.js), [data validator](../src/analyzers/external/snapshot-provider.js), [pack/provider tests](../tests/task-context-providers.test.js) |
+| Existing graph impact | Bounded node-based impact, symbol context and graph insights. This is not Step 3 Impact v2. | [Graph intelligence](../src/lib/graph-intelligence.js), [analyzer service tests](../tests/analyzer-service.test.js) |
 
 ### Current intelligence endpoints
 
-Verified from [route registration](../src/routes/intelligence.routes.js):
+Verified in [route registration](../src/routes/intelligence.routes.js):
 
 ```text
 GET  /api/intelligence/discover
@@ -54,104 +46,84 @@ GET  /api/intelligence/projects/:name/overview
 POST /api/intelligence/projects/:projectId/task-context
 ```
 
-Registration is a guarded state-changing operation, disabled by default. The
-other operations above do not enroll projects. The task-context POST is
-read-only despite using POST; it requires an existing persisted projectId.
+Registration is state-changing and disabled by default. The task-context POST
+is **read-only**, requires an existing persisted projectId and does not enroll
+projects. Analyzer descriptors/responses are server-side inputs, not public
+task-context request fields. No provider-execution, dedicated ICM or task-scope/
+conflict endpoint is introduced by Step 2.5. HTTP support does not imply an
+installed Hermes tool or automatic guard integration.
 
-Existing graph routes under `/api/explore/:project/` are separate from the
-newer intelligence contracts. There is no dedicated ICM HTTP endpoint or
-implemented task-scope/conflict API at this base. An HTTP endpoint does not imply
-an installed Hermes tool or automatic context injection.
+### Current language evidence
 
-### Important limitations
-
-- **Context coverage:** selection is bounded, not exhaustive. Test candidates
-  are heuristic, not a coverage guarantee. Direct references are not the planned
-  Impact v2 result.
-- **Platform:** Task Context Pack source retrieval requires Linux/WSL
-  `/proc/self/fd` descriptor verification. Unavailable verification fails closed
-  to partial metadata-only evidence rather than using weaker path checks.
-- **Freshness:** packs describe bounded working-tree observations, with explicit
-  dirty/unborn/non-Git/unavailable states and observed-change rejection. They
-  are not immutable, whole-repository snapshots. Their source digest does not
-  cover every file in the checkout.
-- **Trust:** contextual prose is untrusted text. Structured ICM constraints are
-  declared-only; no effective WRITE authorization or runtime enforcement exists.
-- **Identity:** reads do not migrate ID-less registry entries. Moves require
-  explicit locator maintenance; local checkout hashes are not stable project IDs.
-- **Language support:** legacy project-type dispatch supports .NET and initial
-  TypeScript; Node.js/Python detection is not a dedicated analyzer. Bounded
-  context extraction can use JavaScript through the TypeScript analyzer. Do not
-  infer complete mixed-language or semantic coverage; provider behavior is part
-  of the Phase 2.5 refresh.
-- **Integration:** low-level `project_map_*` plugin setup is documented, not
-  bundled proof of installation in a Hermes profile. High-level tools, an MCP
-  adapter and the automatic task guard are not verified service deliverables.
-- **Security:** the local server binds to all interfaces by default. Safe source
-  retrieval is not an agent sandbox or a hardened public deployment guarantee.
-
-For exact bounds and errors, use the
-[Context Pack contract](project-intelligence/04_ICM_AND_CONTEXT_PACK.md),
-[identity contract](project-intelligence/18_PROJECT_IDENTITY_AND_ISOLATION.md)
-and [service reference](SERVICE_REFERENCE.md).
-
-## In progress: Phase 2.5
-
-The pinned history includes:
-
-| Commit | Verified committed work |
+| Language | Default evidence at this checkpoint |
 |---|---|
-| `c448910` | Analyzer-provider capability contract and snapshot-language detection, with tests. |
-| `6b9c53c` | Native analyzers adapted to normalized provider evidence, with tests. |
+| C# / .NET | Native structural analysis. |
+| TypeScript | Native structural analysis. |
+| JavaScript / JSX | Native structural analysis through the TypeScript provider. |
+| Python / Go / Rust / Java | Language observation only; no semantic analysis by default. |
+| Bash / PowerShell | Bounded text observation, without execution; no semantic analysis by default. |
 
-These are partial milestones only. No claim is made here that the final
-provider integration, external adapters or broader language coverage is complete.
-Implementation-specific Phase 2.5 documents and active plans are not changed by
-this public documentation work.
+The levels `unsupported`, `structural` and `semantic` are per-operation capability
+declarations. Native precise definitions, implementations and compiler diagnostics
+are unsupported. Observed languages, protocol fixtures and provider extensibility
+are not compiler-level semantic truth or proof of installed LSP support.
+See [the full matrix](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md#languagecapability-matrix).
 
-Earlier stable checkpoints explain why Task Context Packs are listed as present:
+### Limits that still apply
 
-- `34b4e24`: read-only task-context API.
-- `93e2dd3`: task-context isolation and bounded-output tests.
-- `5faa91e`: bounded Task Context Pack contract documentation.
-- `8b4fb08`: Task Context Pack checkpoint documentation.
+- Source collection requires Linux/WSL `/proc/self/fd` verification; unavailable
+  verification fails closed to partial metadata-only evidence.
+- Packs are bounded working-tree observations with change checks, not atomic
+  whole-repository snapshots. Test candidates are heuristic, not coverage proof.
+- Partial language/operation coverage remains explicit. A single provider is
+  selected; graph union is not automatic. Missing analysis is not an empty result
+  proving there are no relevant symbols or references.
+- External JSON is untrusted evidence bound to an authorized snapshot and
+  provider request. The adapter executes no tools and is not a sandbox for
+  arbitrary plugins. Existing ICM, identity/revision and cache ownership remain.
+- Workspace scope matching and declared ICM constraints do not grant or enforce
+  WRITE permissions. Legacy ID-less records need explicit enrollment before
+  ID-required operations; moves require explicit locator maintenance.
+- The server binds to all interfaces by default. Local retrieval boundaries
+  are not a hardened public-deployment or agent-sandbox guarantee.
 
-These are Git evidence anchors, not substitutes for testing the revision a
-reader actually checks out.
+## Planned next layers
 
-## Planned, not implemented here
+Following the [active implementation plan](../.hermes/plans/2026-09-17_002050-project-intelligence-service-active.md):
 
-| Capability | Intended addition / owner boundary |
-|---|---|
-| Impact v2 | Task/file-oriented impact and affected-test evidence for coordination. Existing graph impact is only the earlier foundation. |
-| Effective Task Scope | Revision-bound WRITE / RESERVED / WATCH / IMPACT classifications beyond declared workspace matching. |
-| Conflict Intelligence | Compare concurrent task scopes and explain semantic overlap; Hermes retains scheduling. |
-| Hermes guard integration | Automatic context preparation, mutation checks and outcome handling on the Hermes side. |
-| Broader identity integration | Board/task/run bindings and project-scoped historical namespaces, beyond basic project/worktree identity. |
-| Project telemetry/history | Ingest Hermes-owned runtime records and attach project/revision/context/scope evidence. |
-| Read-only Project Expert | Evidence-backed retrieval over current code, ICM, active ADRs and validated history. |
-| Knowledge admission and drift | Validate observations, track supersession and keep proposals separate from implemented facts. |
-| Learning and evaluation | Evaluate quality/context/coordination outcomes; export validated datasets only under suitable privacy controls. |
+**Impact v2 (next, not started)** → Effective Task Scope → Conflict Engine →
+Hermes Guard integration → Telemetry / validated project history → Project Expert
+→ Learning / evaluation.
 
-Model/provider execution, profiles, Kanban, workers, sessions, retries and
-worktree lifecycle belong to Hermes. They are not a backlog for implementation
-inside this service. Project-specific model training/adapters are deferred;
-volatile code should remain retrieval-based.
+Existing context selection is not Impact v2; workspace matching is not effective
+scope or conflict analysis. Hermes retains profiles, agents, models/providers,
+Kanban/task lifecycle, workers, sessions, worktrees and retries. These are not
+features to reimplement inside this service. Project-specific training/adapters
+remain deferred; current code facts should be retrieved.
 
-## Refresh after Phase 2.5
+## Proposed: optional external semantic integration
 
-After the phase is merged and verified on the intended base:
+**Serena/LSP runtime integration is PROPOSED ONLY**, requiring separate approval.
+Step 2.5 did not install Serena, start language servers or implement semantic
+analysis for Python/Go/Rust/Java.
 
-1. Record the new branch/commit and inspect its source, routes and tests.
-2. Re-run `npm test`, `npm run check` and `git diff --check`; record actual results,
-   including platform-dependent skips. Do not reuse a historical test count.
-3. Refresh this snapshot and the short status in [README](../README.md).
-4. Check provider/language/coverage statements in this document and
-   [Service reference](SERVICE_REFERENCE.md) against the actual implementation.
-5. Reconcile any affected Context Pack descriptions in the public concepts and
-   architecture overview with the canonical technical contract. Have the phase
-   owner update implementation-specific contracts and checkpoints as needed.
+The first candidate is optional local Python with pinned Serena/Pyright,
+read-only exported snapshots, no live repository or `.git`/HOME/credentials/
+container socket, no network egress, bounded resources and a semantic read-only
+tool allowlist. See the [public proposal boundary](ARCHITECTURE.md#proposed-serena--lsp-integration)
+and [exact technical proposal](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md#exact-serenalsp-integration-proposal--approval-required).
+Real-server conformance is an approval gate, not something the data-only fixtures
+have already demonstrated.
 
-The active implementation plan remains the implementation authority. The
-[technical roadmap](project-intelligence/09_IMPLEMENTATION_ROADMAP.md) expresses
-broader sequencing; historical phase numbering is not a single release series.
+## Keeping this summary current
+
+For a later checkpoint, inspect its source/routes and active plan, rerun the
+existing checks and update this revision and the README together. Preserve the
+distinction between completed contracts, unstarted layers and optional proposals.
+The earlier post-Step-2.5 refresh is now reflected here; no pending completion
+claim remains for that step.
+
+Historical records in [current-state checkpoints](project-intelligence/01_CURRENT_STATE.md)
+and phase-design documents retain their original context. Consult their explicit
+checkpoint and the current active plan rather than equating every older phase
+number or test count with the current implementation.

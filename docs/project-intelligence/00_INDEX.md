@@ -10,8 +10,9 @@ For the public story, begin with [Vision](../VISION.md) and [Concepts](../CONCEP
 
 **A target schema or API example is not a claim of implementation.** Use the
 commit-pinned [current status](../CURRENT_STATUS.md) for the public capability
-snapshot, then check the source and relevant contract. Phase 2.5 remains in
-progress at that snapshot; refresh it after the phase is merged.
+snapshot, then check the source and relevant contract. At `be0cb2c`, Steps 1,
+2 and 2.5 are complete. Step 3 — Impact v2 is next and not started. Optional
+Serena/Pyright execution remains a proposal, not an installed integration.
 
 For implementation, follow [AGENTS.md](../../AGENTS.md): read its active
 implementation plan first, then current state, decisions, target architecture
@@ -29,8 +30,8 @@ are an audit trail, not required context for normal implementation work.
 2. [Architecture decisions](02_DECISIONS_FROM_CHATS.md) — responsibility boundaries
    and accepted design principles.
 3. [Target architecture](03_TARGET_ARCHITECTURE.md) — the intended system.
-4. [ICM and Context Pack](04_ICM_AND_CONTEXT_PACK.md) — implemented Step 2 contract
-   followed by longer-term designs.
+4. [ICM and Context Pack](04_ICM_AND_CONTEXT_PACK.md) — implemented Step 2 contract,
+   additive Step 2.5 provider metadata and longer-term designs.
 5. [Hermes integration](05_HERMES_INTEGRATION.md) — client/guard boundary.
 6. [Scope, impact and conflicts](06_SCOPE_IMPACT_CONFLICTS.md) — planned coordination
    semantics: WRITE / RESERVED / WATCH / IMPACT.
@@ -56,6 +57,9 @@ are an audit trail, not required context for normal implementation work.
 
 - [Project identity and isolation](18_PROJECT_IDENTITY_AND_ISOLATION.md) — implemented
   identity/revision foundation plus wider planned bindings.
+- [Analyzer Provider Layer](19_ANALYZER_PROVIDER_LAYER.md) — completed Step 2.5
+  contract, native structural capabilities, external evidence validation and the
+  separately proposed Serena/Pyright execution boundary.
 - [Hermes telemetry ingestion](19_HERMES_TELEMETRY_INGESTION.md).
 - [API / MCP contract design](20_API_MCP_CONTRACTS.md) — target tool interfaces;
   see [current HTTP endpoints](../CURRENT_STATUS.md#current-intelligence-endpoints).
@@ -81,6 +85,8 @@ are an audit trail, not required context for normal implementation work.
 - **Implemented/current** requires source and revision evidence, with limitations.
 - **In progress** means partial work, not a completed capability.
 - **Planned** describes the target, not an available endpoint or integration.
+- **Proposed** requires an explicit approval decision; it does not mean installed
+  or in progress.
 - **Deferred/rejected** distinguishes later possibilities from intentionally
   excluded architecture.
 - Older **VERIFIED/CURRENT** labels apply to the checkpoint named in that document,
@@ -103,3 +109,4 @@ Retained for architecture review and traceability, not the public starting point
 
 Historical filenames and review documents remain intact. Architecture decisions
 are presented by topic in the public navigation without erasing their provenance.
+These records are not represented here as independent external expert audits.

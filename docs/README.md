@@ -12,10 +12,10 @@
 | What can I use now? | [Current status](CURRENT_STATUS.md) |
 | How do I run it or call the API? | [Service reference](SERVICE_REFERENCE.md) |
 
-The public overview separates implemented behavior from planned coordination
-capabilities. **Phase 2.5 is in progress at the pinned status snapshot.** Refresh
-that snapshot after the phase is merged rather than interpreting ongoing work
-as complete.
+The public overview is pinned to **`be0cb2c`**: Project Identity / Revision,
+Task Context Pack and Analyzer Provider Layer are complete. Impact v2 is next
+and not started; scope/conflicts, runtime guard integration and project knowledge
+remain planned. Serena/Pyright execution is proposed only.
 
 ## Setup and service guides
 
@@ -48,6 +48,8 @@ Useful entry points:
 - [Target architecture](project-intelligence/03_TARGET_ARCHITECTURE.md).
 - [Implemented Context Pack contract](project-intelligence/04_ICM_AND_CONTEXT_PACK.md).
 - [Project identity and revision contract](project-intelligence/18_PROJECT_IDENTITY_AND_ISOLATION.md).
+- [Analyzer Provider Layer](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md) —
+  implemented normalization and external data validation; proposed Serena/LSP execution.
 - [Scope, impact and conflicts](project-intelligence/06_SCOPE_IMPACT_CONFLICTS.md).
 - [State ownership and data model](project-intelligence/30_STATE_AND_DATA_MODEL.md).
 - [Project Expert data pipeline](project-intelligence/26_PROJECT_EXPERT_DATA_PIPELINE.md).
@@ -67,12 +69,12 @@ All diagrams are Mermaid text; no binary image assets are required.
 |---|---|
 | Codex → Hermes → Profiles → ICM → Project Intelligence | [Vision](VISION.md#how-the-problem-emerged) |
 | User → Hermes → Project Intelligence → repository/knowledge | [Architecture](ARCHITECTURE.md#system-boundary) |
-| Task → Context → Impact → Scope → Conflict Check → Agent | [Task flow](ARCHITECTURE.md#task-flow) |
+| Current context composition, with a separate planned impact/scope/conflict path | [Task flow](ARCHITECTURE.md#task-flow) |
 | WRITE / RESERVED / WATCH / IMPACT across parallel tasks | [Concepts](CONCEPTS.md#write--reserved--watch--impact) |
 | Future read-only Project Expert and its evidence sources | [Project Expert](ARCHITECTURE.md#future-project-expert) |
 
-The README also includes a compact system-boundary diagram. Keep planned labels
-and captions when reusing diagrams for GitHub or later image generation.
+The README also includes a compact system-boundary diagram. Keep implemented,
+planned and proposed labels, groups and line styles when reusing diagrams.
 
 ## Historical material and naming
 
@@ -88,3 +90,7 @@ scope, not a finalized replacement brand. Older technical material also uses
 “Project Map” and “Hermes Agent OS”; runtime responsibilities remain with Hermes,
 not a new orchestrator in this repository. No identifier or product rename is
 part of this documentation update.
+
+Numbered technical filenames are preserved. Two documents use the `19_` prefix:
+the implemented analyzer-provider contract and the planned Hermes telemetry
+design. Refer to their full filenames rather than renumbering or conflating them.

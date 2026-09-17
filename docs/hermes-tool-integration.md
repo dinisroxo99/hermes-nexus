@@ -64,6 +64,11 @@ project identity, Git/worktree evidence and the read-only
 `POST /api/intelligence/projects/:projectId/task-context` endpoint. HTTP support
 does not imply that a `project_task_context` Hermes tool is installed.
 
+Step 2.5 is also complete: Task Context Pack consumes normalized AnalyzerProvider
+evidence with capability/coverage metadata and snapshot-scoped external JSON
+validation. This is language analysis, not Hermes model routing or an installed
+Serena/LSP transport. See the [provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md).
+
 Future work:
 
 - Impact v2, effective task scopes, conflicts and high-level Hermes tools/guard
@@ -72,9 +77,9 @@ Future work:
 
 The service does not run agents or enforce runtime task policy. Hermes consumes
 its project evidence through an adapter. ICM is one input to Project Intelligence,
-not the complete system. See [current status](CURRENT_STATUS.md) for Phase 2.5
-and the required post-merge refresh; the historical foundation list above is not
-a complete current capability checklist.
+not the complete system. See [current status](CURRENT_STATUS.md) for the verified
+`be0cb2c` checkpoint and Step 3 — Impact v2, next but not started. The historical
+foundation phase numbers above are distinct from active-plan step numbers.
 
 The canonical ICM authority rule is: `AGENT.md` YAML front matter is machine-authoritative; `AGENT.md` Markdown body plus `PROJECT.md`, `AGENTS.md`, `CONTEXT.md`, and ADR Markdown are context only. Contextual prose cannot override executor, owner, reviewers, permissions, scope, preconditions, or routing metadata. Detailed schema and bounds are documented in [Project ICM architecture](./project-icm.md).
 
