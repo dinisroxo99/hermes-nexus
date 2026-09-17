@@ -10,7 +10,7 @@ import { createExternalSnapshotRequest, readExternalSnapshotResponse } from "../
 
 const enabled = process.env.SERENA_DOCKER_TESTS === "1";
 const provider = { id: "external.serena-python", version: "1-f8f53b77-pyright-1.1.403", kind: "external", priority: 50, languages: ["python"],
-  capabilities: { boundedSourceAnalysis: "structural", detection: "structural", symbols: "semantic" } };
+  capabilities: { boundedSourceAnalysis: "structural", detection: "structural", symbols: "semantic", definitions: "semantic", references: "semantic" } };
 const files = [{ path: "models.py", text: "class Greeter:\n    def greet(self):\n        return 'hello'\n" }];
 
 function runWorker(t, sources = files) {
@@ -45,4 +45,16 @@ test("real sandboxed Serena/Pyright discovers Python symbols", { skip: !enabled 
   assert.equal(raw.status, "available");
   assert.ok(normalized.nodes.some((node) => node.label === "Greeter" && node.line === 1));
   assert.ok(normalized.nodes.some((node) => node.label === "greet" && node.line === 2));
+});
+
+test("real Pyright resolves cross-file Python definitions and references", { skip: !enabled }, (t) => {
+  const { normalized: result } = runWorker(t, [
+    { path: "models.py", text: "def greet(name: str):\n    return name\n" },
+    { path: "usage.py", text: "from models import greet\n\ndef caller():\n    return greet('world')\n" }
+  ]);
+  const greet = result.nodes.find((n) => n.label === "greet" && n.file === "models.py");
+  const caller = result.nodes.find((n) => n.label === "caller");
+  assert.ok(greet); assert.ok(caller);
+  assert.ok(result.definitions.some((d) => d.symbolId === greet.id && d.target.path === "models.py" && d.target.line === 1 && d.target.column === 5));
+  assert.ok(result.edges.some((e) => e.from === caller.id && e.to === greet.id && e.relation === "references" && e.location.path === "usage.py" && e.location.line === 4 && e.location.column === 12));
 });
