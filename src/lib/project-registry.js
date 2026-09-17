@@ -21,16 +21,7 @@ export function normalizeProjectEntryForRuntime(entry, options = {}) {
     return null;
   }
 
-  if (Object.hasOwn(entry, "projectId") && (
-    typeof entry.projectId !== "string"
-    || entry.projectId.length > 128
-    || !/^[A-Za-z0-9]/.test(entry.projectId)
-    || /[^A-Za-z0-9_-]/.test(entry.projectId)
-  )) {
-    const error = new Error("Invalid projectId: expected 1-128 ASCII letters, digits, underscores or hyphens, starting with a letter or digit.");
-    error.code = "invalid_project_identity";
-    throw error;
-  }
+  if (Object.hasOwn(entry, "projectId")) validateProjectId(entry.projectId);
 
   const name = typeof entry.name === "string" ? entry.name.trim() : "";
   const relativePathResult = validateRelativeProjectPath(entry.relativePath);
@@ -51,6 +42,7 @@ export function normalizeProjectEntryForRuntime(entry, options = {}) {
 }
 
 export function mergeProjectRegistries(manualProjects = [], discoveredProjects = []) {
+  const knownIds = validateProjectIdentities([...manualProjects, ...discoveredProjects]);
   const projects = [];
   const warnings = [];
   const manualNames = new Set();
@@ -65,7 +57,10 @@ export function mergeProjectRegistries(manualProjects = [], discoveredProjects =
     }
 
     projects.push(project);
-    manualNames.add(project.name);
+    if (!project.projectId && knownIds.has(projectPathKey(project))) {
+      project.projectId = knownIds.get(projectPathKey(project));
+    }
+    manualNames.add(projectNameKey(project));
     manualPaths.add(projectPathKey(project));
   }
 
@@ -80,17 +75,17 @@ export function mergeProjectRegistries(manualProjects = [], discoveredProjects =
       continue;
     }
 
-    if (manualNames.has(project.name) || manualPaths.has(projectPathKey(project))) {
+    if (manualNames.has(projectNameKey(project)) || manualPaths.has(projectPathKey(project))) {
       continue;
     }
 
-    if (discoveredNames.has(project.name) || discoveredPaths.has(projectPathKey(project))) {
+    if (discoveredNames.has(projectNameKey(project)) || discoveredPaths.has(projectPathKey(project))) {
       warnings.push(`Duplicate discovered project registry entry skipped: ${project.name}`);
       continue;
     }
 
     projects.push(project);
-    discoveredNames.add(project.name);
+    discoveredNames.add(projectNameKey(project));
     discoveredPaths.add(projectPathKey(project));
   }
 
@@ -111,6 +106,7 @@ export function upsertDiscoveredProjects({
   requestedProjects = [],
   now = new Date().toISOString()
 } = {}) {
+  const effective = mergeProjectRegistries(manualProjects, discoveredProjects).projects;
   const manualKeys = new Set(manualProjects
     .map((entry) => normalizeProjectEntryForRuntime(entry, { registrySource: "manual" }))
     .filter(Boolean)
@@ -164,9 +160,13 @@ export function upsertDiscoveredProjects({
       relativePath: candidate.relativePath
     };
 
+    const alias = effective.find((project) => projectNameKey(project) === projectNameKey(candidate));
+    if (alias?.projectId && projectPathKey(alias) !== key) throw identityConflict();
+
     if (manualKeys.has(key) || manualNames.has(projectNameKey(candidate))) {
       skippedCount += 1;
-      results.push({ ...identity, status: "already_registered" });
+      const registered = effective.find((project) => projectPathKey(project) === key);
+      results.push({ ...identity, ...(registered?.projectId ? { projectId: registered.projectId } : {}), status: "already_registered" });
       continue;
     }
 
@@ -217,6 +217,7 @@ export function writeDiscoveredProjectRegistryAtomic(filePath, projects) {
   }
 
   const persistedProjects = projects.map(toPersistedDiscoveredEntry);
+  validateProjectIdentities(persistedProjects);
   const contents = `${JSON.stringify(persistedProjects, null, 2)}\n`;
   const dir = path.dirname(filePath);
   const tempPath = path.join(dir, `.discovered-projects.json.tmp-${process.pid}-${randomUUID()}`);
@@ -271,11 +272,45 @@ function readRegistryArray(filePath) {
 }
 
 function projectPathKey(project) {
-  return `${project.rootId}:${project.relativePath}`;
+  return JSON.stringify([project.rootId, project.relativePath]);
 }
 
 function projectNameKey(project) {
-  return `${project.rootId}:${project.name}`;
+  return JSON.stringify([project.rootId, project.name]);
+}
+
+export function validateProjectId(projectId) {
+  if (typeof projectId !== "string" || projectId.length > 128
+    || !/^[A-Za-z0-9]/.test(projectId) || /[^A-Za-z0-9_-]/.test(projectId)) {
+    const error = new Error("Invalid projectId: expected 1-128 ASCII letters, digits, underscores or hyphens, starting with a letter or digit.");
+    error.code = "invalid_project_identity";
+    throw error;
+  }
+}
+
+function identityConflict() {
+  const error = new Error("Conflicting project identity; update the existing registration explicitly.");
+  error.code = "project_identity_conflict";
+  return error;
+}
+
+function validateProjectIdentities(entries) {
+  const byId = new Map();
+  const byPath = new Map();
+  const byName = new Map();
+  for (const entry of entries) {
+    const project = normalizeProjectEntryForRuntime(entry);
+    if (!project?.projectId) continue;
+    const key = projectPathKey(project);
+    const name = projectNameKey(project);
+    if ((byId.has(project.projectId) && byId.get(project.projectId) !== key)
+      || (byPath.has(key) && byPath.get(key) !== project.projectId)
+      || (byName.has(name) && byName.get(name) !== project.projectId)) throw identityConflict();
+    byId.set(project.projectId, key);
+    byPath.set(key, project.projectId);
+    byName.set(name, project.projectId);
+  }
+  return byPath;
 }
 
 function toPersistedDiscoveredEntry(entry) {

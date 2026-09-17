@@ -313,6 +313,33 @@ test("mergeProjectRegistries includes non-conflicting discovered projects", () =
   );
 });
 
+test("registry merge keeps equal names in different roots and preserves same-path persisted identity", () => {
+  const manual = { name: "api", rootId: "a", relativePath: "api" };
+  const discovered = { name: "api", rootId: "b", relativePath: "api", projectId: "PrJ_B" };
+  assert.equal(mergeProjectRegistries([manual], [discovered]).projects.length, 2);
+  const overlay = mergeProjectRegistries([manual], [{ ...manual, projectId: "PrJ_A" }]);
+  assert.equal(overlay.projects[0].projectId, "PrJ_A");
+  assert.equal(Object.hasOwn(manual, "projectId"), false);
+});
+
+test("registry rejects conflicting persisted identities instead of selecting a winner", () => {
+  const a = { name: "api", rootId: "a", relativePath: "api", projectId: "PrJ_A" };
+  for (const other of [
+    { ...a, projectId: "PrJ_B" },
+    { ...a, relativePath: "other" },
+    { ...a, rootId: "b" }
+  ]) {
+    assert.throws(() => mergeProjectRegistries([a], [other]), { code: "project_identity_conflict" });
+    assert.throws(() => mergeProjectRegistries([a, other], []), { code: "project_identity_conflict" });
+  }
+});
+
+test("discovered enrollment refuses an implicit move of an identified project", () => {
+  const old = { name: "api", relativePath: "old", projectId: "PrJ_A" };
+  const candidate = { name: "api", relativePath: "new" };
+  assert.throws(() => upsertDiscoveredProjects({ discoveredProjects: [old], candidates: [candidate], requestedProjects: [candidate] }), { code: "project_identity_conflict" });
+});
+
 test("mergeProjectRegistries returns deterministic manual-first ordering", () => {
   const result = mergeProjectRegistries(
     [

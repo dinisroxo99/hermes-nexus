@@ -10,7 +10,8 @@ import { getConfiguredProjectRoots } from "./project-roots.js";
 import {
   mergeProjectRegistries,
   readDiscoveredProjectRegistry,
-  readManualProjectRegistry
+  readManualProjectRegistry,
+  validateProjectId
 } from "./project-registry.js";
 
 const PROJECT_CONFIG = resolveProjectConfig();
@@ -20,25 +21,20 @@ const PROJECTS_ROOT_CONTAINER = PROJECT_CONFIG.legacyProjectsRootContainer;
 const PROJECTS_FILE = path.join(DATA_DIR, "projects.json");
 const DISCOVERED_PROJECTS_FILE = path.join(DATA_DIR, "discovered-projects.json");
 
-function readProjectsFile() {
-  const manualProjects = readManualProjectRegistry(PROJECTS_FILE);
-  const discoveredProjects = readDiscoveredProjectRegistry(DISCOVERED_PROJECTS_FILE);
+function readProjectsFile(options = {}) {
+  const manualProjects = readManualProjectRegistry(options.manualProjectsFile || PROJECTS_FILE);
+  const discoveredProjects = readDiscoveredProjectRegistry(options.discoveredProjectsFile || DISCOVERED_PROJECTS_FILE);
   const { projects } = mergeProjectRegistries(manualProjects, discoveredProjects);
 
-  return projects.map(toLegacyProjectView);
+  return projects;
 }
 
 export function getProjectAbsolutePath(project) {
   return path.join(PROJECTS_ROOT_CONTAINER, project.relativePath || "");
 }
 
-export function getProjectByName(name) {
-  const projects = readProjectsFile();
-  const project = projects.find((item) => item.name === name);
-
-  if (!project) {
-    throw new Error(`Projeto não encontrado: ${name}`);
-  }
+export function getProjectByName(name, options = {}) {
+  const project = selectProject("name", name, options);
 
   const absolutePath = getProjectAbsolutePath(project);
 
@@ -47,21 +43,32 @@ export function getProjectByName(name) {
   }
 
   return {
-    ...project,
+    ...toLegacyProjectView(project),
     absolutePath
   };
 }
 
 export function getProjectByNameForIntelligence(name, options = {}) {
-  const manualProjects = readManualProjectRegistry(options.manualProjectsFile || PROJECTS_FILE);
-  const discoveredProjects = readDiscoveredProjectRegistry(options.discoveredProjectsFile || DISCOVERED_PROJECTS_FILE);
-  const { projects } = mergeProjectRegistries(manualProjects, discoveredProjects);
-  const project = projects.find((item) => item.name === name);
+  return resolveIntelligenceProject(selectProject("name", name, options), options);
+}
 
-  if (!project) {
-    throw new Error(`Projeto não encontrado: ${name}`);
+export function getProjectByIdForIntelligence(projectId, options = {}) {
+  validateProjectId(projectId);
+  return resolveIntelligenceProject(selectProject("projectId", projectId, options), options);
+}
+
+function selectProject(field, value, options) {
+  const matches = readProjectsFile(options).filter((project) => project[field] === value
+    && (options.rootId === undefined || project.rootId === options.rootId));
+  if (matches.length !== 1) {
+    const error = new Error(matches.length ? "Ambiguous project lookup." : `Projeto não encontrado: ${value}`);
+    error.code = matches.length ? "ambiguous_project" : "project_not_found";
+    throw error;
   }
+  return matches[0];
+}
 
+function resolveIntelligenceProject(project, options) {
   const absolutePath = getProjectAbsolutePathForIntelligence(project, options.roots);
 
   if (!fs.existsSync(absolutePath)) {
@@ -76,7 +83,7 @@ export function getProjectByNameForIntelligence(name, options = {}) {
 
 export function listProjects() {
   return readProjectsFile().map((project) => ({
-    ...project,
+    ...toLegacyProjectView(project),
     absolutePath: getProjectAbsolutePath(project)
   }));
 }
