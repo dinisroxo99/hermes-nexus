@@ -42,6 +42,46 @@ test("context analyzer graph limits are explicit and preserve local references",
   assert.equal(limited.limited, true);
 });
 
+test("snapshot TypeScript node cutoff is canonical before truncation", () => {
+  const project = { name: "snapshot-order" };
+  const first = analyzerService.analyzeContextSources(project, [
+    { path: "one.ts", text: "export class Zebra {}\nexport class Alpha {}\n" }
+  ], { nodeLimit: 1 });
+  const second = analyzerService.analyzeContextSources(project, [
+    { path: "one.ts", text: "export class Alpha {}\nexport class Zebra {}\n" }
+  ], { nodeLimit: 1 });
+  assert.deepEqual(first.nodes.map((node) => node.label), ["Alpha"]);
+  assert.deepEqual(second.nodes.map((node) => node.label), ["Alpha"]);
+  assert.deepEqual(first.nodes, second.nodes);
+  assert.equal(first.limited, true);
+});
+
+test("snapshot cutoff uses ordinal tie-breaks independent of localeCompare", (t) => {
+  const project = { name: "dotnet-order" };
+  const files = [
+    { path: "App.csproj", text: "<Project />" },
+    { path: "Services.cs", text: "namespace Demo; public class ZebraService {} public class AlphaService {}" }
+  ];
+  const ordinary = analyzerService.analyzeContextSources(project, files, { nodeLimit: 1 });
+  const original = String.prototype.localeCompare;
+  t.after(() => { String.prototype.localeCompare = original; });
+  String.prototype.localeCompare = function reverseLocaleCompare(other) { return -original.call(this, other); };
+  const reversedLocale = analyzerService.analyzeContextSources(project, files, { nodeLimit: 1 });
+  assert.deepEqual(ordinary.nodes, reversedLocale.nodes);
+  assert.deepEqual(ordinary.nodes.map((node) => node.label), ["AlphaService"]);
+});
+
+test("snapshot exact limit is complete while actual omission is partial", () => {
+  const project = { name: "limit-state" };
+  const files = [{ path: "one.ts", text: "export class Alpha {}\nexport class Zebra {}\n" }];
+  const exact = analyzerService.analyzeContextSources(project, files, { nodeLimit: 2 });
+  assert.equal(exact.status, "available");
+  assert.equal(exact.limited, false);
+  const omitted = analyzerService.analyzeContextSources(project, files, { nodeLimit: 1 });
+  assert.equal(omitted.status, "partial");
+  assert.equal(omitted.limited, true);
+});
+
 function makeTsProject() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hermes-project-map-service-"));
   fs.writeFileSync(path.join(root, "package.json"), '{"type":"module"}\n');

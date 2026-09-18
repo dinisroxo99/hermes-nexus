@@ -10,7 +10,7 @@ function nativeEvidence(provider, snapshot, limits) {
   const analyzer = getAnalyzer(projectType);
   if (!analyzer) return null;
   const project = { name: "snapshot", absolutePath: "/__project_context__" };
-  const opts = { ...limits, sourceFiles: snapshot.files };
+  const opts = { nodeLimit: PROVIDER_LIMITS.nodes, edgeLimit: PROVIDER_LIMITS.edges, sourceFiles: snapshot.files };
   const raw = analyzer.fullGraph ? analyzer.fullGraph(project, opts) : analyzer.analyze(project, opts);
   if (raw.success === false) return null;
   const files = new Set(snapshot.files.map((file) => file.path));
@@ -23,11 +23,15 @@ function nativeEvidence(provider, snapshot, limits) {
       const id = `symbol_${contextDigest(JSON.stringify([snapshot.projectId, provider.id, node.id]))}`;
       ids.set(node.id, id);
       return { id, label: node.label, file: node.file, kind: ["class", "function", "hook", "interface", "type", "record", "struct", "enum", "component"].includes(node.kind) ? node.kind : "symbol", line: null };
-    }).sort((a, b) => compare(a.file, b.file) || compare(a.id, b.id));
+    }).sort((a, b) => compare(a.file, b.file) || compare(a.label, b.label) || compare(a.kind, b.kind) || compare(a.id, b.id));
   const edges = (raw.edges || []).filter((edge) => ids.has(edge.from) && ids.has(edge.to)).map((edge) => ({ from: ids.get(edge.from), to: ids.get(edge.to), relation: ["uses", "imports", "references"].includes(edge.relation) ? edge.relation : "references" }))
     .sort((a, b) => compare(JSON.stringify(a), JSON.stringify(b)));
-  return { projectType, nodes, edges, definitions: [], implementations: [], diagnostics: [],
-    limited: Boolean(raw.limited || raw.metadata?.totalSymbols > limits.nodeLimit || raw.metadata?.totalEdges > limits.edgeLimit || nodes.length < (raw.nodes || []).length) };
+  const selected = nodes.slice(0, limits.nodeLimit);
+  const retained = new Set(selected.map((node) => node.id));
+  const selectedEdges = edges.filter((edge) => retained.has(edge.from) && retained.has(edge.to)).slice(0, limits.edgeLimit);
+  return { projectType, nodes: selected, edges: selectedEdges, definitions: [], implementations: [], diagnostics: [],
+    limited: Boolean(raw.limited || raw.metadata?.totalSymbols > limits.nodeLimit || raw.metadata?.totalEdges > limits.edgeLimit
+      || selected.length < nodes.length || selectedEdges.length < edges.length || nodes.length < (raw.nodes || []).length) };
 }
 
 export function analyzeProviderSnapshot(project, sourceFiles, options = {}) {
