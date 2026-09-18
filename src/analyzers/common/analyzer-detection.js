@@ -122,5 +122,5 @@ export function getProjectTypeLabel(type) {
  * @returns {boolean}
  */
 export function isSupportedProjectType(type) {
-  return type === 'dotnet' || type === 'typescript';
+  return type === 'dotnet' || type === 'typescript' || type === 'nodejs';
 }

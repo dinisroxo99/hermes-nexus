@@ -6,7 +6,7 @@ import {
   getProjectTypeLabel,
   isSupportedProjectType
 } from "../analyzers/common/analyzer-detection.js";
-import { listAnalyzerCapabilities } from "../analyzers/common/analyzer-registry.js";
+import { getAnalyzer, listAnalyzerCapabilities } from "../analyzers/common/analyzer-registry.js";
 import { getAnalysisCacheStats as getAnalysisCacheStatsDefault } from "./analysis-cache.js";
 import { buildProjectIcmIndex } from "./icm-index.js";
 import { analyzeProjectStructure } from "./project-structure.js";
@@ -73,13 +73,14 @@ export function buildProjectOverview(project, options = {}) {
   };
 
   const projectType = detectProjectType(project.absolutePath);
+  const analyzerType = getAnalyzer(projectType)?.projectType || projectType;
   const identity = getProjectCacheIdentity(project, {
     now: typeof options.now === "function" ? options.now : options.now ? () => options.now : undefined
   });
   const supported = isSupportedProjectType(projectType);
   const packageInfo = readPackageJson(project.absolutePath, warnings);
   const structure = readProjectStructure(project, warnings);
-  const analysis = readAnalysisState(project, projectType, options.getAnalysisCacheStats || getAnalysisCacheStatsDefault, identity);
+  const analysis = readAnalysisState(project, analyzerType, options.getAnalysisCacheStats || getAnalysisCacheStatsDefault, identity);
   const sourceFileCount = inferSourceFileCount(project, structure);
   const icmIndex = buildProjectIcmIndex(project, limits.icm);
 
@@ -138,7 +139,7 @@ export function buildProjectOverview(project, options = {}) {
       lastAnalyzedAt: null
     },
     icm: summarizeIcmIndex(icmIndex),
-    analyzers: listProjectAnalyzers(projectType),
+    analyzers: listProjectAnalyzers(analyzerType),
     warnings: warnings.slice(0, limits.warnings)
   };
 }

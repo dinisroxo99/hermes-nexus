@@ -99,3 +99,11 @@ test("INTELLIGENCE_REGISTRY_WRITES_ENABLED defaults off and accepts explicit tru
     envFileValues: { INTELLIGENCE_REGISTRY_WRITES_ENABLED: "true" }
   }).intelligenceRegistryWritesEnabled, false);
 });
+
+test("Serena image opt-in is trusted config with explicit environment precedence", () => {
+  assert.equal(resolveProjectConfig({ env: {}, envFileValues: {} }).serenaPythonImage, null);
+  const image = `sha256:${"a".repeat(64)}`;
+  assert.equal(resolveProjectConfig({ env: { SERENA_PYTHON_IMAGE: image }, envFileValues: { SERENA_PYTHON_IMAGE: "ignored" } }).serenaPythonImage, image);
+  assert.equal(resolveProjectConfig({ env: {}, envFileValues: { SERENA_PYTHON_IMAGE: image } }).serenaPythonImage, image);
+  assert.equal(resolveProjectConfig({ env: { SERENA_PYTHON_IMAGE: "" }, envFileValues: { SERENA_PYTHON_IMAGE: image } }).serenaPythonImage, null);
+});

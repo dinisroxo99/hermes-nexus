@@ -160,16 +160,17 @@ Default installed analysis at the documented checkpoint:
 | C# / .NET | Native structural symbols and references/import dependencies. |
 | TypeScript | Native structural symbols and references/import dependencies. |
 | JavaScript / JSX | Native structural analysis through the TypeScript provider. |
-| Python / Go / Rust / Java | Language observation only by default; semantic analysis is not implemented. |
+| Python | Observation by default; optional sandboxed Serena/Pyright supplies semantic symbols, definitions and references. |
+| Go / Rust / Java | Language observation only; semantic analysis is not implemented. |
 | Bash / PowerShell | Bounded text observation, without execution; semantic analysis is not implemented. |
 
 Native precise definitions, implementations and compiler diagnostics are
 `unsupported`. Extensibility and protocol fixtures are not proof of installed
-semantic support. Optional Serena/Pyright execution is a **proposal**, subject
-to a separately approved snapshot-only sandbox and real-server conformance tests.
+semantic support. Optional Serena/Python now has an implemented snapshot-only
+Docker boundary and real-server conformance tests; it remains disabled by default.
 
 See the [provider contract and language matrix](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md)
-and [proposed integration boundary](ARCHITECTURE.md#proposed-serena--lsp-integration).
+and [optional integration boundary](ARCHITECTURE.md#optional-serena--python-integration).
 
 ## Impact
 

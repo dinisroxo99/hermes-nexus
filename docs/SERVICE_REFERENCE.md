@@ -37,8 +37,8 @@ security configuration.
 |---|---|---|
 | `.NET` | Native structural | Preserves the previous path through a wrapper and fallback to `symbol-index.js`. Not compiler-grade semantics. |
 | `TypeScript` / `React` / `Next.js` | Native structural | Extracts files, exports, components, hooks, providers, interfaces/types, and basic internal imports. |
-| `Node.js` | Detected project type | No dedicated full project-type analyzer; bounded JavaScript/JSX snapshots use the native TypeScript provider. |
-| `Python` | Detected | Detected, but no dedicated analyzer yet. |
+| `Node.js` | Native structural via TypeScript/JavaScript analyzer | Remains classified as `nodejs`; graph/search/context/expand use the existing JavaScript-capable native analyzer. No separate Node.js provider exists. CommonJS `require()` and `.mjs`/`.cjs` coverage are limited. |
+| `Python` | Observation by default; optional Serena/Pyright semantic evidence | Optional pinned local image enables semantic symbols, definitions and references only. |
 
 For bounded Context Packs, the provider layer also observes Python/Go/Rust/Java
 languages and Bash/PowerShell text without supplying native semantic analysis.
@@ -177,8 +177,12 @@ not fields accepted from a task-context HTTP body. JSON evidence remains
 untrusted. Legacy UI/graph APIs and cache ownership
 remain unchanged. There is no new public provider-execution endpoint.
 
-Serena/Pyright runtime integration is **proposed only**, not installed or enabled
-by the provider layer. See the [exact contract and approval proposal](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md).
+Optional Serena/Python transport is now implemented separately from the data
+validator. Build the pinned image and set trusted `SERENA_PYTHON_IMAGE` to its
+immutable local image ID to enable it for task context. No runtime installation,
+network or live-repository mount is used. No new endpoint/body controls are added.
+See the [runtime guide](../docker/serena-python/README.md) and
+[exact provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md).
 
 ### Canonical Project ICM
 

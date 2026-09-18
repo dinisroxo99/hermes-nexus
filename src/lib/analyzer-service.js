@@ -18,8 +18,8 @@ export function analyzeContextSources(project, sourceFiles, options = {}) {
   return analyzeProviderSnapshot(project, sourceFiles, options);
 }
 
-export function getAnalyzerProviderCapabilities(externalProviders = []) {
-  return listAnalyzerProviders(externalProviders);
+export function getAnalyzerProviderCapabilities(externalProviders = [], options = {}) {
+  return listAnalyzerProviders(externalProviders, options);
 }
 
 export function analyzeProject(project, options = {}) {

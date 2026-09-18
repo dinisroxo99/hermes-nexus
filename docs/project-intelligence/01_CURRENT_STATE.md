@@ -15,8 +15,14 @@ repository again; the tracked active plan remains the implementation authority.
 Subsequent Step 2.5 adds the AnalyzerProvider abstraction, native adapters,
 deterministic capability/coverage/fallback reporting and a data-only external
 evidence boundary. Task Context Pack consumes the normalized output. Native
-structural analysis remains .NET and TypeScript/JavaScript; no Serena or language
-server was installed. See `19_ANALYZER_PROVIDER_LAYER.md` and the tracked active
+structural analysis remains .NET and TypeScript/JavaScript. Node.js projects
+remain classified as `nodejs` and resolve to the existing JavaScript-capable
+TypeScript analyzer; no separate Node.js analyzer/provider was introduced. The subsequent
+`feat/serena-external-provider` checkpoint adds opt-in, snapshot-only Docker
+Serena/Pyright semantic symbols, definitions and references for Python, verified
+with real containers; no runtime network or persistent project index. It does
+not change identity/revision semantics or start Step 3. See
+`19_ANALYZER_PROVIDER_LAYER.md` and the tracked active
 plan for the latest verification checkpoint. The Step 2 record below is retained
 as historical evidence; Impact v2 is still not started.
 

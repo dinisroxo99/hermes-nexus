@@ -17,6 +17,15 @@ clean commits. The snapshot analyzer facade bypasses both existing analysis and
 .NET symbol caches; no new persistent cache was justified or added. Existing
 Step 1 cache behavior for legacy analysis callers is unchanged.
 
+Optional Serena/Python also has no reusable project cache. Every request starts
+a fresh container over a newly exported bounded snapshot; SolidLSP's temporary
+project cache lives only in its bounded `/tmp` tmpfs. Source copies, responses
+and container state are disposed after the request. Dependency assets are pinned
+image contents, not a mutable project index, identity store or memory service.
+Observed-source hashes supplement existing revision/request binding; they do not
+replace Git or add whole-worktree dirty fingerprints. Container cleanup failure
+suppresses evidence and is reported explicitly. See `19_ANALYZER_PROVIDER_LAYER.md`.
+
 The composer compares Git evidence and reobserves bounded source digests before
 returning. Dirty/unborn/non-Git/unavailable states are working-tree observations,
 not clean committed snapshots. Digests cover only collected sources and are not

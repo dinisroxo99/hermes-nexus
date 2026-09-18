@@ -10,9 +10,9 @@ For the public story, begin with [Vision](../VISION.md) and [Concepts](../CONCEP
 
 **A target schema or API example is not a claim of implementation.** Use the
 commit-pinned [current status](../CURRENT_STATUS.md) for the public capability
-snapshot, then check the source and relevant contract. At `be0cb2c`, Steps 1,
-2 and 2.5 are complete. Step 3 — Impact v2 is next and not started. Optional
-Serena/Pyright execution remains a proposal, not an installed integration.
+snapshot, then check the source and relevant contract. Steps 1, 2 and 2.5 are
+complete. Optional snapshot-only Serena/Python semantic execution is implemented
+and verified with real Docker tests. Step 3 — Impact v2 is **NOT STARTED**.
 
 For implementation, follow [AGENTS.md](../../AGENTS.md): read its active
 implementation plan first, then current state, decisions, target architecture
@@ -59,7 +59,7 @@ are an audit trail, not required context for normal implementation work.
   identity/revision foundation plus wider planned bindings.
 - [Analyzer Provider Layer](19_ANALYZER_PROVIDER_LAYER.md) — completed Step 2.5
   contract, native structural capabilities, external evidence validation and the
-  separately proposed Serena/Pyright execution boundary.
+  implemented optional Serena/Python execution boundary.
 - [Hermes telemetry ingestion](19_HERMES_TELEMETRY_INGESTION.md).
 - [API / MCP contract design](20_API_MCP_CONTRACTS.md) — target tool interfaces;
   see [current HTTP endpoints](../CURRENT_STATUS.md#current-intelligence-endpoints).

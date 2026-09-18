@@ -4,7 +4,59 @@
 
 Branch:
 
-`feat/project-intelligence-service`
+`feat/serena-external-provider`
+
+Latest implementation/test checkpoint:
+
+`adc92f5 fix: route Node.js projects to native JavaScript analyzer`
+
+Node.js routing through the existing native TypeScript/JavaScript analyzer is
+complete. Node.js projects remain classified as `projectType: "nodejs"`, overview
+reports `supported: true`, and graph/search/context/expand use the existing
+JavaScript-capable analyzer. No separate Node.js analyzer/provider was introduced.
+Native .NET, TypeScript and optional Serena/Python behavior remains unchanged.
+Architecture review, testing and code review passed for this checkpoint.
+Node.js project classification is distinct from analyzer identity: `nodejs`
+projects resolve to the existing TypeScript/JavaScript analyzer, not a separate
+Node.js provider. Native analysis remains structural; CommonJS `require()`
+relationships are not fully modeled, and `.mjs`/`.cjs` coverage remains limited
+or unsupported where applicable.
+
+Previous Serena/Python implementation/test checkpoint:
+
+`bd8fce6 fix: harden Serena sandbox conformance and cleanup`
+
+Optional Serena/Python integration: **COMPLETE**, disabled by default until a
+trusted immutable local image is configured. This checkpoint's documentation
+update records its canonical contract. Step 3 / Impact v2 remains **NOT STARTED**.
+
+Previous Serena/Python final verification:
+
+- 46 focused provider/Context Pack/integration tests passed; 0 failed/skipped.
+- 338 full-suite tests passed; 0 failed/skipped (`SERENA_DOCKER_TESTS=1 npm test`).
+- 14 explicit real Docker tests passed; 0 failed/skipped.
+- npm run check and git diff --check passed; 14 changed JS files and 2 Python
+  files passed explicit syntax checks.
+- independent final re-review: no remaining concrete security or logic blockers;
+  reviewer independently ran 29 targeted tests, all passing.
+- real container probes verify non-root, network none, read-only source/root,
+  no live/.git/HOME/socket exposure, bounded tmpfs/CPU/memory/PIDs and cleanup.
+- native .NET/TypeScript/JavaScript behavior preserved; identity/revision,
+  source collection, Context Pack composer and existing cache implementations
+  are unchanged.
+- no host dependency installation, host Docker configuration change, Git config
+  mutation, persistent external project index, Hermes/Honcho integration or push.
+
+Implementation micro-commits:
+
+1. `1e82e15 feat: add pinned Serena Python semantic image`
+2. `1478205 feat: normalize Serena Python definitions and references`
+3. `4b72225 feat: sandbox snapshot-bound Serena provider requests`
+4. `7372b7b feat: consume optional Serena evidence in task context`
+5. `bd8fce6 fix: harden Serena sandbox conformance and cleanup`
+
+The Step 1/2/2.5 checkpoints and working-tree notes below are historical records
+from `feat/project-intelligence-service`, not the current checkout status.
 
 Step 1 starting checkpoint:
 
@@ -111,9 +163,15 @@ Step 1 final verification (at `f8adc7c`):
 - no Task Context Pack persistence or cache reuse
 - normalized AnalyzerProvider contract and explicit language/capability discovery
 - native .NET and TypeScript/JavaScript provider adapters
+- Node.js projects resolved through the existing JavaScript-capable native
+  TypeScript analyzer while retaining `nodejs` project classification
 - deterministic single-provider priority/fallback with explicit partial coverage
 - snapshot-bound, data-only external/LSP adapter boundary (no tool execution)
 - provider-independent Context Pack provenance and capability-aware statuses
+- optional pinned Serena SolidLSP/Pyright semantic symbols/definitions/references
+  for Python, through a fixed offline snapshot-only Docker worker
+- observed mounted-source binding, explicit transport failure/fallback reasons,
+  real sandbox conformance and default-off trusted image configuration
 
 ## Architecture boundary
 
@@ -231,6 +289,8 @@ Verified result:
   implementations and diagnostics;
 - .NET then TypeScript/JavaScript then configured external priority/fallback;
   explicit capability/quality/language requirements; no silent graph merging;
+- Node.js graph/search/context/expand routes through the existing native
+  TypeScript/JavaScript analyzer; no separate Node.js provider is registered;
 - bounded external JSON must match project, revision/worktree snapshot,
   provider ID/version and normalized descriptor request token;
 - unauthorized paths/URIs, absent files, undeclared operations, invalid locations
@@ -240,7 +300,7 @@ Verified result:
   and partial/not_analyzed statuses preserved through byte trimming;
 - printable bounded polyglot symbol names no longer require JavaScript syntax.
 
-Known limitations and approval gate:
+Original Step 2.5 limitations and approval gate (historical; Python gate fulfilled below):
 
 - installed native analysis remains .NET and TypeScript/JavaScript;
   Python/Go/Rust/Java/Bash/PowerShell observation is not semantic support;
@@ -255,6 +315,41 @@ Known limitations and approval gate:
 
 Canonical contract and exact integration proposal:
 `docs/project-intelligence/19_ANALYZER_PROVIDER_LAYER.md`.
+
+### Optional external provider — Serena/Python: COMPLETE
+
+Separately authorized continuation of Step 2.5, **not Step 3**.
+
+- Pipeline: existing authorized bounded snapshot → private exported `.py` sources
+  → fixed Docker sandbox → Serena SolidLSP/Pyright → normalized external evidence
+  → existing Context Pack sections. Case-insensitive suffixes preserve paths.
+- Serena source `f8f53b77f04e50aadf9e5789841ec6a95c874514` / `1.7.1.dev0`,
+  Pyright `1.1.403`, Python `3.11.13`, Node `22.18.0`; base image digests and
+  dependency/artifact hashes pinned, with exact inventory in
+  `docker/serena-python/versions.json` and `requirements.lock`.
+- Verified local image:
+  `sha256:77379ee3d115e8f2b9f8b4223fbf1195b2d4b6b9b06b385a2bc30949d4af26c8`.
+  Rebuilds must record their own immutable ID; runtime tags/pulls are rejected.
+- Structural detection/bounded analysis; semantic symbols/definitions/references.
+  Dependencies, implementations and diagnostics remain unsupported.
+- 2 CPUs / 1 GiB / 30-second request budget / 256 KiB response. Non-root,
+  read-only source/root, network none, capabilities dropped, no-new-privileges,
+  64 MiB tmpfs, 1 MiB shared memory, 64 PIDs; separate 2-second cleanup budget.
+- Existing projectId/revision/worktree/descriptor token bindings plus recomputed
+  mounted-source observation token; strict URI/path/location/ID/edge validation.
+- No agent/MCP server, edits, shell tools, memory, project switching or runtime
+  dependency download. No live checkout, `.git`, HOME, credentials or socket mount.
+- Optional trusted `SERENA_PYTHON_IMAGE` or internal `serena: { image }` option;
+  no HTTP-body runtime controls. Single-provider native-first selection remains.
+  Unavailable/timeout/crash/invalid/oversize/cleanup failure permits explicit
+  fallback; missing Python semantics stays incomplete/not_analyzed.
+- Remaining limitations: synchronous bounded transport blocks Node; incomplete
+  snapshots/dependencies and dynamic Python may limit evidence; no `.pyi`
+  extension expansion, persistent index/cache, whole-worktree snapshot or complete
+  DLP. Host/daemon outage may prevent cleanup. Other languages remain deferred.
+
+Canonical runtime contract: `docs/project-intelligence/19_ANALYZER_PROVIDER_LAYER.md`.
+Build/enablement guide: `docker/serena-python/README.md`.
 
 ## Current development frontier
 

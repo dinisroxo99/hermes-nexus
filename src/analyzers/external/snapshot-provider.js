@@ -13,6 +13,7 @@ export function createExternalSnapshotRequest(snapshot, inputProvider) {
   const files = snapshot.files.filter((file) => detectSnapshotLanguages([file]).some((language) => provider.languages.includes(language)));
   return { schemaVersion: 1, projectId: snapshot.projectId, snapshotToken: snapshot.token,
     requestToken: contextDigest(JSON.stringify([snapshot.token, provider])), providerId: provider.id, providerVersion: provider.version,
+    observedSourceToken: contextDigest(JSON.stringify(files.map(({ path, sha256 }) => [path, sha256]))),
     revision: snapshot.revision, operations: Object.keys(provider.capabilities).filter((operation) => provider.capabilities[operation] !== "unsupported"),
     limits: PROVIDER_LIMITS, files: files.map(({ path, text, sha256 }) => ({ path, text, sha256 })) };
 }
@@ -23,7 +24,8 @@ export function readExternalSnapshotResponse(snapshot, inputProvider, response, 
   if (typeof response !== "string" || Buffer.byteLength(response) > PROVIDER_LIMITS.responseBytes) throw invalid();
   let raw;
   try { raw = JSON.parse(response); } catch { throw invalid(); }
-  fields(raw, ["schemaVersion", "projectId", "snapshotToken", "requestToken", "providerId", "providerVersion", "status", "nodes", "edges", "definitions", "implementations", "diagnostics"]);
+  fields(raw, ["schemaVersion", "projectId", "snapshotToken", "requestToken", "providerId", "providerVersion", "observedSourceToken", "status", "nodes", "edges", "definitions", "implementations", "diagnostics"]);
+  if ((limits.requireObservedSource || Object.hasOwn(raw, "observedSourceToken")) && raw.observedSourceToken !== request.observedSourceToken) throw invalid();
   if (raw.schemaVersion !== 1 || raw.projectId !== request.projectId || raw.snapshotToken !== request.snapshotToken
     || raw.requestToken !== request.requestToken || raw.providerId !== request.providerId || raw.providerVersion !== request.providerVersion
     || !["available", "partial", "unavailable", "unsupported"].includes(raw.status)) throw invalid();

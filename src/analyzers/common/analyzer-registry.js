@@ -2,6 +2,7 @@ import { detectProjectType } from "./analyzer-detection.js";
 import { dotNetAnalyzer } from "../dotnet/dotnet-analyzer.js";
 import { typeScriptAnalyzer } from "../typescript/typescript-analyzer.js";
 import { normalizeProviderDescriptor, PROVIDER_LIMITS, providerError } from "./analyzer-provider-contract.js";
+import { SERENA_PROVIDER } from "../external/serena-provider.js";
 
 const analyzers = new Map();
 
@@ -14,7 +15,8 @@ export function registerAnalyzer(analyzer) {
 }
 
 export function getAnalyzer(projectType) {
-  return analyzers.get(projectType) || null;
+  // Node.js is a project classification, not a separate JavaScript analyzer.
+  return analyzers.get(projectType === "nodejs" ? "typescript" : projectType) || null;
 }
 
 export function listAnalyzerCapabilities() {
@@ -38,8 +40,10 @@ export function resolveAnalyzer(project) {
 registerAnalyzer(dotNetAnalyzer);
 registerAnalyzer(typeScriptAnalyzer);
 
-export function listAnalyzerProviders(externalProviders = []) {
+export function listAnalyzerProviders(externalProviders = [], options = {}) {
   if (!Array.isArray(externalProviders) || externalProviders.length > PROVIDER_LIMITS.providers - 2) throw providerError();
+  if (options.serena) externalProviders = [...externalProviders, SERENA_PROVIDER];
+  if (externalProviders.length > PROVIDER_LIMITS.providers - 2) throw providerError();
   const capabilities = { boundedSourceAnalysis: "structural", detection: "structural", symbols: "structural", references: "structural", dependencies: "structural" };
   const providers = [
     normalizeProviderDescriptor({ id: "native.dotnet", version: "1", kind: "native", priority: 200, languages: ["csharp"], capabilities }),

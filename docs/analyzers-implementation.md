@@ -47,7 +47,9 @@ Recognized types:
 Project types currently supported by an analyzer:
 
 - `dotnet`;
-- `typescript`.
+- `typescript`;
+- `nodejs`, by resolving to the existing TypeScript/JavaScript analyzer while
+  preserving `nodejs` as the project classification.
 
 ### `src/analyzers/dotnet/dotnet-analyzer.js`
 

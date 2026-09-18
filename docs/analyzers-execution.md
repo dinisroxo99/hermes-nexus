@@ -129,7 +129,10 @@ coverage, not an external tool launcher or runtime guard. Native analysis remain
 structural; source retrieval requires Linux/WSL descriptor verification.
 See the [Context Pack contract](project-intelligence/04_ICM_AND_CONTEXT_PACK.md)
 and [Analyzer Provider Layer](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md)
-for exact limits and the separately proposed Serena/LSP integration.
+for exact limits and the implemented opt-in Serena/Python integration.
+Its [build/runtime guide](../docker/serena-python/README.md) includes pinned
+versions, immutable-image configuration and real Docker test commands. Default
+native behavior and legacy graph endpoints remain unchanged.
 
 ### List projects
 
