@@ -14,6 +14,119 @@ Do not convert every impacted/referencing file into an exclusive hard lock.
 
 That would destroy useful parallelism.
 
+## Impact v2 evidence contract — planned Step 3 foundation
+
+Impact v2 is the next planned Project Intelligence impact engine. It is
+separate from the existing legacy graph impact used by current overview and
+analyzer-service callers. Until an Impact v2 implementation lands, legacy impact
+responses keep their compatibility behavior and must not be treated as satisfying
+this contract.
+
+Impact v2 output is evidence, never authorization. It does not grant WRITE,
+RESERVED, WATCH or IMPACT scope; it does not enforce conflicts; it does not
+drive Hermes Guard decisions by itself. Effective Scope, the Conflict Engine,
+Guard integration, telemetry, Project Expert, Git-diff impact and persistent
+Impact caches are explicit non-goals for the Impact v2 foundation.
+
+### Identity and revision binding
+
+Every Impact v2 result is bound to current project truth:
+
+- persisted `projectId` when available and required by the operation;
+- safe revision projection: Git status, commit, dirty state, repository identity
+  and worktree identity as applicable;
+- selected worktree locator, without exposing raw Git metadata paths;
+- the selected provider graph snapshot and the source observation that produced
+  it.
+
+Dirty, unborn, non-Git and unavailable Git states remain supported working-tree
+observations. They are not clean committed snapshots and must not be cached or
+replayed as such.
+
+### Status and evidence vocabulary
+
+Top-level and section statuses use the existing provider vocabulary where it
+applies:
+
+- `available` — requested evidence was evaluated within limits;
+- `partial` — evidence exists but source, provider, traversal or output limits
+  make the result incomplete;
+- `unsupported` — the selected provider/source class cannot supply the requested
+  operation;
+- `unavailable` — the operation could not run or failed closed;
+- `not_requested` — optional sections, such as future affected-test candidates,
+  were deliberately not requested.
+
+Per target or relation, Impact v2 distinguishes:
+
+- `evidence_found` — retained evidence supports a relationship;
+- `no_evidence_found` — the evaluated evidence did not contain a relationship;
+- `not_evaluated` — the relationship was not checked or evidence was omitted.
+
+`no_evidence_found` is not proof of safety, no-impact or sufficient test
+coverage. It only describes the bounded evidence that was actually evaluated.
+
+Completeness is reported independently across four dimensions:
+
+- `source` — source files or directories may be omitted by collection bounds,
+  exclusions or descriptor verification;
+- `provider` — the selected analyzer may cover only some observed languages or
+  operations;
+- `traversal` — configured depth or graph traversal limits may stop expansion;
+- `output` — serialization/item budgets may omit otherwise discovered evidence.
+
+Evidence basis is labelled per item where possible:
+
+- `semantic` — provider reports semantic symbols/definitions/references;
+- `structural` — analyzer-derived AST/regex/import graph structure;
+- `heuristic` — filename, basename, convention or other non-semantic inference;
+- `unknown` — retained only for legacy or degraded evidence that cannot honestly
+  claim a stronger basis.
+
+### Provider graph rules
+
+Impact v2 consumes one selected provider graph per result. It does not federate,
+merge or stitch graphs across providers. Native .NET, native TypeScript/JavaScript
+and optional Serena/Python keep their existing selection and fallback semantics.
+Node.js classification continues to reuse the existing JavaScript-capable native
+TypeScript analyzer; there is no separate Node.js provider.
+
+Serena/Python can provide semantic symbols, definitions and references when the
+trusted immutable image is configured. It does not provide dependencies,
+implementations or compiler diagnostics. Python references may be used
+conservatively as impact evidence, but a reference owner can be an enclosing
+symbol or `<module>`; do not call it a caller unless the evidence proves a call.
+Definition locations are not dependency edges.
+
+### Traversal and origin witnesses
+
+The default traversal depth is `2`; the maximum accepted depth is `5`. Depth `0`
+means only the requested origin/target is reported with its direct evidence and
+identity binding; no neighbor expansion is performed.
+
+Future multi-target Impact v2 results require a witness for every retained
+origin. If an output item is retained because multiple origins reached it, each
+origin must have its own retained witness path or relation. Output trimming must
+not leave an item whose origin cannot be explained.
+
+Existing source, provider, Docker transport and JSON output budgets continue to
+apply. Provider item limits are unchanged. Affected tests are candidates derived
+from evidence and heuristics; they are not guaranteed sufficient coverage.
+
+### Explicit non-goals for this contract
+
+Impact v2 foundation work does not implement:
+
+- Effective Scope or WRITE/RESERVED/WATCH authorization;
+- Conflict Engine, Hermes Guard or mutation enforcement;
+- task scheduling, telemetry ingestion or Project Expert retrieval;
+- LLM-based impact computation;
+- cross-provider graph merging;
+- Git-diff impact;
+- persistent Impact caches;
+- dependency inference from definition locations;
+- coverage guarantees from affected-test candidates.
+
 ## Scope levels
 
 ### WRITE

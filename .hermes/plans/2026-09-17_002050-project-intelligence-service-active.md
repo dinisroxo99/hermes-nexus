@@ -355,7 +355,28 @@ Build/enablement guide: `docker/serena-python/README.md`.
 
 ### Step 3 — Impact v2
 
-Next implementation frontier. **NOT STARTED.** Requires separate authorization.
+Next implementation frontier. **FOUNDATION AUTHORIZED IN SLICES; TRAVERSAL,
+COMPOSER AND API NOT STARTED.** Impact v2 remains separate from legacy impact.
+Impact results are revision/worktree-bound evidence only, never authorization or
+effective scope. The foundation contract is documented in
+`docs/project-intelligence/06_SCOPE_IMPACT_CONFLICTS.md`.
+
+Approved foundation constraints:
+
+- statuses: `available`, `partial`, `unsupported`, `unavailable` and
+  `not_requested` for optional sections;
+- per-evidence outcomes: `evidence_found`, `no_evidence_found`, `not_evaluated`,
+  where `no_evidence_found` is not proof of safety or no impact;
+- completeness dimensions: source, provider, traversal and output;
+- evidence basis: semantic, structural, heuristic or unknown;
+- one selected provider graph per result; no cross-provider federation;
+- optional Serena/Python references can be conservative evidence, but definitions
+  are not dependency edges and `<module>` reference owners are not proven callers;
+- traversal depth default `2`, maximum `5`; depth `0` does not expand neighbors;
+- future multi-target results require a witness for every retained origin;
+- affected tests are candidates, not coverage guarantees;
+- no LLM, persistent Impact cache, telemetry, Project Expert, Git-diff impact,
+  Effective Scope, Conflict Engine or Guard in this foundation slice.
 
 Implement incrementally:
 
