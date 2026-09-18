@@ -3,9 +3,12 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import childProcess from "node:child_process";
 import { createProviderSnapshot } from "../src/analyzers/common/analyzer-provider-contract.js";
+import { createExternalSnapshotRequest } from "../src/analyzers/external/snapshot-provider.js";
+import { SERENA_PROVIDER } from "../src/analyzers/external/serena-provider.js";
 
 const image = `sha256:${"a".repeat(64)}`;
 const snapshot = () => createProviderSnapshot({ projectId: "Prj_Serena" }, [{ path: "src/one.py", text: "class One: pass\n" }, { path: "other.ts", text: "export class Other {}" }], { status: "not_git" });
+const repositorySnapshot = () => createProviderSnapshot({ projectId: "Prj_Serena" }, [{ path: "src/one.py", text: "class One: pass\n" }], { status: "available", repositoryIdentity: "Repo_One", commitSha: "a".repeat(40) });
 async function api() {
   const m = await import("../src/analyzers/external/serena-transport.js").catch(() => ({}));
   assert.equal(typeof m.runSerenaSnapshot, "function");
@@ -126,4 +129,23 @@ test("Docker auto-removal races are verified within the cleanup deadline", async
   });
   assert.deepEqual(runSerenaSnapshot(snapshot(), { image }), { status: "oversized" });
   assert.equal(removals, 2);
+});
+
+test("Serena transport reconstructs repository-bound snapshots and rejects stale unbound evidence", async (t) => {
+  const { runSerenaSnapshot } = await api();
+  const bound = repositorySnapshot();
+  const unbound = createProviderSnapshot({ projectId: "Prj_Serena" }, bound.files, { status: "available", commitSha: "a".repeat(40) });
+  const unboundResponse = envelope(createExternalSnapshotRequest(unbound, SERENA_PROVIDER));
+  let sawRepositoryId = false;
+  let call = 0;
+  t.mock.method(childProcess, "spawnSync", (_, args, options) => {
+    if (!args.includes("run")) return { status: 0, stdout: "", stderr: "" };
+    call += 1;
+    const request = JSON.parse(options.input);
+    sawRepositoryId = request.revision.repositoryId === "Repo_One" && Object.hasOwn(request.revision, "repositoryIdentity") === false;
+    return call === 1 ? { status: 0, stdout: envelope(request), stderr: "" } : { status: 0, stdout: unboundResponse, stderr: "" };
+  });
+  assert.equal(runSerenaSnapshot(bound, { image }).status, "available");
+  assert.equal(sawRepositoryId, true);
+  assert.deepEqual(runSerenaSnapshot(bound, { image }), { status: "invalid" });
 });
