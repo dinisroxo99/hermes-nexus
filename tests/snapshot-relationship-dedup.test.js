@@ -33,6 +33,21 @@ function targetNames(result) {
   return result.edges.map((edge) => byId.get(edge.to));
 }
 
+function equalIdDefaultAndNamedSources(extension, reverse = false) {
+  const consumerImports = reverse
+    ? [`import { Dep as BB } from './dep.${extension}';`, `import Aa from './dep.${extension}';`]
+    : [`import Aa from './dep.${extension}';`, `import { Dep as BB } from './dep.${extension}';`];
+
+  return [
+    { path: `dep.${extension}`, text: "class Dep {}\nexport { Dep };\nexport default Dep;\n" },
+    { path: `consumer.${extension}`, text: [...consumerImports, "export class Consumer {}"].join("\n") }
+  ];
+}
+
+function analyzeSnapshotSources(sourceFiles, options = {}) {
+  return analyzeTypeScriptProject({ ...project, absolutePath: "/__project_context__" }, { ...options, sourceFiles });
+}
+
 for (const extension of ["ts", "js"]) {
   test(`${extension} snapshot alias duplicate is complete at the exact unique edge limit`, () => {
     const files = aliasSources(extension, 1);
@@ -88,6 +103,35 @@ for (const extension of ["ts", "js"]) {
       assert.equal(reversed.status, first.status);
       // Source text differs, so the snapshot token is intentionally not compared.
     }
+  });
+
+  test(`${extension} snapshot equal native edge IDs use deterministic label tie-break`, () => {
+    const firstRaw = analyzeSnapshotSources(equalIdDefaultAndNamedSources(extension), { edgeLimit: 1 });
+    const reversedRaw = analyzeSnapshotSources(equalIdDefaultAndNamedSources(extension, true), { edgeLimit: 1 });
+    const firstNormalized = analyzeContextSources(project, equalIdDefaultAndNamedSources(extension), { edgeLimit: 1 });
+    const reversedNormalized = analyzeContextSources(project, equalIdDefaultAndNamedSources(extension, true), { edgeLimit: 1 });
+
+    assert.equal(firstRaw.success, true);
+    assert.equal(reversedRaw.success, true);
+    assert.equal(firstRaw.edges.length, 1);
+    assert.equal(reversedRaw.edges.length, 1);
+    assert.equal(new Set(firstRaw.edges.map(relationshipKey)).size, 1);
+    assert.equal(new Set(reversedRaw.edges.map(relationshipKey)).size, 1);
+    assert.equal(firstRaw.edges[0].id, reversedRaw.edges[0].id);
+    assert.equal(firstRaw.edges[0].label, reversedRaw.edges[0].label);
+    assert.deepEqual(firstRaw.edges, reversedRaw.edges);
+    assert.deepEqual(firstNormalized.edges, reversedNormalized.edges);
+    assert.deepEqual(firstNormalized.nodes, reversedNormalized.nodes);
+    assert.equal(firstNormalized.limited, reversedNormalized.limited);
+    assert.equal(firstNormalized.status, reversedNormalized.status);
+    assert.equal(firstRaw.limited, false);
+    assert.equal(reversedRaw.limited, false);
+    assert.equal(firstRaw.originalEdgeCount, 1);
+    assert.equal(reversedRaw.originalEdgeCount, 1);
+    assert.equal(firstNormalized.edges.length, 1);
+    assert.equal(reversedNormalized.edges.length, 1);
+    assert.equal(firstNormalized.limited, false);
+    assert.equal(firstNormalized.status, "available");
   });
 
   test(`${extension} legacy analysis retains alias-derived native IDs and edge budgeting`, (t) => {

@@ -747,7 +747,8 @@ function compareSnapshotEdges(a, b) {
   return compareContextStrings(a.from, b.from)
     || compareContextStrings(a.to, b.to)
     || compareContextStrings(a.relation, b.relation)
-    || compareContextStrings(a.id, b.id);
+    || compareContextStrings(a.id, b.id)
+    || compareContextStrings(a.label ?? '', b.label ?? '');
 }
 
 function simpleHash(str) {
