@@ -138,7 +138,7 @@ export function analyzeTypeScriptProject(project, options = {}) {
     const allowedNodeIds = new Set(filteredNodes.map((node) => node.id));
     const limitedNodes = filteredNodes.slice(0, nodeLimit);
     const limitedNodeIds = new Set(limitedNodes.map((node) => node.id));
-    const eligibleEdges = uniqueEdges(edges)
+    const eligibleEdges = uniqueEdges(edges, Boolean(snapshot))
       .filter((edge) => allowedNodeIds.has(edge.from) && allowedNodeIds.has(edge.to));
     if (snapshot) {
       eligibleEdges.sort(compareSnapshotEdges);
@@ -721,17 +721,19 @@ function filterNodes(nodes, { layers = [], features = [] }) {
   });
 }
 
-function uniqueEdges(edges) {
-  const seen = new Set();
-  const unique = [];
+function uniqueEdges(edges, snapshot = false) {
+  const unique = new Map();
 
   for (const edge of edges) {
-    if (seen.has(edge.id)) continue;
-    seen.add(edge.id);
-    unique.push(edge);
+    // Snapshot budgets count provider relationships, not alias-derived native IDs.
+    const key = snapshot ? JSON.stringify([edge.from, edge.to, edge.relation]) : edge.id;
+    const previous = unique.get(key);
+    if (!previous || (snapshot && compareSnapshotEdges(edge, previous) < 0)) {
+      unique.set(key, edge);
+    }
   }
 
-  return unique;
+  return [...unique.values()];
 }
 
 function compareSnapshotNodes(a, b) {
