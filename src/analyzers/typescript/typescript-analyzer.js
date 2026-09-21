@@ -8,7 +8,7 @@
 import { Project } from 'ts-morph';
 import fs from 'node:fs';
 import path from 'node:path';
-import { normalizeContextSources } from '../../lib/project-context-files.js';
+import { compareContextStrings, normalizeContextSources } from '../../lib/project-context-files.js';
 
 const IGNORED_DIRS = new Set([
   'node_modules',
@@ -132,13 +132,21 @@ export function analyzeTypeScriptProject(project, options = {}) {
     }
 
     const filteredNodes = filterNodes(nodes, { layers, features });
+    if (snapshot) {
+      filteredNodes.sort(compareSnapshotNodes);
+    }
     const allowedNodeIds = new Set(filteredNodes.map((node) => node.id));
     const limitedNodes = filteredNodes.slice(0, nodeLimit);
     const limitedNodeIds = new Set(limitedNodes.map((node) => node.id));
-    const limitedEdges = uniqueEdges(edges)
-      .filter((edge) => allowedNodeIds.has(edge.from) && allowedNodeIds.has(edge.to))
-      .filter((edge) => limitedNodeIds.has(edge.from) && limitedNodeIds.has(edge.to))
+    const eligibleEdges = uniqueEdges(edges)
+      .filter((edge) => allowedNodeIds.has(edge.from) && allowedNodeIds.has(edge.to));
+    if (snapshot) {
+      eligibleEdges.sort(compareSnapshotEdges);
+    }
+    const retainedEdges = eligibleEdges.filter((edge) => limitedNodeIds.has(edge.from) && limitedNodeIds.has(edge.to));
+    const limitedEdges = retainedEdges
       .slice(0, edgeLimit);
+    const limited = limitedNodes.length < filteredNodes.length || limitedEdges.length < retainedEdges.length;
 
     return {
       success: true,
@@ -146,10 +154,13 @@ export function analyzeTypeScriptProject(project, options = {}) {
       message: `Analisei ${limitedNodes.length} símbolos TypeScript`,
       nodes: limitedNodes,
       edges: limitedEdges,
+      limited,
+      originalNodeCount: filteredNodes.length,
+      originalEdgeCount: retainedEdges.length,
       metadata: {
         totalFiles: files.length,
-        totalSymbols: nodes.length,
-        totalEdges: edges.length,
+        totalSymbols: filteredNodes.length,
+        totalEdges: retainedEdges.length,
         analyzer: typeScriptAnalyzer.name,
         capabilities: typeScriptAnalyzer.capabilities,
         pathAliasCount: pathAliases.length
@@ -721,6 +732,20 @@ function uniqueEdges(edges) {
   }
 
   return unique;
+}
+
+function compareSnapshotNodes(a, b) {
+  return compareContextStrings(a.file, b.file)
+    || compareContextStrings(a.label, b.label)
+    || compareContextStrings(a.kind, b.kind)
+    || compareContextStrings(a.id, b.id);
+}
+
+function compareSnapshotEdges(a, b) {
+  return compareContextStrings(a.from, b.from)
+    || compareContextStrings(a.to, b.to)
+    || compareContextStrings(a.relation, b.relation)
+    || compareContextStrings(a.id, b.id);
 }
 
 function simpleHash(str) {
