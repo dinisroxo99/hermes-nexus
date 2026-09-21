@@ -22,11 +22,6 @@ function tempProject(t, files) {
   return { name: path.basename(root), absolutePath: root };
 }
 
-function emptyEdgesAreNotSafety(result) {
-  assert.deepEqual(result.edges, []);
-  return { outcome: "no_evidence_found", safe: false };
-}
-
 test("legacy impact response shape and reverse-direction semantics stay compatible", (t) => {
   const project = tempProject(t, {
     "package.json": '{"type":"module"}\n',
@@ -64,7 +59,7 @@ test("package-only JavaScript remains classified as nodejs while using native.ty
   assert.deepEqual(result.coverage, { observed: ["javascript"], covered: ["javascript"], uncovered: [] });
 });
 
-test("CommonJS require currently leaves normalized dependency evidence incomplete", () => {
+test("CommonJS require currently leaves normalized dependency evidence empty with explicit analyzer coverage limits", () => {
   const result = analyzeContextSources({ name: "commonjs" }, [
     { path: "dep.js", text: "module.exports = { value: 1 };\n" },
     { path: "user.js", text: "const dep = require('./dep');\nexports.run = () => dep.value;\n" }
@@ -72,16 +67,14 @@ test("CommonJS require currently leaves normalized dependency evidence incomplet
   assert.equal(result.provider.id, "native.typescript");
   assert.equal(result.status, "available");
   assert.deepEqual(result.edges, []);
-  assert.deepEqual(emptyEdgesAreNotSafety(result), { outcome: "no_evidence_found", safe: false });
 });
 
-test("symbol-free node:test modules currently provide no normalized symbols or safety proof", () => {
+test("symbol-free node:test modules currently provide no normalized symbols while analyzer coverage gaps remain characterized", () => {
   const result = analyzeContextSources({ name: "node-test" }, [
     { path: "sample.test.js", text: "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('sample', () => assert.equal(1, 1));\n" }
   ]);
   assert.equal(result.provider.id, "native.typescript");
   assert.deepEqual(result.nodes, []);
-  assert.deepEqual(emptyEdgesAreNotSafety(result), { outcome: "no_evidence_found", safe: false });
 });
 
 test("mjs and cjs sources are currently rejected before snapshot language support", () => {

@@ -49,8 +49,10 @@ Top-level and section statuses use the existing provider vocabulary where it
 applies:
 
 - `available` — requested evidence was evaluated within limits;
-- `partial` — evidence exists but source, provider, traversal or output limits
-  make the result incomplete;
+- `partial` — the requested analysis completed with known incompleteness in
+  source observation, provider coverage, traversal or output. Some useful
+  analysis state may exist, but retained nodes, edges or evidence items are not
+  required for `status=partial`;
 - `unsupported` — the selected provider/source class cannot supply the requested
   operation;
 - `unavailable` — the operation could not run or failed closed;
@@ -65,6 +67,13 @@ Per target or relation, Impact v2 distinguishes:
 
 `no_evidence_found` is not proof of safety, no-impact or sufficient test
 coverage. It only describes the bounded evidence that was actually evaluated.
+Evaluated absence is different from omitted or not-evaluated evidence: an empty
+retained evidence array can still be `partial` when relevant input was omitted
+during source observation, selected-provider coverage is incomplete, traversal
+was bounded, output was trimmed to zero, or provider analysis itself reported
+incomplete evidence. Completeness dimensions survive empty result arrays; zero
+returned nodes, edges or items must not erase known source, provider, traversal
+or output incompleteness.
 
 Completeness is reported independently across four dimensions:
 
