@@ -1,4 +1,5 @@
 import { contextDigest, compareContextStrings as compare, normalizeContextSources } from "./project-context-files.js";
+import { createProviderSnapshot, detectSnapshotLanguages, normalizeProviderDescriptor } from "../analyzers/common/analyzer-provider-contract.js";
 import {
   IMPACT_ANALYSIS_VERSION,
   IMPACT_LIMITS,
@@ -12,15 +13,7 @@ import {
 
 const EDGE_RELATIONS = Object.freeze(["imports", "uses", "references"]);
 const RELEVANT_CAPABILITIES = Object.freeze(["dependencies", "references"]);
-const EXTENSION_LANGUAGES = Object.freeze({
-  ".cs": "csharp",
-  ".csproj": "csharp",
-  ".ts": "typescript",
-  ".tsx": "typescript",
-  ".js": "javascript",
-  ".jsx": "javascript",
-  ".py": "python"
-});
+const LANGUAGE_ID = /^[a-z][a-z0-9-]{0,31}$/;
 
 export function analyzeSingleFileReverseImpact(input = {}) {
   const originPath = normalizeImpactPaths([input.originPath])[0];
@@ -41,8 +34,8 @@ export function analyzeSingleFileReverseImpact(input = {}) {
     originPath,
     snapshotToken: snapshot.token,
     provider: graph?.provider ? providerSummary(graph.provider) : null,
-    revision: graph?.revision ?? null,
-    worktree: graph?.worktree ?? null,
+    revision: snapshot.revision,
+    worktree: snapshot.worktree,
     limits,
     affectedFiles: [],
     affectedTests: { status: "not_requested", candidates: [] },
@@ -60,7 +53,7 @@ export function analyzeSingleFileReverseImpact(input = {}) {
     addReason(completeness, "source", "source_unavailable");
     return finish({ ...base, status: statusFromCompleteness(completeness), findingState: "not_evaluated" });
   }
-  if (!isOriginLanguageCovered(graph, originPath)) {
+  if (!isOriginLanguageCovered(graph, originPath, sourceByPath)) {
     addReason(completeness, "provider", "uncovered_language");
     return finish({ ...base, status: statusFromCompleteness(completeness), findingState: "not_evaluated" });
   }
@@ -94,9 +87,11 @@ export function analyzeSingleFileReverseImpact(input = {}) {
     frontier.push({ id: node.id, distance: 0 });
   }
   const bestNodeDistance = new Map(frontier.map((state) => [state.id, state.distance]));
+  const bestObservedInBoundDistance = new Map(bestNodeDistance);
   const bestFile = new Map();
   const overDepthCandidates = new Map();
   let edgeExaminations = 0;
+  let stopTraversal = false;
 
   while (frontier.length > 0) {
     frontier.sort(compareStates);
@@ -107,6 +102,7 @@ export function analyzeSingleFileReverseImpact(input = {}) {
     for (const edge of candidates) {
       if (edgeExaminations >= limits.traversalEdgeExaminations) {
         workLimited = true;
+        stopTraversal = true;
         break;
       }
       edgeExaminations += 1;
@@ -121,6 +117,8 @@ export function analyzeSingleFileReverseImpact(input = {}) {
         }
         continue;
       }
+      const observed = bestObservedInBoundDistance.get(consumer.id);
+      if (observed === undefined || nextDistance < observed) bestObservedInBoundDistance.set(consumer.id, nextDistance);
       const witness = makeWitness({ edge, graph, sourceByPath, consumer });
       if (consumer.file !== originPath || nextDistance === 0) {
         retainFile(bestFile, consumer.file, originPath, nextDistance, witness);
@@ -134,11 +132,11 @@ export function analyzeSingleFileReverseImpact(input = {}) {
         frontier.push({ id: consumer.id, distance: nextDistance });
       }
     }
-    if (workLimited) break;
+    if (stopTraversal) break;
   }
 
   if ([...overDepthCandidates.keys()].some((id) => {
-    const best = bestNodeDistance.get(id);
+    const best = bestObservedInBoundDistance.get(id);
     return best === undefined || best > limits.depth;
   })) addReason(completeness, "traversal", "depth_limit");
   if (workLimited) addReason(completeness, "traversal", "traversal_work_limit");
@@ -176,21 +174,22 @@ function normalizeSources(sources) {
 }
 
 function normalizeBoundSnapshot(snapshot) {
-  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) throw invalidImpactTraversal();
-  const token = boundedHash(snapshot.token ?? snapshot.snapshotToken);
-  const files = normalizeSources(snapshot.files);
-  if (files.length === 0) throw invalidImpactTraversal();
-  const projectId = snapshot.projectId ?? null;
-  if (projectId !== null) boundedHash(projectId);
-  const revision = snapshot.revision === undefined ? null : normalizeSnapshotRecord(snapshot.revision);
-  const worktree = snapshot.worktree === undefined ? null : normalizeSnapshotRecord(snapshot.worktree);
-  return { token, files, projectId, revision, worktree };
-}
-
-function normalizeSnapshotRecord(record) {
-  if (record === null) return null;
-  if (!record || typeof record !== "object" || Array.isArray(record)) throw invalidImpactTraversal();
-  return canonicalJson(record);
+  try {
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) throw invalidImpactTraversal();
+    const suppliedToken = boundedHash(snapshot.token ?? snapshot.snapshotToken);
+    const derived = createProviderSnapshot({ projectId: snapshot.projectId ?? null }, snapshot.files, snapshot.revision ?? {});
+    if (derived.files.length === 0 || suppliedToken !== derived.token) throw invalidImpactTraversal();
+    return {
+      token: derived.token,
+      files: derived.files,
+      projectId: derived.projectId,
+      revision: derived.revision,
+      worktree: derived.revision.worktreeId === null ? null : { worktreeId: derived.revision.worktreeId }
+    };
+  } catch (error) {
+    if (error?.code === "invalid_impact_traversal") throw error;
+    throw invalidImpactTraversal();
+  }
 }
 
 function validateSnapshotBinding({ graph, snapshot, sourceFiles }) {
@@ -200,8 +199,8 @@ function validateSnapshotBinding({ graph, snapshot, sourceFiles }) {
     throw invalidImpactTraversal();
   }
   if (graph.projectId !== undefined && graph.projectId !== null && graph.projectId !== snapshot.projectId) throw invalidImpactTraversal();
-  if (graph.revision !== undefined && snapshot.revision !== null && canonicalJson(graph.revision) !== snapshot.revision) throw invalidImpactTraversal();
-  if (graph.worktree !== undefined && snapshot.worktree !== null && canonicalJson(graph.worktree) !== snapshot.worktree) throw invalidImpactTraversal();
+  if (graph.revision !== undefined && canonicalJson(graph.revision) !== canonicalJson(snapshot.revision)) throw invalidImpactTraversal();
+  if (graph.worktree !== undefined && canonicalJson(graph.worktree) !== canonicalJson(snapshot.worktree)) throw invalidImpactTraversal();
 }
 
 function sourceIdentity(source) {
@@ -212,18 +211,15 @@ function isRelevantOperationSupported(provider) {
   return RELEVANT_CAPABILITIES.some((capability) => provider.capabilities?.[capability] !== "unsupported");
 }
 
-function isOriginLanguageCovered(graph, originPath) {
-  const language = languageForPath(originPath);
-  if (!language) return true;
+function isOriginLanguageCovered(graph, originPath, sourceByPath) {
+  const source = sourceByPath.get(originPath);
+  const languages = source ? detectSnapshotLanguages([source]) : [];
+  const language = languages[0] ?? null;
+  if (!language) return false;
   const covered = graph.coverage?.covered;
   const uncovered = graph.coverage?.uncovered;
   if (!Array.isArray(covered) || !Array.isArray(uncovered)) throw invalidImpactTraversal();
   return covered.includes(language) && !uncovered.includes(language);
-}
-
-function languageForPath(filePath) {
-  const extension = filePath.slice(filePath.lastIndexOf("."));
-  return EXTENSION_LANGUAGES[extension] ?? null;
 }
 
 function boundedHash(value) {
@@ -247,24 +243,25 @@ function classifyProvider(graph, completeness) {
   validateProviderDescriptor(graph.provider);
   if (!["available", "partial"].includes(graph.status)) return "unavailable";
   if (graph.status === "partial" || graph.limited) addReason(completeness, "provider", "provider_partial");
-  if (!graph.coverage || typeof graph.coverage !== "object" || Array.isArray(graph.coverage)
-    || !Array.isArray(graph.coverage.covered) || !Array.isArray(graph.coverage.uncovered)) throw invalidImpactTraversal();
-  for (const uncovered of graph.coverage?.uncovered ?? []) {
-    if (typeof uncovered !== "string") throw invalidImpactTraversal();
+  validateCoverage(graph.coverage);
+  for (const uncovered of graph.coverage.uncovered) {
     if (uncovered) addReason(completeness, "provider", "uncovered_language");
   }
   return "evaluated";
 }
 
 function validateProviderDescriptor(provider) {
-  if (!provider || typeof provider !== "object" || Array.isArray(provider)) throw invalidImpactTraversal();
-  boundedHash(provider.id);
-  boundedHash(provider.version);
-  if (!["native", "external"].includes(provider.kind)) throw invalidImpactTraversal();
-  if (!provider.capabilities || typeof provider.capabilities !== "object" || Array.isArray(provider.capabilities)) throw invalidImpactTraversal();
-  for (const capability of RELEVANT_CAPABILITIES) {
-    const level = provider.capabilities[capability];
-    if (!["unsupported", "structural", "semantic"].includes(level)) throw invalidImpactTraversal();
+  try { normalizeProviderDescriptor(provider); }
+  catch { throw invalidImpactTraversal(); }
+}
+
+function validateCoverage(coverage) {
+  if (!coverage || typeof coverage !== "object" || Array.isArray(coverage)) throw invalidImpactTraversal();
+  for (const dimension of ["observed", "covered", "uncovered"]) {
+    if (!Array.isArray(coverage[dimension])) throw invalidImpactTraversal();
+    for (const language of coverage[dimension]) {
+      if (typeof language !== "string" || !LANGUAGE_ID.test(language)) throw invalidImpactTraversal();
+    }
   }
 }
 
@@ -322,7 +319,7 @@ function positiveInteger(value) {
 function makeWitness({ edge, graph, sourceByPath, consumer }) {
   const capability = edge.relation === "imports" ? "dependencies" : "references";
   const sourcePath = edge.location?.path ?? consumer.file;
-  const source = sourceByPath.get(sourcePath) ?? sourceByPath.get(consumer.file);
+  const source = sourceByPath.get(sourcePath);
   if (!source) throw invalidImpactTraversal();
   return {
     id: `impact_edge_${contextDigest(JSON.stringify([graph.snapshotToken ?? null, graph.provider.id, graph.provider.version, edge]))}`,
@@ -397,7 +394,8 @@ function edgeKey(edge) {
 }
 
 function canonicalJson(value) {
-  return JSON.stringify(canonicalValue(value));
+  try { return JSON.stringify(canonicalValue(value)); }
+  catch { throw invalidImpactTraversal(); }
 }
 
 function canonicalValue(value) {

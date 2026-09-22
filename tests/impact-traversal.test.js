@@ -3,25 +3,26 @@ import assert from "node:assert/strict";
 
 import { analyzeSingleFileReverseImpact } from "../src/lib/impact-traversal.js";
 import { IMPACT_LIMITS, validateCompletedAffectedItem } from "../src/lib/impact-policy.js";
+import { createProviderSnapshot, normalizeProviderDescriptor } from "../src/analyzers/common/analyzer-provider-contract.js";
+import { analyzeProviderSnapshot } from "../src/analyzers/common/analyzer-providers.js";
 
-const nativeProvider = Object.freeze({
-  id: "native.typescript",
-  version: "1",
-  kind: "native",
-  capabilities: { dependencies: "structural", references: "structural" }
-});
-const dotnetProvider = Object.freeze({
-  id: "native.dotnet",
-  version: "1",
-  kind: "native",
-  capabilities: { dependencies: "structural", references: "structural" }
-});
-const pythonProvider = Object.freeze({
-  id: "external.serena-python",
-  version: "1-f8f53b77-pyright-1.1.403",
-  kind: "external",
-  capabilities: { dependencies: "unsupported", references: "semantic" }
-});
+function capabilities(overrides = {}) {
+  return {
+    boundedSourceAnalysis: "structural",
+    definitions: "structural",
+    dependencies: "structural",
+    detection: "structural",
+    diagnostics: "structural",
+    implementations: "structural",
+    references: "structural",
+    symbols: "structural",
+    ...overrides
+  };
+}
+
+const nativeProvider = normalizeProviderDescriptor({ id: "native.typescript", version: "1", kind: "native", priority: 190, languages: ["typescript", "javascript"], capabilities: capabilities() });
+const dotnetProvider = normalizeProviderDescriptor({ id: "native.dotnet", version: "1", kind: "native", priority: 200, languages: ["csharp"], capabilities: capabilities() });
+const pythonProvider = normalizeProviderDescriptor({ id: "external.serena-python", version: "1-f8f53b77-pyright-1.1.403", kind: "external", priority: 90, languages: ["python"], capabilities: capabilities({ dependencies: "unsupported", references: "semantic" }) });
 
 function sources(paths) {
   return paths.map((path) => ({ path, text: `// ${path}\nexport const marker = 1;\n` }));
@@ -35,19 +36,11 @@ function edge(from, to, relation = "imports", location) {
   return { from, to, relation, ...(location ? { location } : {}) };
 }
 
-function languageFor(path) {
-  if (path.endsWith(".cs")) return "csharp";
-  if (path.endsWith(".py")) return "python";
-  if (path.endsWith(".ts")) return "typescript";
-  if (path.endsWith(".js")) return "javascript";
-  return "javascript";
-}
-
 function graph({ provider = nativeProvider, nodes = [], edges = [], status = "available", limited = false, uncovered = [], sourcePaths } = {}) {
   const paths = sourcePaths ?? [...new Set(nodes.map((n) => n.file))].sort();
-  const observed = [...new Set(paths.map(languageFor))].sort();
-  const covered = observed.filter((language) => !uncovered.includes(language));
-  const snapshot = { token: `snap-${provider.id}`, files: sources(paths) };
+  const snapshot = createProviderSnapshot({ projectId: "Prj_Impact" }, sources(paths), { status: "available", commitSha: "a".repeat(40), worktreeId: "wt_one" });
+  const observed = snapshot.languages;
+  const covered = observed.filter((language) => provider?.languages?.includes(language) && !uncovered.includes(language));
   return {
     schemaVersion: 1,
     success: !["unsupported", "unavailable"].includes(status),
@@ -222,28 +215,56 @@ test("binds witness provenance to the supplied snapshot envelope", () => {
   const boundGraph = graph({ nodes: [node("origin", "origin.js"), node("consumer", "consumer.js")], edges: [edge("consumer", "origin", "references")] });
   const result = analyzeSingleFileReverseImpact({ originPath: "origin.js", sourceFiles: boundGraph.snapshot.files, graph: boundGraph });
   assert.equal(result.snapshotToken, boundGraph.snapshot.token);
+  assert.deepEqual(result.revision, boundGraph.snapshot.revision);
+  assert.deepEqual(result.worktree, { worktreeId: "wt_one" });
   assert.equal(result.affectedFiles[0].origins[0].witness.source.path, "consumer.js");
   assert.notEqual(result.affectedFiles[0].origins[0].witness.source.hash, "unknown");
 
+  const mutatedContent = { ...boundGraph.snapshot, files: boundGraph.snapshot.files.map((file) => file.path === "consumer.js" ? { ...file, text: "export const stale = 1;\n" } : file) };
+  assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: { ...boundGraph, snapshot: mutatedContent } }), { code: "invalid_impact_traversal" });
+  assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: { ...boundGraph, snapshot: { ...boundGraph.snapshot, projectId: "Other_Project" } } }), { code: "invalid_impact_traversal" });
+  assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: { ...boundGraph, snapshot: { ...boundGraph.snapshot, revision: { ...boundGraph.snapshot.revision, worktreeId: "wt_two" } } } }), { code: "invalid_impact_traversal" });
   assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", sourceFiles: sources(["origin.js", "consumer.js"]).map((file) => file.path === "consumer.js" ? { ...file, text: "// stale\n" } : file), graph: boundGraph }), { code: "invalid_impact_traversal" });
   assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: { ...boundGraph, snapshotToken: "snap-stale" } }), { code: "invalid_impact_traversal" });
   assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: { ...boundGraph, projectId: "Other_Project", snapshot: { ...boundGraph.snapshot, projectId: "Project_One" } } }), { code: "invalid_impact_traversal" });
   assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: { ...boundGraph, revision: { commitSha: "a".repeat(40) }, snapshot: { ...boundGraph.snapshot, revision: { commitSha: "b".repeat(40) } } } }), { code: "invalid_impact_traversal" });
   assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: { ...boundGraph, worktree: { id: "one" }, snapshot: { ...boundGraph.snapshot, worktree: { id: "two" } } } }), { code: "invalid_impact_traversal" });
   assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: { ...boundGraph, snapshot: { ...boundGraph.snapshot, files: boundGraph.snapshot.files.filter((file) => file.path !== "consumer.js") } } }), { code: "invalid_impact_traversal" });
+  assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: { ...boundGraph, edges: [edge("consumer", "origin", "references", { path: "missing.js", line: 1, column: 1 })] } }), { code: "invalid_impact_traversal" });
 });
 
 test("gates no-evidence on supported capabilities and target coverage", () => {
-  const symbolsOnly = { ...nativeProvider, capabilities: { dependencies: "unsupported", references: "unsupported" } };
+  const symbolsOnly = normalizeProviderDescriptor({ ...nativeProvider, capabilities: capabilities({ dependencies: "unsupported", references: "unsupported" }) });
   const unsupported = analyzeSingleFileReverseImpact({ originPath: "origin.js", sourceFiles: sources(["origin.js"]), graph: graph({ provider: symbolsOnly, sourcePaths: ["origin.js"] }) });
   assert.equal(unsupported.findingState, "not_evaluated");
   assert.deepEqual(unsupported.completeness.provider, ["provider_unsupported"]);
 
-  assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", sourceFiles: sources(["origin.js", "consumer.js"]), graph: graph({ provider: { ...nativeProvider, capabilities: { dependencies: "structural", references: "unsupported" } }, nodes: [node("origin", "origin.js"), node("consumer", "consumer.js")], edges: [edge("consumer", "origin", "references")] }) }), { code: "invalid_impact_traversal" });
+  assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", sourceFiles: sources(["origin.js", "consumer.js"]), graph: graph({ provider: normalizeProviderDescriptor({ ...nativeProvider, capabilities: capabilities({ references: "unsupported" }) }), nodes: [node("origin", "origin.js"), node("consumer", "consumer.js")], edges: [edge("consumer", "origin", "references")] }) }), { code: "invalid_impact_traversal" });
 
   const uncovered = analyzeSingleFileReverseImpact({ originPath: "one.py", sourceFiles: sources(["one.py"]), graph: graph({ provider: pythonProvider, uncovered: ["python"], sourcePaths: ["one.py"] }) });
   assert.equal(uncovered.findingState, "not_evaluated");
   assert.deepEqual(uncovered.completeness.provider, ["uncovered_language"]);
+
+  for (const target of ["target.go", "target.rs", "Target.java", "script.sh", "build.ps1", "ONE.PY", "README.md"]) {
+    const result = analyzeSingleFileReverseImpact({ originPath: target, graph: graph({ sourcePaths: ["origin.js", target] }) });
+    assert.equal(result.findingState, "not_evaluated", target);
+    assert(result.completeness.provider.includes("uncovered_language"), target);
+  }
+  const uncoveredUpperTs = analyzeSingleFileReverseImpact({ originPath: "APP.TS", graph: graph({ provider: pythonProvider, sourcePaths: ["origin.py", "APP.TS"] }) });
+  assert.equal(uncoveredUpperTs.findingState, "not_evaluated");
+  assert(uncoveredUpperTs.completeness.provider.includes("uncovered_language"));
+
+  const mixedFiles = [
+    { path: "origin.js", text: "export const origin = 1;\n" },
+    { path: "target.go", text: "package main\n" },
+    { path: "TARGET.PY", text: "def target():\n    return 1\n" }
+  ];
+  const mixedGraph = analyzeProviderSnapshot({ projectId: "Prj_Impact" }, mixedFiles, { revision: { status: "not_git" } });
+  for (const target of ["target.go", "TARGET.PY"]) {
+    const result = analyzeSingleFileReverseImpact({ originPath: target, snapshot: createProviderSnapshot({ projectId: "Prj_Impact" }, mixedFiles, { status: "not_git" }), graph: mixedGraph });
+    assert.equal(result.findingState, "not_evaluated", target);
+    assert(result.completeness.provider.includes("uncovered_language"), target);
+  }
 });
 
 test("budgets seed admission under the visited-state limit", () => {
@@ -276,7 +297,20 @@ test("rejects malformed and conflicting graph/source evidence deterministically"
   const identical = analyzeSingleFileReverseImpact({ originPath: "origin.js", sourceFiles: sources(["origin.js", "a.js"]), graph: graph({ nodes: [node("origin", "origin.js"), duplicateA, duplicateA], edges: [edge("dup", "origin")] }) });
   assert.deepEqual(pathsOf(identical), ["a.js:1"]);
   const base = graph({ nodes: [node("origin", "origin.js")], edges: [] });
-  for (const patch of [{ nodes: undefined }, { edges: {} }, { edges: [edge("missing", "origin")] }, { provider: {} }, { coverage: { uncovered: {} } }, { snapshot: { ...base.snapshot, files: [...base.snapshot.files, base.snapshot.files[0]] } }]) {
+  for (const patch of [
+    { nodes: undefined },
+    { edges: {} },
+    { edges: [edge("missing", "origin")] },
+    { provider: {} },
+    { provider: { ...nativeProvider, capabilities: { ...nativeProvider.capabilities, symbols: {} } } },
+    { coverage: { observed: {}, covered: [], uncovered: [] } },
+    { coverage: { observed: [], covered: [null], uncovered: [] } },
+    { coverage: { observed: [], covered: [], uncovered: [null] } },
+    { snapshot: { ...base.snapshot, revision: { ...base.snapshot.revision, commitSha: { bad: true } } } },
+    { snapshot: { ...base.snapshot, revision: { ...base.snapshot.revision, commitSha: 1n } } },
+    { snapshot: { ...base.snapshot, files: [...base.snapshot.files, base.snapshot.files[0]] } },
+    { snapshot: { ...base.snapshot, files: base.snapshot.files.map((file) => ({ path: file.path, sha256: file.sha256 })) } }
+  ]) {
     assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: { ...base, ...patch } }), { code: "invalid_impact_traversal" });
   }
 });
@@ -290,6 +324,18 @@ test("does not report depth truncation for redundant out-of-bound paths", () => 
 
   const laterShorter = analyzeSingleFileReverseImpact({ originPath: "o.js", sourceFiles: sources(["o.js", "a.js", "b.js"]), graph: graph({ nodes: [node("o", "o.js"), node("a", "a.js"), node("z", "b.js"), node("c", "b.js")], edges: [edge("a", "o"), edge("z", "o"), edge("c", "a"), edge("c", "z")] }), limits: { depth: 1 } });
   assert.deepEqual(laterShorter.completeness.traversal, []);
+
+  const laterShorterStateLimited = analyzeSingleFileReverseImpact({ originPath: "o.js", sourceFiles: sources(["o.js", "a.js", "b.js"]), graph: graph({ nodes: [node("o", "o.js"), node("a", "a.js"), node("z", "b.js"), node("c", "b.js")], edges: [edge("a", "o"), edge("z", "o"), edge("c", "a"), edge("c", "z")] }), limits: { depth: 1, traversalVisitedStates: 3 } });
+  assert.deepEqual(laterShorterStateLimited.completeness.traversal, ["traversal_work_limit"]);
+
+  const reversedLaterShorterStateLimited = analyzeSingleFileReverseImpact({ originPath: "o.js", sourceFiles: sources(["o.js", "a.js", "b.js"]), graph: graph({ nodes: [node("c", "b.js"), node("z", "b.js"), node("a", "a.js"), node("o", "o.js")], edges: [edge("c", "z"), edge("c", "a"), edge("z", "o"), edge("a", "o")] }), limits: { depth: 1, traversalVisitedStates: 3 } });
+  assert.deepEqual(reversedLaterShorterStateLimited.completeness.traversal, ["traversal_work_limit"]);
+
+  const combinedBudgets = analyzeSingleFileReverseImpact({ originPath: "o.js", sourceFiles: sources(["o.js", "a.js", "b.js"]), graph: graph({ nodes: [node("o", "o.js"), node("a", "a.js"), node("z", "b.js"), node("c", "b.js")], edges: [edge("a", "o"), edge("z", "o"), edge("c", "a"), edge("c", "z")] }), limits: { depth: 1, traversalVisitedStates: 3, traversalEdgeExaminations: 4 } });
+  assert.deepEqual(combinedBudgets.completeness.traversal, ["traversal_work_limit"]);
+
+  const trueDepthAndWork = analyzeSingleFileReverseImpact({ originPath: "o.js", sourceFiles: sources(["o.js", "a.js", "b.js", "c.js"]), graph: graph({ nodes: [node("o", "o.js"), node("a", "a.js"), node("b", "b.js"), node("c", "c.js")], edges: [edge("a", "o"), edge("b", "a"), edge("c", "o")] }), limits: { depth: 1, traversalVisitedStates: 2 } });
+  assert.deepEqual(trueDepthAndWork.completeness.traversal, ["depth_limit", "traversal_work_limit"]);
 
   const genuine = analyzeSingleFileReverseImpact({ originPath: "o.js", sourceFiles: sources(["o.js", "a.js", "b.js"]), graph: graph({ nodes: [node("o", "o.js"), node("a", "a.js"), node("b", "b.js")], edges: [edge("a", "o"), edge("b", "a")] }), limits: { depth: 1 } });
   assert.deepEqual(genuine.completeness.traversal, ["depth_limit"]);
