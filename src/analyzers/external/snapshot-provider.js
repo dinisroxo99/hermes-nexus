@@ -1,4 +1,4 @@
-import { assertProviderFields, normalizeProviderDescriptor, PROVIDER_LIMITS, providerError, detectSnapshotLanguages, isAnalyzerSymbolLabel } from "../common/analyzer-provider-contract.js";
+import { assertProviderFields, normalizeProviderDescriptor, PROVIDER_LIMITS, providerError, detectSnapshotLanguages, isAnalyzerSymbolLabel, isValidSnapshotSourcePosition } from "../common/analyzer-provider-contract.js";
 import { contextDigest, compareContextStrings as compare } from "../../lib/project-context-files.js";
 
 const invalid = () => providerError("invalid_external_evidence");
@@ -38,9 +38,7 @@ export function readExternalSnapshotResponse(snapshot, inputProvider, response, 
   supports("symbols", raw.nodes); supports("definitions", raw.definitions); supports("implementations", raw.implementations); supports("diagnostics", raw.diagnostics);
   const location = (value) => {
     fields(value, ["path", "line", "column"]);
-    if (!files.has(value.path) || !Number.isInteger(value.line) || !Number.isInteger(value.column)) throw invalid();
-    const lines = files.get(value.path).text.split(/\r?\n/);
-    if (value.line < 1 || value.line > lines.length || value.column < 1 || value.column > lines[value.line - 1].length + 1) throw invalid();
+    if (!files.has(value.path) || !isValidSnapshotSourcePosition(files.get(value.path), value.line, value.column)) throw invalid();
     return { path: value.path, line: value.line, column: value.column };
   };
   const ids = new Map();

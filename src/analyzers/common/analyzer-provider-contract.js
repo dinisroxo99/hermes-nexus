@@ -39,6 +39,13 @@ export function detectSnapshotLanguages(sourceFiles) {
   return [...new Set(normalizeContextSources(sourceFiles).map((file) => LANGUAGES[path.posix.extname(file.path).toLowerCase()]).filter(Boolean))].sort();
 }
 
+export function isValidSnapshotSourcePosition(source, line, column) {
+  if (!providerRecord(source) || typeof source.text !== "string"
+    || !Number.isSafeInteger(line) || !Number.isSafeInteger(column)) return false;
+  const lines = source.text.split(/\r?\n/);
+  return line >= 1 && line <= lines.length && column >= 1 && column <= lines[line - 1].length + 1;
+}
+
 export function createProviderSnapshot(project, sourceFiles, revision = {}) {
   const projectId = project.projectId ?? null;
   if (projectId !== null) validateProjectId(projectId);

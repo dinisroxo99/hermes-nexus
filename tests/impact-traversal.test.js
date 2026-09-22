@@ -36,9 +36,9 @@ function edge(from, to, relation = "imports", location) {
   return { from, to, relation, ...(location ? { location } : {}) };
 }
 
-function graph({ provider = nativeProvider, nodes = [], edges = [], status = "available", limited = false, uncovered = [], sourcePaths } = {}) {
-  const paths = sourcePaths ?? [...new Set(nodes.map((n) => n.file))].sort();
-  const snapshot = createProviderSnapshot({ projectId: "Prj_Impact" }, sources(paths), { status: "available", commitSha: "a".repeat(40), worktreeId: "wt_one" });
+function graph({ provider = nativeProvider, nodes = [], edges = [], status = "available", limited = false, uncovered = [], sourcePaths, sourceFiles } = {}) {
+  const paths = sourcePaths ?? sourceFiles?.map((file) => file.path) ?? [...new Set(nodes.map((n) => n.file))].sort();
+  const snapshot = createProviderSnapshot({ projectId: "Prj_Impact" }, sourceFiles ?? sources(paths), { status: "available", commitSha: "a".repeat(40), worktreeId: "wt_one" });
   const observed = snapshot.languages;
   const covered = observed.filter((language) => provider?.languages?.includes(language) && !uncovered.includes(language));
   return {
@@ -233,6 +233,30 @@ test("binds witness provenance to the supplied snapshot envelope", () => {
   assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: { ...boundGraph, edges: [edge("consumer", "origin", "references", { path: "missing.js", line: 1, column: 1 })] } }), { code: "invalid_impact_traversal" });
 });
 
+test("validates optional source identity independently for text and hash records", () => {
+  const boundGraph = graph({ nodes: [node("origin", "origin.js"), node("consumer", "consumer.js")], edges: [edge("consumer", "origin", "references")] });
+  const [consumer, origin] = boundGraph.snapshot.files;
+  const run = (sourceFiles) => analyzeSingleFileReverseImpact({ originPath: "origin.js", sourceFiles, graph: boundGraph });
+  const invalid = (sourceFiles) => assert.throws(() => run(sourceFiles), { code: "invalid_impact_traversal" });
+
+  assert.equal(run(boundGraph.snapshot.files).findingState, "evidence_found");
+  assert.equal(run(boundGraph.snapshot.files.map(({ path, sha256 }) => ({ path, sha256 }))).findingState, "evidence_found");
+  assert.equal(run([{ path: consumer.path, sha256: consumer.sha256 }, { path: origin.path, text: origin.text, sha256: origin.sha256 }]).findingState, "evidence_found");
+  assert.equal(run([{ path: origin.path, text: origin.text }, { path: consumer.path, hash: consumer.sha256 }]).findingState, "evidence_found");
+
+  invalid([{ path: consumer.path, sha256: consumer.sha256 }, { path: origin.path, text: "// stale\n", sha256: origin.sha256 }]);
+  invalid([{ path: origin.path, text: "// stale\n" }, { path: consumer.path, sha256: consumer.sha256 }]);
+  invalid([{ path: consumer.path, sha256: consumer.sha256 }, { path: origin.path, text: 1, sha256: origin.sha256 }]);
+  invalid([{ path: origin.path, text: origin.text, sha256: consumer.sha256 }, { path: consumer.path, sha256: consumer.sha256 }]);
+  invalid([{ path: origin.path, text: origin.text, sha256: origin.sha256, hash: consumer.sha256 }, { path: consumer.path, sha256: consumer.sha256 }]);
+  invalid([{ path: origin.path, sha256: "0".repeat(64) }, { path: consumer.path, sha256: consumer.sha256 }]);
+  invalid([{ path: origin.path, text: "// stale\n" }, { path: consumer.path, text: consumer.text }]);
+  invalid([{ path: origin.path, sha256: origin.sha256 }, { path: consumer.path, sha256: "0".repeat(64) }]);
+  invalid([{ path: origin.path, sha256: origin.sha256 }, { path: origin.path, sha256: origin.sha256 }, { path: consumer.path, sha256: consumer.sha256 }]);
+  invalid([{ path: origin.path, sha256: origin.sha256 }]);
+  invalid([{ path: origin.path, sha256: origin.sha256 }, { path: consumer.path, sha256: consumer.sha256 }, { path: "extra.js", sha256: "0".repeat(64) }]);
+});
+
 test("gates no-evidence on supported capabilities and target coverage", () => {
   const symbolsOnly = normalizeProviderDescriptor({ ...nativeProvider, capabilities: capabilities({ dependencies: "unsupported", references: "unsupported" }) });
   const unsupported = analyzeSingleFileReverseImpact({ originPath: "origin.js", sourceFiles: sources(["origin.js"]), graph: graph({ provider: symbolsOnly, sourcePaths: ["origin.js"] }) });
@@ -265,6 +289,87 @@ test("gates no-evidence on supported capabilities and target coverage", () => {
     assert.equal(result.findingState, "not_evaluated", target);
     assert(result.completeness.provider.includes("uncovered_language"), target);
   }
+});
+
+test("uses normalized capability defaults for eligibility, edges and witnesses", () => {
+  const rawProvider = (operation, level, explicitNull = false) => ({
+    id: "native.raw",
+    version: "1",
+    kind: "native",
+    priority: 100,
+    languages: ["javascript"],
+    capabilities: {
+      boundedSourceAnalysis: "structural",
+      symbols: "structural",
+      ...(operation ? { [operation]: level } : {}),
+      ...(explicitNull ? { dependencies: null, references: null } : {})
+    }
+  });
+  for (const provider of [rawProvider(), rawProvider(null, null, true)]) {
+    const result = analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: graph({ provider, sourcePaths: ["origin.js"] }) });
+    assert.equal(result.findingState, "not_evaluated");
+    assert.deepEqual(result.completeness.provider, ["provider_unsupported"]);
+    assert.deepEqual(result.provider, { id: "native.raw", version: "1" });
+  }
+
+  for (const [supportedOperation, supportedRelation, unsupportedRelation] of [
+    ["dependencies", "imports", "references"],
+    ["references", "references", "imports"]
+  ]) {
+    const provider = rawProvider(supportedOperation, "semantic");
+    const nodes = [node("origin", "origin.js"), node("consumer", "consumer.js")];
+    const valid = analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: graph({ provider, nodes, edges: [edge("consumer", "origin", supportedRelation)] }) });
+    assert.equal(valid.findingState, "evidence_found");
+    assert.equal(valid.affectedFiles[0].origins[0].witness.capability, supportedOperation);
+    assert.equal(valid.affectedFiles[0].origins[0].witness.basis, "semantic");
+    assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: graph({ provider, nodes, edges: [edge("consumer", "origin", unsupportedRelation)] }) }), { code: "invalid_impact_traversal" });
+  }
+
+  const dependencyProvider = rawProvider("dependencies", "structural");
+  const nullReferences = { ...dependencyProvider, capabilities: { ...dependencyProvider.capabilities, references: null } };
+  const nodes = [node("origin", "origin.js"), node("consumer", "consumer.js")];
+  assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: graph({ provider: nullReferences, nodes, edges: [edge("consumer", "origin", "references")] }) }), { code: "invalid_impact_traversal" });
+  const referenceProvider = rawProvider("references", "structural");
+  const nullDependencies = { ...referenceProvider, capabilities: { ...referenceProvider.capabilities, dependencies: null } };
+  assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: graph({ provider: nullDependencies, nodes, edges: [edge("consumer", "origin", "imports")] }) }), { code: "invalid_impact_traversal" });
+  const validControl = analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: graph({ provider: nativeProvider, nodes, edges: [edge("consumer", "origin", "references")] }) });
+  assert.equal(validControl.findingState, "evidence_found");
+});
+
+test("binds graph node files and UTF-16 positions to observed sources", () => {
+  const unicodeLine = "const face = \"😀\";";
+  const sourceFiles = [
+    { path: "origin.js", text: "export const origin = 1;\n" },
+    { path: "consumer.js", text: `${unicodeLine}\nuse(origin);\n` },
+    { path: "reference.js", text: "origin;\n" }
+  ];
+  const nodes = [node("origin", "origin.js"), { ...node("consumer", "consumer.js"), line: 2 }];
+  const base = graph({ sourceFiles, nodes, edges: [edge("consumer", "origin", "references")] });
+  const run = (patch) => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: { ...base, ...patch } });
+  const invalid = (patch) => assert.throws(() => run(patch), { code: "invalid_impact_traversal" });
+
+  for (const location of [undefined, { path: "origin.js", line: 1, column: 1 }]) {
+    invalid({ nodes: [node("origin", "origin.js"), { ...node("consumer", "consumer.js"), file: "absent.js" }], edges: [edge("consumer", "origin", "references", location)] });
+  }
+  for (const line of [0, 4, "1", {}, 1n, Number.MAX_SAFE_INTEGER + 1]) {
+    invalid({ nodes: [node("origin", "origin.js"), { ...node("consumer", "consumer.js"), line }] });
+  }
+  for (const location of [
+    { path: "consumer.js", line: 0, column: 1 },
+    { path: "consumer.js", line: 4, column: 1 },
+    { path: "consumer.js", line: 1, column: 0 },
+    { path: "consumer.js", line: 1, column: unicodeLine.length + 2 },
+    { path: "consumer.js", line: 1n, column: 1 },
+    { path: "consumer.js", line: 1, column: Number.MAX_SAFE_INTEGER + 1 }
+  ]) invalid({ edges: [edge("consumer", "origin", "references", location)] });
+
+  const boundary = run({ edges: [edge("consumer", "origin", "references", { path: "consumer.js", line: 1, column: unicodeLine.length + 1 })] });
+  assert.equal(boundary.affectedFiles[0].origins[0].witness.location.column, unicodeLine.length + 1);
+  const nullable = run({ nodes: [node("origin", "origin.js"), { ...node("consumer", "consumer.js"), line: null }], edges: [edge("consumer", "origin", "references")] });
+  assert.equal(nullable.affectedFiles[0].origins[0].witness.location, null);
+  const perReferenceSource = run({ edges: [edge("consumer", "origin", "references", { path: "reference.js", line: 1, column: 7 })] });
+  assert.equal(perReferenceSource.affectedFiles[0].path, "consumer.js");
+  assert.equal(perReferenceSource.affectedFiles[0].origins[0].witness.source.path, "reference.js");
 });
 
 test("budgets seed admission under the visited-state limit", () => {

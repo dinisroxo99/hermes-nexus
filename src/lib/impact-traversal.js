@@ -1,5 +1,5 @@
-import { contextDigest, compareContextStrings as compare, normalizeContextSources } from "./project-context-files.js";
-import { createProviderSnapshot, detectSnapshotLanguages, normalizeProviderDescriptor } from "../analyzers/common/analyzer-provider-contract.js";
+import { CONTEXT_SOURCE_LIMITS, contextDigest, compareContextStrings as compare, normalizeContextSources } from "./project-context-files.js";
+import { createProviderSnapshot, detectSnapshotLanguages, isValidSnapshotSourcePosition, normalizeProviderDescriptor } from "../analyzers/common/analyzer-provider-contract.js";
 import {
   IMPACT_ANALYSIS_VERSION,
   IMPACT_LIMITS,
@@ -28,12 +28,13 @@ export function analyzeSingleFileReverseImpact(input = {}) {
   if (input.sourceLimited) addReason(completeness, "source", "source_limit");
   if (input.sourceUnavailable || (sourceFiles.length === 0 && !sourceByPath.has(originPath))) addReason(completeness, "source", "source_unavailable");
 
+  const { state: providerState, provider } = classifyProvider(graph, completeness);
   const base = {
     schemaVersion: 1,
     analysisVersion: IMPACT_ANALYSIS_VERSION,
     originPath,
     snapshotToken: snapshot.token,
-    provider: graph?.provider ? providerSummary(graph.provider) : null,
+    provider: provider ? providerSummary(provider) : null,
     revision: snapshot.revision,
     worktree: snapshot.worktree,
     limits,
@@ -42,10 +43,9 @@ export function analyzeSingleFileReverseImpact(input = {}) {
     completeness
   };
 
-  const providerState = classifyProvider(graph, completeness);
   if (providerState !== "evaluated") return finish({ ...base, status: providerState, findingState: "not_evaluated" });
 
-  if (!isRelevantOperationSupported(graph.provider)) {
+  if (!isRelevantOperationSupported(provider)) {
     addReason(completeness, "provider", "provider_unsupported");
     return finish({ ...base, status: statusFromCompleteness(completeness), findingState: "not_evaluated" });
   }
@@ -58,8 +58,15 @@ export function analyzeSingleFileReverseImpact(input = {}) {
     return finish({ ...base, status: statusFromCompleteness(completeness), findingState: "not_evaluated" });
   }
 
-  const nodes = normalizeNodes(graph.nodes);
-  const edges = normalizeEdges(graph.edges, graph.provider);
+  let nodes;
+  let edges;
+  try {
+    nodes = normalizeNodes(graph.nodes, sourceByPath);
+    edges = normalizeEdges(graph.edges, provider, sourceByPath);
+  } catch (error) {
+    if (error?.code === "invalid_impact_traversal") throw error;
+    throw invalidImpactTraversal();
+  }
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   for (const edge of edges) {
     if (!nodeById.has(edge.from) || !nodeById.has(edge.to)) throw invalidImpactTraversal();
@@ -119,7 +126,7 @@ export function analyzeSingleFileReverseImpact(input = {}) {
       }
       const observed = bestObservedInBoundDistance.get(consumer.id);
       if (observed === undefined || nextDistance < observed) bestObservedInBoundDistance.set(consumer.id, nextDistance);
-      const witness = makeWitness({ edge, graph, sourceByPath, consumer });
+      const witness = makeWitness({ edge, graph, provider, sourceByPath, consumer });
       if (consumer.file !== originPath || nextDistance === 0) {
         retainFile(bestFile, consumer.file, originPath, nextDistance, witness);
       }
@@ -158,14 +165,29 @@ export function analyzeSingleFileReverseImpact(input = {}) {
 
 function normalizeSources(sources) {
   try {
-    if (!Array.isArray(sources)) throw invalidImpactTraversal();
-    if (sources.every((source) => typeof source?.text === "string")) return normalizeContextSources(sources);
+    if (!Array.isArray(sources) || sources.length > CONTEXT_SOURCE_LIMITS.maxFiles) throw invalidImpactTraversal();
+    const textSources = sources.filter((source) => Object.hasOwn(source ?? {}, "text")).map((source) => {
+      if (!source || typeof source !== "object" || Array.isArray(source) || typeof source.text !== "string") throw invalidImpactTraversal();
+      return { path: source.path, text: source.text };
+    });
+    const normalizedText = new Map(normalizeContextSources(textSources).map((source) => [source.path, source]));
     const seen = new Set();
     return sources.map((source) => {
-      const normalized = { path: normalizeImpactPaths([source.path])[0], sha256: boundedHash(source.sha256 ?? source.hash) };
-      if (seen.has(normalized.path)) throw invalidImpactTraversal();
-      seen.add(normalized.path);
-      return normalized;
+      if (!source || typeof source !== "object" || Array.isArray(source)) throw invalidImpactTraversal();
+      const path = normalizeImpactPaths([source.path])[0];
+      if (seen.has(path)) throw invalidImpactTraversal();
+      seen.add(path);
+      const hashes = [];
+      if (Object.hasOwn(source, "sha256")) hashes.push(canonicalSourceHash(source.sha256));
+      if (Object.hasOwn(source, "hash")) hashes.push(canonicalSourceHash(source.hash));
+      if (hashes.length === 2 && hashes[0] !== hashes[1]) throw invalidImpactTraversal();
+      const withText = normalizedText.get(path);
+      if (withText) {
+        if (hashes.some((hash) => hash !== withText.sha256)) throw invalidImpactTraversal();
+        return { path, sha256: withText.sha256 };
+      }
+      if (hashes.length === 0) throw invalidImpactTraversal();
+      return { path, sha256: hashes[0] };
     }).sort((a, b) => compare(a.path, b.path));
   } catch (error) {
     if (error?.code === "invalid_impact_traversal") throw error;
@@ -227,31 +249,36 @@ function boundedHash(value) {
   return value;
 }
 
+function canonicalSourceHash(value) {
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) throw invalidImpactTraversal();
+  return value;
+}
+
 function classifyProvider(graph, completeness) {
   if (!graph || typeof graph !== "object") {
     addReason(completeness, "provider", "provider_unsupported");
-    return "unsupported";
+    return { state: "unsupported", provider: null };
   }
+  const provider = graph.provider ? normalizeTraversalProvider(graph.provider) : null;
   if (graph.status === "unavailable") {
     addReason(completeness, "provider", "provider_partial");
-    return "unavailable";
+    return { state: "unavailable", provider };
   }
-  if (graph.status === "unsupported" || graph.success === false || !graph.provider) {
+  if (graph.status === "unsupported" || graph.success === false || !provider) {
     addReason(completeness, "provider", "provider_unsupported");
-    return "unsupported";
+    return { state: "unsupported", provider };
   }
-  validateProviderDescriptor(graph.provider);
-  if (!["available", "partial"].includes(graph.status)) return "unavailable";
+  if (!["available", "partial"].includes(graph.status)) return { state: "unavailable", provider };
   if (graph.status === "partial" || graph.limited) addReason(completeness, "provider", "provider_partial");
   validateCoverage(graph.coverage);
   for (const uncovered of graph.coverage.uncovered) {
     if (uncovered) addReason(completeness, "provider", "uncovered_language");
   }
-  return "evaluated";
+  return { state: "evaluated", provider };
 }
 
-function validateProviderDescriptor(provider) {
-  try { normalizeProviderDescriptor(provider); }
+function normalizeTraversalProvider(provider) {
+  try { return normalizeProviderDescriptor(provider); }
   catch { throw invalidImpactTraversal(); }
 }
 
@@ -265,12 +292,17 @@ function validateCoverage(coverage) {
   }
 }
 
-function normalizeNodes(nodes) {
+function normalizeNodes(nodes, sourceByPath) {
   if (!Array.isArray(nodes)) throw invalidImpactTraversal();
   const seen = new Map();
   for (const node of nodes) {
     if (!node || typeof node !== "object" || Array.isArray(node) || typeof node.id !== "string" || typeof node.file !== "string") throw invalidImpactTraversal();
-    const normalized = { id: node.id, file: normalizeImpactPaths([node.file])[0], line: Number.isInteger(node.line) && node.line > 0 ? node.line : null };
+    const file = normalizeImpactPaths([node.file])[0];
+    const source = sourceByPath.get(file);
+    if (!source) throw invalidImpactTraversal();
+    const line = node.line === undefined || node.line === null ? null : positiveInteger(node.line);
+    if (line !== null && !isValidSnapshotSourcePosition(source, line, 1)) throw invalidImpactTraversal();
+    const normalized = { id: node.id, file, line };
     const current = seen.get(normalized.id);
     if (current && canonicalJson(current) !== canonicalJson(normalized)) throw invalidImpactTraversal();
     if (!current) seen.set(normalized.id, normalized);
@@ -278,7 +310,7 @@ function normalizeNodes(nodes) {
   return [...seen.values()].sort(compareNodes);
 }
 
-function normalizeEdges(edges, provider) {
+function normalizeEdges(edges, provider, sourceByPath) {
   if (!Array.isArray(edges)) throw invalidImpactTraversal();
   const seen = new Map();
   for (const edge of edges) {
@@ -291,7 +323,7 @@ function normalizeEdges(edges, provider) {
       from: edge.from,
       to: edge.to,
       relation: edge.relation,
-      location: normalizeOptionalLocation(edge.location)
+      location: normalizeOptionalLocation(edge.location, sourceByPath)
     };
     seen.set(edgeKey(normalized), normalized);
   }
@@ -302,13 +334,13 @@ function capabilityForRelation(relation) {
   return relation === "imports" ? "dependencies" : "references";
 }
 
-function normalizeOptionalLocation(location) {
+function normalizeOptionalLocation(location, sourceByPath) {
   if (location === undefined || location === null) return null;
-  return {
-    path: normalizeImpactPaths([location.path])[0],
-    line: positiveInteger(location.line),
-    column: positiveInteger(location.column)
-  };
+  if (!location || typeof location !== "object" || Array.isArray(location)) throw invalidImpactTraversal();
+  const normalized = { path: normalizeImpactPaths([location.path])[0], line: positiveInteger(location.line), column: positiveInteger(location.column) };
+  const source = sourceByPath.get(normalized.path);
+  if (!source || !isValidSnapshotSourcePosition(source, normalized.line, normalized.column)) throw invalidImpactTraversal();
+  return normalized;
 }
 
 function positiveInteger(value) {
@@ -316,20 +348,20 @@ function positiveInteger(value) {
   return value;
 }
 
-function makeWitness({ edge, graph, sourceByPath, consumer }) {
+function makeWitness({ edge, graph, provider, sourceByPath, consumer }) {
   const capability = edge.relation === "imports" ? "dependencies" : "references";
   const sourcePath = edge.location?.path ?? consumer.file;
   const source = sourceByPath.get(sourcePath);
   if (!source) throw invalidImpactTraversal();
   return {
-    id: `impact_edge_${contextDigest(JSON.stringify([graph.snapshotToken ?? null, graph.provider.id, graph.provider.version, edge]))}`,
-    provider: providerSummary(graph.provider),
+    id: `impact_edge_${contextDigest(JSON.stringify([graph.snapshotToken ?? null, provider.id, provider.version, edge]))}`,
+    provider: providerSummary(provider),
     capability,
     relationshipKind: edge.relation,
     source: { path: source.path, hash: source.sha256 },
     location: edge.location,
-    trust: graph.provider.kind === "external" ? "untrusted_external_analysis" : "derived_analysis",
-    basis: graph.provider.capabilities?.[capability] === "semantic" ? "semantic" : "structural"
+    trust: provider.kind === "external" ? "untrusted_external_analysis" : "derived_analysis",
+    basis: provider.capabilities[capability] === "semantic" ? "semantic" : "structural"
   };
 }
 
