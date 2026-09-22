@@ -11,12 +11,24 @@ import {
 } from "./impact-policy.js";
 
 const EDGE_RELATIONS = Object.freeze(["imports", "uses", "references"]);
+const RELEVANT_CAPABILITIES = Object.freeze(["dependencies", "references"]);
+const EXTENSION_LANGUAGES = Object.freeze({
+  ".cs": "csharp",
+  ".csproj": "csharp",
+  ".ts": "typescript",
+  ".tsx": "typescript",
+  ".js": "javascript",
+  ".jsx": "javascript",
+  ".py": "python"
+});
 
 export function analyzeSingleFileReverseImpact(input = {}) {
   const originPath = normalizeImpactPaths([input.originPath])[0];
   const limits = normalizeImpactLimits(input.limits);
   const graph = input.graph && typeof input.graph === "object" ? input.graph : null;
-  const sourceFiles = normalizeSources(input.sourceFiles ?? []);
+  const snapshot = normalizeBoundSnapshot(input.snapshot ?? graph?.snapshot);
+  validateSnapshotBinding({ graph, snapshot, sourceFiles: input.sourceFiles });
+  const sourceFiles = snapshot.files;
   const sourceByPath = new Map(sourceFiles.map((source) => [source.path, source]));
   const completeness = emptyCompleteness();
 
@@ -27,7 +39,7 @@ export function analyzeSingleFileReverseImpact(input = {}) {
     schemaVersion: 1,
     analysisVersion: IMPACT_ANALYSIS_VERSION,
     originPath,
-    snapshotToken: graph?.snapshotToken ?? null,
+    snapshotToken: snapshot.token,
     provider: graph?.provider ? providerSummary(graph.provider) : null,
     revision: graph?.revision ?? null,
     worktree: graph?.worktree ?? null,
@@ -40,9 +52,25 @@ export function analyzeSingleFileReverseImpact(input = {}) {
   const providerState = classifyProvider(graph, completeness);
   if (providerState !== "evaluated") return finish({ ...base, status: providerState, findingState: "not_evaluated" });
 
+  if (!isRelevantOperationSupported(graph.provider)) {
+    addReason(completeness, "provider", "provider_unsupported");
+    return finish({ ...base, status: statusFromCompleteness(completeness), findingState: "not_evaluated" });
+  }
+  if (!sourceByPath.has(originPath)) {
+    addReason(completeness, "source", "source_unavailable");
+    return finish({ ...base, status: statusFromCompleteness(completeness), findingState: "not_evaluated" });
+  }
+  if (!isOriginLanguageCovered(graph, originPath)) {
+    addReason(completeness, "provider", "uncovered_language");
+    return finish({ ...base, status: statusFromCompleteness(completeness), findingState: "not_evaluated" });
+  }
+
   const nodes = normalizeNodes(graph.nodes);
-  const edges = normalizeEdges(graph.edges);
+  const edges = normalizeEdges(graph.edges, graph.provider);
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  for (const edge of edges) {
+    if (!nodeById.has(edge.from) || !nodeById.has(edge.to)) throw invalidImpactTraversal();
+  }
   const originNodes = nodes.filter((node) => node.file === originPath);
   if (originNodes.length === 0) return finish({ ...base, status: statusFromCompleteness(completeness), findingState: "no_evidence_found" });
   if (limits.depth === 0) return finish({ ...base, status: statusFromCompleteness(completeness), findingState: "no_evidence_found" });
@@ -56,12 +84,19 @@ export function analyzeSingleFileReverseImpact(input = {}) {
   }
   for (const list of incoming.values()) list.sort(compareEdges);
 
-  const frontier = originNodes.map((node) => ({ id: node.id, distance: 0 })).sort(compareStates);
+  const frontier = [];
+  let workLimited = false;
+  for (const node of originNodes.sort(compareNodes)) {
+    if (frontier.length >= limits.traversalVisitedStates) {
+      workLimited = true;
+      continue;
+    }
+    frontier.push({ id: node.id, distance: 0 });
+  }
   const bestNodeDistance = new Map(frontier.map((state) => [state.id, state.distance]));
   const bestFile = new Map();
+  const overDepthCandidates = new Map();
   let edgeExaminations = 0;
-  let workLimited = false;
-  let depthLimited = false;
 
   while (frontier.length > 0) {
     frontier.sort(compareStates);
@@ -78,15 +113,18 @@ export function analyzeSingleFileReverseImpact(input = {}) {
       const consumer = nodeById.get(edge.from);
       if (!consumer) continue;
       const nextDistance = state.distance + (consumer.file === currentNode.file ? 0 : 1);
+      const known = bestNodeDistance.get(consumer.id);
       if (nextDistance > limits.depth) {
-        depthLimited = true;
+        if (known === undefined || nextDistance < known) {
+          const currentOverDepth = overDepthCandidates.get(consumer.id);
+          if (currentOverDepth === undefined || nextDistance < currentOverDepth) overDepthCandidates.set(consumer.id, nextDistance);
+        }
         continue;
       }
       const witness = makeWitness({ edge, graph, sourceByPath, consumer });
       if (consumer.file !== originPath || nextDistance === 0) {
         retainFile(bestFile, consumer.file, originPath, nextDistance, witness);
       }
-      const known = bestNodeDistance.get(consumer.id);
       if (known === undefined || nextDistance < known) {
         if (bestNodeDistance.size >= limits.traversalVisitedStates && known === undefined) {
           workLimited = true;
@@ -99,13 +137,15 @@ export function analyzeSingleFileReverseImpact(input = {}) {
     if (workLimited) break;
   }
 
-  if (depthLimited) addReason(completeness, "traversal", "depth_limit");
+  if ([...overDepthCandidates.keys()].some((id) => {
+    const best = bestNodeDistance.get(id);
+    return best === undefined || best > limits.depth;
+  })) addReason(completeness, "traversal", "depth_limit");
   if (workLimited) addReason(completeness, "traversal", "traversal_work_limit");
 
   let affectedFiles = [...bestFile.values()].sort(compareAffectedItems);
-  const discoveredAffectedCount = affectedFiles.length;
   if (affectedFiles.length > limits.affectedFiles) {
-    affectedFiles = affectedFiles.slice(0, limits.affectedFiles).map((item) => withOutputTruncation(item, discoveredAffectedCount));
+    affectedFiles = affectedFiles.slice(0, limits.affectedFiles);
     addReason(completeness, "output", "origin_limit");
   }
   affectedFiles = affectedFiles.map((item) => validateCompletedAffectedItem(item));
@@ -119,10 +159,71 @@ export function analyzeSingleFileReverseImpact(input = {}) {
 }
 
 function normalizeSources(sources) {
-  if (!Array.isArray(sources)) return [];
-  if (sources.every((source) => typeof source?.text === "string")) return normalizeContextSources(sources);
-  return sources.map((source) => ({ path: normalizeImpactPaths([source.path])[0], sha256: boundedHash(source.sha256 ?? source.hash) }))
-    .sort((a, b) => compare(a.path, b.path));
+  try {
+    if (!Array.isArray(sources)) throw invalidImpactTraversal();
+    if (sources.every((source) => typeof source?.text === "string")) return normalizeContextSources(sources);
+    const seen = new Set();
+    return sources.map((source) => {
+      const normalized = { path: normalizeImpactPaths([source.path])[0], sha256: boundedHash(source.sha256 ?? source.hash) };
+      if (seen.has(normalized.path)) throw invalidImpactTraversal();
+      seen.add(normalized.path);
+      return normalized;
+    }).sort((a, b) => compare(a.path, b.path));
+  } catch (error) {
+    if (error?.code === "invalid_impact_traversal") throw error;
+    throw invalidImpactTraversal();
+  }
+}
+
+function normalizeBoundSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) throw invalidImpactTraversal();
+  const token = boundedHash(snapshot.token ?? snapshot.snapshotToken);
+  const files = normalizeSources(snapshot.files);
+  if (files.length === 0) throw invalidImpactTraversal();
+  const projectId = snapshot.projectId ?? null;
+  if (projectId !== null) boundedHash(projectId);
+  const revision = snapshot.revision === undefined ? null : normalizeSnapshotRecord(snapshot.revision);
+  const worktree = snapshot.worktree === undefined ? null : normalizeSnapshotRecord(snapshot.worktree);
+  return { token, files, projectId, revision, worktree };
+}
+
+function normalizeSnapshotRecord(record) {
+  if (record === null) return null;
+  if (!record || typeof record !== "object" || Array.isArray(record)) throw invalidImpactTraversal();
+  return canonicalJson(record);
+}
+
+function validateSnapshotBinding({ graph, snapshot, sourceFiles }) {
+  if (!graph || typeof graph !== "object" || Array.isArray(graph)) return;
+  if (graph.snapshotToken !== snapshot.token) throw invalidImpactTraversal();
+  if (sourceFiles !== undefined && canonicalJson(normalizeSources(sourceFiles).map(sourceIdentity)) !== canonicalJson(snapshot.files.map(sourceIdentity))) {
+    throw invalidImpactTraversal();
+  }
+  if (graph.projectId !== undefined && graph.projectId !== null && graph.projectId !== snapshot.projectId) throw invalidImpactTraversal();
+  if (graph.revision !== undefined && snapshot.revision !== null && canonicalJson(graph.revision) !== snapshot.revision) throw invalidImpactTraversal();
+  if (graph.worktree !== undefined && snapshot.worktree !== null && canonicalJson(graph.worktree) !== snapshot.worktree) throw invalidImpactTraversal();
+}
+
+function sourceIdentity(source) {
+  return [source.path, source.sha256];
+}
+
+function isRelevantOperationSupported(provider) {
+  return RELEVANT_CAPABILITIES.some((capability) => provider.capabilities?.[capability] !== "unsupported");
+}
+
+function isOriginLanguageCovered(graph, originPath) {
+  const language = languageForPath(originPath);
+  if (!language) return true;
+  const covered = graph.coverage?.covered;
+  const uncovered = graph.coverage?.uncovered;
+  if (!Array.isArray(covered) || !Array.isArray(uncovered)) throw invalidImpactTraversal();
+  return covered.includes(language) && !uncovered.includes(language);
+}
+
+function languageForPath(filePath) {
+  const extension = filePath.slice(filePath.lastIndexOf("."));
+  return EXTENSION_LANGUAGES[extension] ?? null;
 }
 
 function boundedHash(value) {
@@ -143,30 +244,52 @@ function classifyProvider(graph, completeness) {
     addReason(completeness, "provider", "provider_unsupported");
     return "unsupported";
   }
+  validateProviderDescriptor(graph.provider);
   if (!["available", "partial"].includes(graph.status)) return "unavailable";
   if (graph.status === "partial" || graph.limited) addReason(completeness, "provider", "provider_partial");
+  if (!graph.coverage || typeof graph.coverage !== "object" || Array.isArray(graph.coverage)
+    || !Array.isArray(graph.coverage.covered) || !Array.isArray(graph.coverage.uncovered)) throw invalidImpactTraversal();
   for (const uncovered of graph.coverage?.uncovered ?? []) {
+    if (typeof uncovered !== "string") throw invalidImpactTraversal();
     if (uncovered) addReason(completeness, "provider", "uncovered_language");
   }
   return "evaluated";
 }
 
+function validateProviderDescriptor(provider) {
+  if (!provider || typeof provider !== "object" || Array.isArray(provider)) throw invalidImpactTraversal();
+  boundedHash(provider.id);
+  boundedHash(provider.version);
+  if (!["native", "external"].includes(provider.kind)) throw invalidImpactTraversal();
+  if (!provider.capabilities || typeof provider.capabilities !== "object" || Array.isArray(provider.capabilities)) throw invalidImpactTraversal();
+  for (const capability of RELEVANT_CAPABILITIES) {
+    const level = provider.capabilities[capability];
+    if (!["unsupported", "structural", "semantic"].includes(level)) throw invalidImpactTraversal();
+  }
+}
+
 function normalizeNodes(nodes) {
-  if (!Array.isArray(nodes)) return [];
+  if (!Array.isArray(nodes)) throw invalidImpactTraversal();
   const seen = new Map();
   for (const node of nodes) {
-    if (typeof node?.id !== "string" || typeof node.file !== "string") continue;
+    if (!node || typeof node !== "object" || Array.isArray(node) || typeof node.id !== "string" || typeof node.file !== "string") throw invalidImpactTraversal();
     const normalized = { id: node.id, file: normalizeImpactPaths([node.file])[0], line: Number.isInteger(node.line) && node.line > 0 ? node.line : null };
-    if (!seen.has(normalized.id)) seen.set(normalized.id, normalized);
+    const current = seen.get(normalized.id);
+    if (current && canonicalJson(current) !== canonicalJson(normalized)) throw invalidImpactTraversal();
+    if (!current) seen.set(normalized.id, normalized);
   }
   return [...seen.values()].sort(compareNodes);
 }
 
-function normalizeEdges(edges) {
-  if (!Array.isArray(edges)) return [];
+function normalizeEdges(edges, provider) {
+  if (!Array.isArray(edges)) throw invalidImpactTraversal();
   const seen = new Map();
   for (const edge of edges) {
-    if (typeof edge?.from !== "string" || typeof edge.to !== "string" || !EDGE_RELATIONS.includes(edge.relation)) continue;
+    if (!edge || typeof edge !== "object" || Array.isArray(edge) || typeof edge.from !== "string" || typeof edge.to !== "string" || !EDGE_RELATIONS.includes(edge.relation)) {
+      throw invalidImpactTraversal();
+    }
+    const capability = capabilityForRelation(edge.relation);
+    if (provider.capabilities?.[capability] === "unsupported") throw invalidImpactTraversal();
     const normalized = {
       from: edge.from,
       to: edge.to,
@@ -176,6 +299,10 @@ function normalizeEdges(edges) {
     seen.set(edgeKey(normalized), normalized);
   }
   return [...seen.values()].sort(compareEdges);
+}
+
+function capabilityForRelation(relation) {
+  return relation === "imports" ? "dependencies" : "references";
 }
 
 function normalizeOptionalLocation(location) {
@@ -196,12 +323,13 @@ function makeWitness({ edge, graph, sourceByPath, consumer }) {
   const capability = edge.relation === "imports" ? "dependencies" : "references";
   const sourcePath = edge.location?.path ?? consumer.file;
   const source = sourceByPath.get(sourcePath) ?? sourceByPath.get(consumer.file);
+  if (!source) throw invalidImpactTraversal();
   return {
     id: `impact_edge_${contextDigest(JSON.stringify([graph.snapshotToken ?? null, graph.provider.id, graph.provider.version, edge]))}`,
     provider: providerSummary(graph.provider),
     capability,
     relationshipKind: edge.relation,
-    source: { path: source?.path ?? sourcePath, hash: source?.sha256 ?? "unknown" },
+    source: { path: source.path, hash: source.sha256 },
     location: edge.location,
     trust: graph.provider.kind === "external" ? "untrusted_external_analysis" : "derived_analysis",
     basis: graph.provider.capabilities?.[capability] === "semantic" ? "semantic" : "structural"
@@ -216,18 +344,6 @@ function retainFile(bestFile, path, originPath, minimumDistance, witness) {
   };
   const current = bestFile.get(path);
   if (!current || compareAffectedItems(candidate, current) < 0) bestFile.set(path, candidate);
-}
-
-function withOutputTruncation(item, discoveredAffectedCount) {
-  return {
-    ...item,
-    originSummary: {
-      discoveredOriginCount: discoveredAffectedCount,
-      retainedOriginWitnessCount: item.origins.length,
-      attributionTruncated: true,
-      reasons: ["origin_limit"]
-    }
-  };
 }
 
 function finish(result) {
@@ -278,6 +394,18 @@ function compareAffectedItems(left, right) {
 
 function edgeKey(edge) {
   return JSON.stringify([edge.from, edge.to, edge.relation, edge.location ?? null]);
+}
+
+function canonicalJson(value) {
+  return JSON.stringify(canonicalValue(value));
+}
+
+function canonicalValue(value) {
+  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.keys(value).sort(compare).map((key) => [key, canonicalValue(value[key])]));
+  }
+  return value;
 }
 
 function invalidImpactTraversal() {

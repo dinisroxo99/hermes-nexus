@@ -35,14 +35,27 @@ function edge(from, to, relation = "imports", location) {
   return { from, to, relation, ...(location ? { location } : {}) };
 }
 
-function graph({ provider = nativeProvider, nodes = [], edges = [], status = "available", limited = false, uncovered = [] } = {}) {
+function languageFor(path) {
+  if (path.endsWith(".cs")) return "csharp";
+  if (path.endsWith(".py")) return "python";
+  if (path.endsWith(".ts")) return "typescript";
+  if (path.endsWith(".js")) return "javascript";
+  return "javascript";
+}
+
+function graph({ provider = nativeProvider, nodes = [], edges = [], status = "available", limited = false, uncovered = [], sourcePaths } = {}) {
+  const paths = sourcePaths ?? [...new Set(nodes.map((n) => n.file))].sort();
+  const observed = [...new Set(paths.map(languageFor))].sort();
+  const covered = observed.filter((language) => !uncovered.includes(language));
+  const snapshot = { token: `snap-${provider.id}`, files: sources(paths) };
   return {
     schemaVersion: 1,
     success: !["unsupported", "unavailable"].includes(status),
     status,
     provider: ["unsupported", "unavailable"].includes(status) ? null : provider,
-    snapshotToken: `snap-${provider.id}`,
-    coverage: { observed: ["javascript"], covered: ["javascript"], uncovered },
+    snapshotToken: snapshot.token,
+    snapshot,
+    coverage: { observed, covered, uncovered },
     attempts: [],
     nodes,
     edges,
@@ -165,14 +178,14 @@ test("preserves nullable locations without fabrication", () => {
 });
 
 test("handles partial, unsupported, unavailable and empty partial provider results honestly", () => {
-  const partialEmpty = analyzeSingleFileReverseImpact({ originPath: "one.py", sourceFiles: sources(["one.py"]), graph: graph({ status: "partial", limited: true, uncovered: ["python"] }) });
+  const partialEmpty = analyzeSingleFileReverseImpact({ originPath: "one.py", sourceFiles: sources(["one.py"]), graph: graph({ status: "partial", limited: true, uncovered: ["python"], sourcePaths: ["one.py"] }) });
   assert.equal(partialEmpty.status, "partial");
-  assert.equal(partialEmpty.findingState, "no_evidence_found");
+  assert.equal(partialEmpty.findingState, "not_evaluated");
   assert.deepEqual(partialEmpty.affectedFiles, []);
   assert.deepEqual(partialEmpty.completeness.provider, ["provider_partial", "uncovered_language"]);
 
   for (const status of ["unsupported", "unavailable"]) {
-    const result = analyzeSingleFileReverseImpact({ originPath: "one.py", sourceFiles: sources(["one.py"]), graph: graph({ status }) });
+    const result = analyzeSingleFileReverseImpact({ originPath: "one.py", sourceFiles: sources(["one.py"]), graph: graph({ status, sourcePaths: ["one.py"] }) });
     assert.equal(result.status, status);
     assert.equal(result.findingState, "not_evaluated");
     assert.deepEqual(result.affectedFiles, []);
@@ -196,8 +209,88 @@ test("supports native JS/TS, native .NET and external Python reference fixtures 
   assert.notEqual(witness.relationshipKind, "calls");
 });
 
-test("absent or symbol-free targets are bounded evaluated no-evidence results", () => {
-  const result = analyzeSingleFileReverseImpact({ originPath: "absent.js", sourceFiles: sources(["other.js"]), graph: graph({ nodes: [node("other", "other.js")], edges: [] }) });
-  assert.equal(result.findingState, "no_evidence_found");
-  assert.deepEqual(result.affectedFiles, []);
+test("distinguishes absent targets from observed symbol-free targets", () => {
+  const absent = analyzeSingleFileReverseImpact({ originPath: "absent.js", sourceFiles: sources(["other.js"]), graph: graph({ nodes: [node("other", "other.js")], edges: [] }) });
+  assert.equal(absent.findingState, "not_evaluated");
+  assert.deepEqual(absent.completeness.source, ["source_unavailable"]);
+  const symbolFree = analyzeSingleFileReverseImpact({ originPath: "empty.js", sourceFiles: sources(["empty.js"]), graph: graph({ nodes: [], edges: [], sourcePaths: ["empty.js"] }) });
+  assert.equal(symbolFree.findingState, "no_evidence_found");
+  assert.deepEqual(symbolFree.affectedFiles, []);
+});
+
+test("binds witness provenance to the supplied snapshot envelope", () => {
+  const boundGraph = graph({ nodes: [node("origin", "origin.js"), node("consumer", "consumer.js")], edges: [edge("consumer", "origin", "references")] });
+  const result = analyzeSingleFileReverseImpact({ originPath: "origin.js", sourceFiles: boundGraph.snapshot.files, graph: boundGraph });
+  assert.equal(result.snapshotToken, boundGraph.snapshot.token);
+  assert.equal(result.affectedFiles[0].origins[0].witness.source.path, "consumer.js");
+  assert.notEqual(result.affectedFiles[0].origins[0].witness.source.hash, "unknown");
+
+  assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", sourceFiles: sources(["origin.js", "consumer.js"]).map((file) => file.path === "consumer.js" ? { ...file, text: "// stale\n" } : file), graph: boundGraph }), { code: "invalid_impact_traversal" });
+  assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: { ...boundGraph, snapshotToken: "snap-stale" } }), { code: "invalid_impact_traversal" });
+  assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: { ...boundGraph, projectId: "Other_Project", snapshot: { ...boundGraph.snapshot, projectId: "Project_One" } } }), { code: "invalid_impact_traversal" });
+  assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: { ...boundGraph, revision: { commitSha: "a".repeat(40) }, snapshot: { ...boundGraph.snapshot, revision: { commitSha: "b".repeat(40) } } } }), { code: "invalid_impact_traversal" });
+  assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: { ...boundGraph, worktree: { id: "one" }, snapshot: { ...boundGraph.snapshot, worktree: { id: "two" } } } }), { code: "invalid_impact_traversal" });
+  assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: { ...boundGraph, snapshot: { ...boundGraph.snapshot, files: boundGraph.snapshot.files.filter((file) => file.path !== "consumer.js") } } }), { code: "invalid_impact_traversal" });
+});
+
+test("gates no-evidence on supported capabilities and target coverage", () => {
+  const symbolsOnly = { ...nativeProvider, capabilities: { dependencies: "unsupported", references: "unsupported" } };
+  const unsupported = analyzeSingleFileReverseImpact({ originPath: "origin.js", sourceFiles: sources(["origin.js"]), graph: graph({ provider: symbolsOnly, sourcePaths: ["origin.js"] }) });
+  assert.equal(unsupported.findingState, "not_evaluated");
+  assert.deepEqual(unsupported.completeness.provider, ["provider_unsupported"]);
+
+  assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", sourceFiles: sources(["origin.js", "consumer.js"]), graph: graph({ provider: { ...nativeProvider, capabilities: { dependencies: "structural", references: "unsupported" } }, nodes: [node("origin", "origin.js"), node("consumer", "consumer.js")], edges: [edge("consumer", "origin", "references")] }) }), { code: "invalid_impact_traversal" });
+
+  const uncovered = analyzeSingleFileReverseImpact({ originPath: "one.py", sourceFiles: sources(["one.py"]), graph: graph({ provider: pythonProvider, uncovered: ["python"], sourcePaths: ["one.py"] }) });
+  assert.equal(uncovered.findingState, "not_evaluated");
+  assert.deepEqual(uncovered.completeness.provider, ["uncovered_language"]);
+});
+
+test("budgets seed admission under the visited-state limit", () => {
+  const originSymbols = [node("o1", "origin.js"), node("o2", "origin.js"), node("o3", "origin.js")];
+  assert.deepEqual(analyzeSingleFileReverseImpact({ originPath: "origin.js", sourceFiles: sources(["origin.js"]), graph: graph({ nodes: originSymbols, edges: [] }), limits: { traversalVisitedStates: 3 } }).completeness.traversal, []);
+  assert.deepEqual(analyzeSingleFileReverseImpact({ originPath: "origin.js", sourceFiles: sources(["origin.js"]), graph: graph({ nodes: originSymbols.slice(0, 2), edges: [] }), limits: { traversalVisitedStates: 2 } }).completeness.traversal, []);
+  assert.deepEqual(analyzeSingleFileReverseImpact({ originPath: "origin.js", sourceFiles: sources(["origin.js"]), graph: graph({ nodes: originSymbols, edges: [] }), limits: { traversalVisitedStates: 2 } }).completeness.traversal, ["traversal_work_limit"]);
+  const withConsumer = analyzeSingleFileReverseImpact({ originPath: "origin.js", sourceFiles: sources(["origin.js", "consumer.js"]), graph: graph({ nodes: [...originSymbols, node("consumer", "consumer.js")], edges: [edge("consumer", "o1")] }), limits: { traversalVisitedStates: 3 } });
+  assert.deepEqual(withConsumer.completeness.traversal, ["traversal_work_limit"]);
+  assert.deepEqual(pathsOf(withConsumer), ["consumer.js:1"]);
+});
+
+test("keeps retained origin summaries truthful when affected files are trimmed", () => {
+  const base = { originPath: "origin.js", sourceFiles: sources(["origin.js", "a.js", "b.js"]), graph: graph({ nodes: [node("origin", "origin.js"), node("a", "a.js"), node("b", "b.js")], edges: [edge("a", "origin"), edge("b", "origin")] }) };
+  const exact = analyzeSingleFileReverseImpact({ ...base, limits: { affectedFiles: 2 } });
+  assert.deepEqual(exact.completeness.output, []);
+  for (const item of exact.affectedFiles) assert.deepEqual(item.originSummary, { discoveredOriginCount: 1, retainedOriginWitnessCount: 1, attributionTruncated: false, reasons: [] });
+  const trimmed = analyzeSingleFileReverseImpact({ ...base, limits: { affectedFiles: 1 } });
+  assert.deepEqual(trimmed.completeness.output, ["origin_limit"]);
+  assert.deepEqual(trimmed.affectedFiles[0].originSummary, { discoveredOriginCount: 1, retainedOriginWitnessCount: 1, attributionTruncated: false, reasons: [] });
+  validateCompletedAffectedItem(trimmed.affectedFiles[0]);
+});
+
+test("rejects malformed and conflicting graph/source evidence deterministically", () => {
+  const duplicateA = node("dup", "a.js");
+  const duplicateB = node("dup", "b.js");
+  for (const nodes of [[node("origin", "origin.js"), duplicateA, duplicateB], [node("origin", "origin.js"), duplicateB, duplicateA]]) {
+    assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: graph({ nodes, edges: [edge("dup", "origin")] }) }), { code: "invalid_impact_traversal" });
+  }
+  const identical = analyzeSingleFileReverseImpact({ originPath: "origin.js", sourceFiles: sources(["origin.js", "a.js"]), graph: graph({ nodes: [node("origin", "origin.js"), duplicateA, duplicateA], edges: [edge("dup", "origin")] }) });
+  assert.deepEqual(pathsOf(identical), ["a.js:1"]);
+  const base = graph({ nodes: [node("origin", "origin.js")], edges: [] });
+  for (const patch of [{ nodes: undefined }, { edges: {} }, { edges: [edge("missing", "origin")] }, { provider: {} }, { coverage: { uncovered: {} } }, { snapshot: { ...base.snapshot, files: [...base.snapshot.files, base.snapshot.files[0]] } }]) {
+    assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: { ...base, ...patch } }), { code: "invalid_impact_traversal" });
+  }
+});
+
+test("does not report depth truncation for redundant out-of-bound paths", () => {
+  const boundaryCycle = analyzeSingleFileReverseImpact({ originPath: "o.js", sourceFiles: sources(["o.js", "b.js"]), graph: graph({ nodes: [node("o", "o.js"), node("b", "b.js")], edges: [edge("b", "o"), edge("o", "b")] }), limits: { depth: 1 } });
+  assert.deepEqual(boundaryCycle.completeness.traversal, []);
+
+  const redundant = analyzeSingleFileReverseImpact({ originPath: "o.js", sourceFiles: sources(["o.js", "a.js", "b.js"]), graph: graph({ nodes: [node("o", "o.js"), node("a", "a.js"), node("b", "b.js")], edges: [edge("a", "o"), edge("b", "o"), edge("b", "a")] }), limits: { depth: 1 } });
+  assert.deepEqual(redundant.completeness.traversal, []);
+
+  const laterShorter = analyzeSingleFileReverseImpact({ originPath: "o.js", sourceFiles: sources(["o.js", "a.js", "b.js"]), graph: graph({ nodes: [node("o", "o.js"), node("a", "a.js"), node("z", "b.js"), node("c", "b.js")], edges: [edge("a", "o"), edge("z", "o"), edge("c", "a"), edge("c", "z")] }), limits: { depth: 1 } });
+  assert.deepEqual(laterShorter.completeness.traversal, []);
+
+  const genuine = analyzeSingleFileReverseImpact({ originPath: "o.js", sourceFiles: sources(["o.js", "a.js", "b.js"]), graph: graph({ nodes: [node("o", "o.js"), node("a", "a.js"), node("b", "b.js")], edges: [edge("a", "o"), edge("b", "a")] }), limits: { depth: 1 } });
+  assert.deepEqual(genuine.completeness.traversal, ["depth_limit"]);
 });
