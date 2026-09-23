@@ -5,6 +5,8 @@ import assert from "node:assert/strict";
 
 import { createProjectImpactHandler } from "../src/routes/project-impact.routes.js";
 import { registerIntelligenceRoutes } from "../src/routes/intelligence.routes.js";
+import { analyzeContextSources } from "../src/lib/analyzer-service.js";
+import { collectContextSources } from "../src/lib/project-context-files.js";
 import { buildProjectImpact } from "../src/lib/project-impact-service.js";
 import { createRouter } from "../src/utils/router.js";
 import { taskContextFixture } from "./helpers/task-context-fixture.js";
@@ -16,17 +18,30 @@ const ERROR_MESSAGE = "Project impact could not be constructed safely.";
 function responseRecorder() {
   return {
     writes: [],
+    headCalls: 0,
+    writeCalls: 0,
+    endCalls: 0,
+    destroyCalls: 0,
     status: null,
     headers: null,
     body: null,
     writeHead(status, headers) {
+      this.headCalls += 1;
       this.writes.push({ type: "head", status, headers });
       this.status = status;
       this.headers = headers;
     },
+    write() {
+      this.writeCalls += 1;
+      throw new Error("project impact responses must not stream");
+    },
     end(body) {
+      this.endCalls += 1;
       this.writes.push({ type: "end", body });
       this.body = body;
+    },
+    destroy() {
+      this.destroyCalls += 1;
     }
   };
 }
@@ -74,6 +89,15 @@ function syntheticObjectAtEnvelopeBytes(bytes) {
   const data = Object.freeze({ padding: "x".repeat(count) });
   assert.equal(Buffer.byteLength(successBody(data), "utf8"), bytes);
   return data;
+}
+
+function escapedSyntheticObjectAtEnvelopeBytes(bytes) {
+  const data = { marker: "café\"\\\n\u0000", padding: "" };
+  const count = bytes - Buffer.byteLength(successBody(data), "utf8");
+  assert.ok(count >= 0);
+  data.padding = "x".repeat(count);
+  assert.equal(Buffer.byteLength(successBody(data), "utf8"), bytes);
+  return Object.freeze(data);
 }
 
 test("project impact handler validates route identity before consuming or configuring the request", async () => {
@@ -236,6 +260,162 @@ test("project impact HTTP data equals live accepted single/multi domain results 
   }
   assert.deepEqual(bodies[0], bodies[1]);
   assert.equal(bodies[2].equals(bodies[0]), false);
+});
+
+test("project impact HTTP preserves exact real domain bytes at tight and maximum budgets across equivalent requests", async (t) => {
+  const f = taskContextFixture(t);
+  const base = {
+    getProjectConfig: () => ({ dataDir: f.root }),
+    getConfiguredProjectRoots: () => f.options.registry.roots,
+    buildProjectImpact
+  };
+  for (const compactBytes of [4096, 131072]) {
+    const firstRequest = {
+      paths: ["tests/one.test.ts", "src/one.ts"],
+      includeTests: true,
+      limits: { compactBytes }
+    };
+    const equivalentRequest = {
+      limits: { compactBytes },
+      includeTests: true,
+      paths: ["src/one.ts", "tests/one.test.ts"]
+    };
+    const expected = buildProjectImpact(f.request.projectId, firstRequest, f.options);
+    const domainBytes = Buffer.byteLength(JSON.stringify(expected), "utf8");
+    assert.ok(domainBytes <= compactBytes);
+    const expectedWire = Buffer.from(successBody(expected), "utf8");
+    assert.equal(expectedWire.length, domainBytes + 59);
+
+    const first = await invoke(firstRequest, base, f.request.projectId);
+    const repeated = await invoke(firstRequest, base, f.request.projectId);
+    const permuted = await invoke(equivalentRequest, base, f.request.projectId);
+    for (const response of [first, repeated, permuted]) {
+      assert.equal(response.res.status, 200);
+      assert.deepEqual(response.res.body, expectedWire);
+      assert.equal(response.res.headers["content-length"], expectedWire.length);
+      assert.deepEqual({
+        head: response.res.headCalls,
+        write: response.res.writeCalls,
+        end: response.res.endCalls,
+        destroy: response.res.destroyCalls
+      }, { head: 1, write: 0, end: 1, destroy: 0 });
+    }
+  }
+});
+
+test("project impact loopback serves an actual live-service result byte-for-byte", async (t) => {
+  const f = taskContextFixture(t);
+  const request = { paths: ["src/one.ts"], includeTests: true, limits: { compactBytes: 4096 } };
+  const expected = buildProjectImpact(f.request.projectId, request, f.options);
+  const router = createRouter();
+  registerIntelligenceRoutes(router, dependencies({
+    getProjectConfig: () => ({ dataDir: f.root }),
+    getConfiguredProjectRoots: () => f.options.registry.roots,
+    buildProjectImpact
+  }));
+  const server = http.createServer((req, res) => {
+    router.dispatch(req, res).then((matched) => {
+      if (!matched) { res.writeHead(404); res.end(); }
+    }).catch((error) => {
+      res.writeHead(500, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: "internal_error", message: error.message }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/intelligence/projects/${f.request.projectId}/impact`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(request)
+  });
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const expectedWire = Buffer.from(successBody(expected), "utf8");
+  assert.equal(response.status, 200);
+  assert.deepEqual(bytes, expectedWire);
+  assert.equal(Number(response.headers.get("content-length")), expectedWire.length);
+  assert.equal(expectedWire.length, Buffer.byteLength(JSON.stringify(expected), "utf8") + 59);
+});
+
+test("project impact HTTP maps composed binding, budget, and source-race precedence", async (t) => {
+  {
+    const f = taskContextFixture(t);
+    let collections = 0;
+    const result = await invoke({ paths: ["src/one.ts"], limits: { compactBytes: 1 } }, {
+      buildProjectImpact(projectId, input) {
+        return buildProjectImpact(projectId, input, {
+          ...f.options,
+          collectSources(project, options) { collections += 1; return collectContextSources(project, options); },
+          analyzeSources(project, files, options) {
+            return { ...analyzeContextSources(project, files, options), snapshotToken: "wrong-binding" };
+          }
+        });
+      }
+    }, f.request.projectId);
+    assert.equal(result.res.status, 500);
+    assert.equal(result.payload.error, "impact_failed");
+    assert.equal(collections, 1);
+  }
+
+  {
+    const f = taskContextFixture(t);
+    const result = await invoke({ paths: ["src/one.ts"], limits: { compactBytes: 1 } }, {
+      buildProjectImpact: (projectId, input) => buildProjectImpact(projectId, input, f.options)
+    }, f.request.projectId);
+    assert.equal(result.res.status, 400);
+    assert.equal(result.payload.error, "impact_budget_exceeded");
+  }
+
+  {
+    const f = taskContextFixture(t);
+    let builds = 0;
+    const result = await invoke({ paths: ["src/one.ts"] }, {
+      buildProjectImpact(projectId, input) {
+        builds += 1;
+        return buildProjectImpact(projectId, input, {
+          ...f.options,
+          analyzeSources(project, files, options) {
+            const graph = analyzeContextSources(project, files, options);
+            f.write("src/one.ts", "export class One { raced = true; }\n");
+            return graph;
+          }
+        });
+      }
+    }, f.request.projectId);
+    assert.equal(result.res.status, 409);
+    assert.equal(result.payload.error, "impact_sources_changed");
+    assert.equal(builds, 1);
+    assert.deepEqual({ head: result.res.headCalls, write: result.res.writeCalls, end: result.res.endCalls, destroy: result.res.destroyCalls },
+      { head: 1, write: 0, end: 1, destroy: 0 });
+  }
+});
+
+test("project impact transport measures repeated Unicode and JSON-escaped exact/overflow bytes deterministically", async () => {
+  let builderCalls = 0;
+  const bodies = new Map();
+  for (const bytes of [SUCCESS_LIMIT, SUCCESS_LIMIT + 1]) {
+    const data = escapedSyntheticObjectAtEnvelopeBytes(bytes);
+    for (let repeat = 0; repeat < 2; repeat += 1) {
+      const result = await invoke({ paths: ["src/café.ts"] }, {
+        buildProjectImpact() { builderCalls += 1; return data; }
+      });
+      const wire = Buffer.isBuffer(result.res.body) ? result.res.body : Buffer.from(result.res.body, "utf8");
+      assert.deepEqual({ head: result.res.headCalls, write: result.res.writeCalls, end: result.res.endCalls, destroy: result.res.destroyCalls },
+        { head: 1, write: 0, end: 1, destroy: 0 });
+      if (bytes === SUCCESS_LIMIT) {
+        assert.equal(result.res.status, 200);
+        assert.equal(wire.length, SUCCESS_LIMIT);
+        assert.deepEqual(wire, Buffer.from(successBody(data), "utf8"));
+      } else {
+        assert.equal(result.res.status, 500);
+        assert.equal(result.payload.error, "impact_response_too_large");
+        assert.equal(wire.length, 121);
+      }
+      assert.equal(result.res.headers["content-length"], wire.length);
+      if (bodies.has(bytes)) assert.deepEqual(wire, bodies.get(bytes));
+      else bodies.set(bytes, wire);
+    }
+  }
+  assert.equal(builderCalls, 4);
 });
 
 test("project impact transport accepts exactly 163840 bytes and rejects one byte over before success writes", async () => {
