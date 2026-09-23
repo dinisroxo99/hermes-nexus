@@ -22,6 +22,32 @@ transport failures, and verifies the returned identity and provenance before it
 exposes data. It does not discover projects, inspect Git, retry, cache, trim domain
 results, or infer safety. Existing `project_map_*` tools are unchanged.
 
+### Cooperative transport-cleanup guarantee
+
+The supported production boundary is the plugin-owned, per-invocation HTTPX 0.28.1
+default plain-HTTP/asyncio transport. Caller-configurable transports, hooks,
+arbitrary client subclasses, cancellation-swallowing closers, and a stalled
+scheduler or operating system are not termination guarantees. Injection seams are
+test-only.
+
+EOF, rejection, error, timeout, and cancellation use one observed response-stream
+and client-close lifecycle. Its single monotonic 2.0-second deadline begins at the
+first cleanup initiation, including automatic EOF close. At the deadline the
+plugin requests cancellation of unfinished owned cleanup, then joins every owned
+task and consumes every outcome before returning or re-raising caller
+cancellation. It never treats HTTPX `is_closed` or task cancellation alone as
+proof of release, and it does not detach cleanup to a background reaper. Success
+requires both required closes to have completed successfully within the deadline.
+Close failure or deadline expiry is reported as static `nexus_cleanup_failed` with
+the received status retained, unless caller cancellation takes precedence.
+
+The 2.0 seconds is therefore a cooperative cleanup/cancellation-initiation
+deadline, not a hard preemptive wall-clock bound on draining. Cancellation
+settlement and scheduling can extend elapsed time beyond it. If the supported
+library stack becomes non-cooperative and never settles, the invocation can remain
+unresolved rather than falsely report success or leave plugin-owned work behind.
+Hard containment would require separately authorized runtime/process isolation.
+
 This pilot is restricted to a clean, available linked worktree with an explicit
 persisted project ID, locator, full commit, branch (or explicit detached `null`),
 and clean/linked assertions. `expectedRevision` is a client acceptance condition.
@@ -83,8 +109,9 @@ Independent review must verify:
   again before HTTP;
 - both operations issue exactly one POST, with `projectId` only in the route and
   no `expectedRevision` on the wire;
-- transport is loopback-only, bounded, no-proxy, no-redirect, no-retry, and closes
-  resources on success, failure, timeout, and cancellation;
+- transport is loopback-only, bounded, no-proxy, no-redirect, no-retry, and owns
+  observed response/client close through settlement on success, failure, timeout,
+  EOF, and cancellation under the cooperative guarantee above;
 - server error text and unexpected exceptions cannot escape static errors;
 - missing response metadata fails as invalid, incompatible versions fail closed,
   and identity mismatch returns no domain data;

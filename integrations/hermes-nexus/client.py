@@ -7,7 +7,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 from urllib.parse import quote
 
 import httpx
@@ -356,6 +356,114 @@ def classify_http_error(tool: str, status: int, envelope: dict[str, Any]) -> Nex
     return _error(code, "http", status, message=_SAFE_SERVER_MESSAGE[tool])
 
 
+class _CloseLifecycle:
+    """Own response and client closure through observed task settlement."""
+
+    def __init__(self, client_close: Callable[[], Awaitable[None]]):
+        self._client_close = client_close
+        self._stream_close: Callable[[], Awaitable[None]] | None = None
+        self._tasks: set[asyncio.Task[None]] = set()
+        self._deadline: float | None = None
+        self._settled = False
+        self._ok = False
+
+    def attach_stream(self, stream: httpx.AsyncByteStream) -> httpx.AsyncByteStream:
+        self._stream_close = stream.aclose
+        return _OwnedResponseStream(stream, self)
+
+    @staticmethod
+    async def _run_closer(closer: Callable[[], Awaitable[None]]) -> None:
+        await closer()
+
+    def _start(self) -> None:
+        if self._tasks:
+            return
+        loop = asyncio.get_running_loop()
+        self._deadline = loop.time() + CLEANUP_TIMEOUT_SECONDS
+        closers: list[tuple[str, Callable[[], Awaitable[None]]]] = []
+        if self._stream_close is not None:
+            closers.append(("response", self._stream_close))
+        closers.append(("client", self._client_close))
+        self._tasks = {
+            asyncio.create_task(
+                self._run_closer(closer),
+                name=f"hermes-nexus-close-{name}",
+            )
+            for name, closer in closers
+        }
+
+    @staticmethod
+    def _defer_cancellation(
+        cancellation: asyncio.CancelledError | None,
+        caught: asyncio.CancelledError,
+    ) -> asyncio.CancelledError:
+        current = asyncio.current_task()
+        if current is not None:
+            current.uncancel()
+        return cancellation if cancellation is not None else caught
+
+    async def close(self) -> tuple[bool, asyncio.CancelledError | None]:
+        """Apply one cooperative deadline, then join and consume every closer."""
+        if self._settled:
+            return self._ok, None
+
+        self._start()
+        pending = set(self._tasks)
+        cancellation: asyncio.CancelledError | None = None
+        timed_out = False
+        assert self._deadline is not None
+
+        while pending:
+            remaining = self._deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                timed_out = True
+                break
+            try:
+                _done, pending = await asyncio.wait(pending, timeout=remaining)
+            except asyncio.CancelledError as exc:
+                cancellation = self._defer_cancellation(cancellation, exc)
+                continue
+            if pending:
+                timed_out = True
+                break
+
+        if pending:
+            for task in pending:
+                task.cancel()
+            while pending:
+                try:
+                    _done, pending = await asyncio.wait(pending)
+                except asyncio.CancelledError as exc:
+                    cancellation = self._defer_cancellation(cancellation, exc)
+
+        failed = timed_out
+        for task in self._tasks:
+            try:
+                task.result()
+            except BaseException:
+                failed = True
+        self._ok = not failed
+        self._settled = True
+        return self._ok, cancellation
+
+
+class _OwnedResponseStream(httpx.AsyncByteStream):
+    """Keep HTTPX EOF close inside the invocation's shared close lifecycle."""
+
+    def __init__(self, stream: httpx.AsyncByteStream, lifecycle: _CloseLifecycle):
+        self._stream = stream
+        self._lifecycle = lifecycle
+
+    async def __aiter__(self):
+        async for chunk in self._stream:
+            yield chunk
+
+    async def aclose(self) -> None:
+        _ok, cancellation = await self._lifecycle.close()
+        if cancellation is not None:
+            raise cancellation
+
+
 class NexusClient:
     """One-shot local HTTP client with no retry, cache, discovery, or Git logic."""
 
@@ -382,6 +490,7 @@ class NexusClient:
                 "Accept-Encoding": "identity",
             },
         )
+        lifecycle = _CloseLifecycle(client.aclose)
         response: httpx.Response | None = None
         cancelled: asyncio.CancelledError | None = None
         result: dict[str, Any] | None = None
@@ -390,6 +499,9 @@ class NexusClient:
             async with asyncio.timeout(TOTAL_TIMEOUT_SECONDS):
                 request = client.build_request("POST", url, content=payload)
                 response = await client.send(request, stream=True)
+                if not isinstance(response.stream, httpx.AsyncByteStream):
+                    raise _error("nexus_invalid_response", "protocol", response.status_code)
+                response.stream = lifecycle.attach_stream(response.stream)
                 if 300 <= response.status_code <= 399:
                     raise _error("nexus_redirect_rejected", "http", response.status_code)
                 raw = await self._read_response(response)
@@ -416,7 +528,7 @@ class NexusClient:
             pending_error = exc
         except Exception:
             pending_error = _error("nexus_client_failed", "protocol", self._status(response))
-        cleanup_ok, cleanup_cancellation = await self._cleanup(response, client)
+        cleanup_ok, cleanup_cancellation = await lifecycle.close()
         if cancelled is None:
             cancelled = cleanup_cancellation
         if cancelled is not None:
@@ -465,67 +577,3 @@ class NexusClient:
         if declared is not None and declared != total:
             raise _error("nexus_invalid_response", "protocol", response.status_code)
         return b"".join(chunks)
-
-    async def _cleanup(
-        self,
-        response: httpx.Response | None,
-        client: httpx.AsyncClient,
-    ) -> tuple[bool, asyncio.CancelledError | None]:
-        """Attempt every closer within one deadline and defer caller cancellation."""
-        closers = []
-        if response is not None:
-            closers.append(("response", response.aclose))
-        closers.append(("client", client.aclose))
-        tasks = {
-            asyncio.create_task(closer(), name=f"hermes-nexus-close-{name}")
-            for name, closer in closers
-        }
-        pending = set(tasks)
-        deadline = asyncio.get_running_loop().time() + CLEANUP_TIMEOUT_SECONDS
-        cancellation: asyncio.CancelledError | None = None
-        timed_out = False
-
-        while pending:
-            remaining = deadline - asyncio.get_running_loop().time()
-            if remaining <= 0:
-                timed_out = True
-                break
-            try:
-                _done, pending = await asyncio.wait(pending, timeout=remaining)
-            except asyncio.CancelledError as exc:
-                if cancellation is None:
-                    cancellation = exc
-                current = asyncio.current_task()
-                if current is not None:
-                    current.uncancel()
-                continue
-            if pending:
-                timed_out = True
-                break
-
-        if pending:
-            # A second cancellation terminates a closer that handled the first.
-            # Each pulse yields only one event-loop turn and cannot extend the
-            # configured cleanup deadline into another blocking wait.
-            for _attempt in range(4):
-                for task in pending:
-                    task.cancel()
-                try:
-                    await asyncio.sleep(0)
-                except asyncio.CancelledError as exc:
-                    if cancellation is None:
-                        cancellation = exc
-                    current = asyncio.current_task()
-                    if current is not None:
-                        current.uncancel()
-                pending = {task for task in pending if not task.done()}
-                if not pending:
-                    break
-
-        failed = timed_out or bool(pending)
-        for task in tasks - pending:
-            try:
-                task.result()
-            except BaseException:
-                failed = True
-        return not failed, cancellation

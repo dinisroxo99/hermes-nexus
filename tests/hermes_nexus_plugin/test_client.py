@@ -679,21 +679,22 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(caught.exception.http_status, 200)
         self.assertEqual(set(calls), {"response", "client"})
 
-    async def test_cleanup_timeout_cancels_resistant_closer_without_surviving_task(self):
+    async def test_cleanup_deadline_cancels_then_joins_resistant_closer(self):
         original = client_module.CLEANUP_TIMEOUT_SECONDS
         client_module.CLEANUP_TIMEOUT_SECONDS = 0.01
         cancellation_seen = asyncio.Event()
+        release = asyncio.Event()
         client_closed = asyncio.Event()
         try:
             class ResistantClient(httpx.AsyncClient):
                 async def aclose(self):
-                    try:
-                        await asyncio.Event().wait()
-                    except asyncio.CancelledError:
-                        cancellation_seen.set()
-                        await asyncio.Event().wait()
-                    finally:
-                        client_closed.set()
+                    while not release.is_set():
+                        try:
+                            await release.wait()
+                        except asyncio.CancelledError:
+                            cancellation_seen.set()
+                    await super().aclose()
+                    client_closed.set()
 
             async def handler(_request):
                 return response(context_data(), "Task context constructed.")
@@ -703,18 +704,128 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                 transport=httpx.MockTransport(handler),
                 client_factory=ResistantClient,
             )
+            task = asyncio.create_task(
+                nexus.request("project_task_context", arguments(), {})
+            )
+            await asyncio.wait_for(cancellation_seen.wait(), 1)
+            await asyncio.sleep(0)
+            self.assertFalse(task.done())
+            release.set()
             with self.assertRaises(client_module.NexusClientError) as caught:
-                await asyncio.wait_for(nexus.request("project_task_context", arguments(), {}), 0.2)
+                await asyncio.wait_for(task, 1)
             self.assertEqual(caught.exception.code, "nexus_cleanup_failed")
             self.assertEqual(caught.exception.http_status, 200)
-            self.assertTrue(cancellation_seen.is_set())
             self.assertTrue(client_closed.is_set())
             self.assertFalse([
                 item for item in asyncio.all_tasks()
-                if not item.done() and "aclose" in getattr(item.get_coro(), "__qualname__", "")
+                if not item.done() and item.get_name().startswith("hermes-nexus-close-")
+            ])
+        finally:
+            release.set()
+            client_module.CLEANUP_TIMEOUT_SECONDS = original
+
+    async def test_actual_httpx_eof_close_failure_is_cleanup_failure(self):
+        raw = encoded_envelope(context_data(), "Task context constructed.")
+        calls = []
+
+        class FailingEofStream(StreamingBytes):
+            async def aclose(self):
+                calls.append("response")
+                raise RuntimeError("TEST_ONLY_SECRET")
+
+        class TrackingClient(httpx.AsyncClient):
+            async def aclose(self):
+                calls.append("client")
+                await super().aclose()
+
+        async def handler(_request):
+            return httpx.Response(
+                200,
+                stream=FailingEofStream(raw),
+                headers={"content-type": "application/json"},
+            )
+
+        nexus = client_module.NexusClient(
+            "http://127.0.0.1:8770",
+            transport=httpx.MockTransport(handler),
+            client_factory=TrackingClient,
+        )
+        with self.assertRaises(client_module.NexusClientError) as caught:
+            await nexus.request("project_task_context", arguments(), {})
+        self.assertEqual(caught.exception.code, "nexus_cleanup_failed")
+        self.assertEqual(caught.exception.http_status, 200)
+        self.assertEqual(set(calls), {"response", "client"})
+
+    async def test_actual_httpx_eof_uses_cleanup_deadline_and_completes_owned_tasks(self):
+        original = client_module.CLEANUP_TIMEOUT_SECONDS
+        client_module.CLEANUP_TIMEOUT_SECONDS = 0.01
+        raw = encoded_envelope(context_data(), "Task context constructed.")
+        cancellation_seen = asyncio.Event()
+        closed = asyncio.Event()
+        try:
+            class SlowEofStream(StreamingBytes):
+                async def aclose(self):
+                    try:
+                        await asyncio.Event().wait()
+                    except asyncio.CancelledError:
+                        cancellation_seen.set()
+                    closed.set()
+
+            async def handler(_request):
+                return httpx.Response(
+                    200,
+                    stream=SlowEofStream(raw),
+                    headers={"content-type": "application/json"},
+                )
+
+            with self.assertRaises(client_module.NexusClientError) as caught:
+                await self._call("project_task_context", arguments(), {}, handler)
+            self.assertEqual(caught.exception.code, "nexus_cleanup_failed")
+            self.assertEqual(caught.exception.http_status, 200)
+            self.assertTrue(cancellation_seen.is_set())
+            self.assertTrue(closed.is_set())
+            self.assertFalse([
+                item for item in asyncio.all_tasks()
+                if not item.done() and item.get_name().startswith("hermes-nexus-close-")
             ])
         finally:
             client_module.CLEANUP_TIMEOUT_SECONDS = original
+
+    async def test_cancellation_during_actual_httpx_eof_waits_for_completion(self):
+        raw = encoded_envelope(context_data(), "Task context constructed.")
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        closed = asyncio.Event()
+
+        class GatedEofStream(StreamingBytes):
+            async def aclose(self):
+                entered.set()
+                await release.wait()
+                closed.set()
+
+        async def handler(_request):
+            return httpx.Response(
+                200,
+                stream=GatedEofStream(raw),
+                headers={"content-type": "application/json"},
+            )
+
+        task = asyncio.create_task(
+            self._call("project_task_context", arguments(), {}, handler)
+        )
+        await asyncio.wait_for(entered.wait(), 1)
+        for _ in range(4):
+            task.cancel()
+            await asyncio.sleep(0)
+        self.assertFalse(task.done())
+        release.set()
+        with self.assertRaises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 1)
+        self.assertTrue(closed.is_set())
+        self.assertFalse([
+            item for item in asyncio.all_tasks()
+            if not item.done() and item.get_name().startswith("hermes-nexus-close-")
+        ])
 
     async def test_repeated_cancellation_during_cleanup_is_deferred_until_closure(self):
         entered = asyncio.Event()
