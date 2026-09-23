@@ -671,3 +671,125 @@ test("M7 validates disconnected evidence and stale bindings before multi-target 
     }));
   }
 });
+
+test("M8 composes every multi-output stage cumulatively while preserving a truthful multi-origin survivor", () => {
+  const origins = ["a.js", "b.js", "c.js"];
+  const consumers = ["aa.js", "bb.js", "cc.js", "dd.js"];
+  const files = [...origins, ...consumers].map((path) => source(path));
+  const nodes = [...origins, ...consumers].map((path) => node(path, path));
+  const edges = consumers.flatMap((consumer) => origins.map((origin) => edge(consumer, origin)));
+  const observation = fixture({ files, nodes, edges, status: "partial", limited: true, sourceLimited: true });
+  const request = {
+    paths: ["c.js", "a.js", "b.js"],
+    limits: { originWitnessesPerItem: 2, affectedFiles: 3, originWitnessRecords: 4 }
+  };
+  const beforeBytes = composeProjectImpact(request, observation);
+  assert.deepEqual(beforeBytes.affectedFiles.map((item) => item.path), ["aa.js", "bb.js"]);
+  assert.deepEqual(beforeBytes.completeness.output, ["origin_limit", "witness_budget"]);
+
+  const trimmed = findBudgetResult(request, observation, (result) => result.affectedFiles.length === 1);
+  assert.deepEqual(trimmed.affectedFiles, [beforeBytes.affectedFiles[0]]);
+  const survivor = trimmed.affectedFiles[0];
+  assert.deepEqual(survivor.originSummary, {
+    discoveredOriginCount: 3,
+    retainedOriginWitnessCount: 2,
+    attributionTruncated: true,
+    reasons: ["origin_limit"]
+  });
+  assert.deepEqual(survivor.origins.map((origin) => origin.originPath), ["a.js", "b.js"]);
+  const sourceHashes = new Map(observation.snapshot.files.map((file) => [file.path, file.sha256]));
+  for (const origin of survivor.origins) {
+    assert.equal(origin.minimumDistance, 1);
+    assert.equal(origin.witness.source.path, "aa.js");
+    assert.equal(origin.witness.source.hash, sourceHashes.get("aa.js"));
+    assert.equal(origin.witness.trust, "derived_analysis");
+    assert.equal(origin.witness.basis, "structural");
+    assert.equal(origin.witness.relationshipKind, "references");
+  }
+  assert.deepEqual(trimmed.targets.map(({ originPath, status, findingState, completeness }) => ({ originPath, status, findingState, completeness })), [
+    { originPath: "a.js", status: "partial", findingState: "evidence_found", completeness: { source: ["source_limit"], provider: ["provider_partial"], traversal: [], output: ["origin_limit", "output_byte_limit", "witness_budget"] } },
+    { originPath: "b.js", status: "partial", findingState: "evidence_found", completeness: { source: ["source_limit"], provider: ["provider_partial"], traversal: [], output: ["origin_limit", "output_byte_limit", "witness_budget"] } },
+    { originPath: "c.js", status: "partial", findingState: "not_evaluated", completeness: { source: ["source_limit"], provider: ["provider_partial"], traversal: [], output: ["origin_limit"] } }
+  ]);
+  assert.equal(trimmed.status, "partial");
+  assert.equal(trimmed.findingState, "evidence_found");
+  assert.deepEqual(trimmed.completeness, {
+    source: ["source_limit"], provider: ["provider_partial"], traversal: [],
+    output: ["origin_limit", "output_byte_limit", "witness_budget"]
+  });
+  assert(bytes(trimmed) <= trimmed.limits.compactBytes);
+
+  const permuted = deepFreeze({
+    ...observation,
+    snapshot: { ...observation.snapshot, files: [...observation.snapshot.files].reverse(), languages: [...observation.snapshot.languages].reverse() },
+    graph: {
+      ...observation.graph,
+      nodes: [...observation.graph.nodes].reverse(),
+      edges: [...observation.graph.edges].reverse(),
+      coverage: Object.fromEntries(Object.entries(observation.graph.coverage).map(([key, values]) => [key, [...values].reverse()]))
+    }
+  });
+  const tightRequest = { ...request, paths: [...request.paths].reverse(), limits: { ...request.limits, compactBytes: trimmed.limits.compactBytes } };
+  assert.equal(JSON.stringify(composeProjectImpact(tightRequest, permuted)), JSON.stringify(trimmed));
+});
+
+test("M9 keeps a whole-item prefix without skipping a cheaper item and counts shared witness IDs per origin", () => {
+  const prefixObservation = fixture({
+    files: [source("a.js"), source("b.js"), source("aa.js"), source("zz.js")],
+    nodes: [node("a", "a.js"), node("b", "b.js"), node("aa", "aa.js"), node("zz", "zz.js")],
+    edges: [edge("aa", "a"), edge("aa", "b"), edge("zz", "a")]
+  });
+  const noSkip = composeProjectImpact({ paths: ["a.js", "b.js"], limits: { originWitnessRecords: 1 } }, prefixObservation);
+  assert.deepEqual(noSkip.affectedFiles, []);
+  assert.deepEqual(noSkip.completeness.output, ["witness_budget"]);
+  assert(noSkip.targets.every((target) => target.findingState === "not_evaluated"));
+
+  const sharedObservation = fixture({
+    files: [source("a.js"), source("b.js"), source("consumer.js"), source("tail.js")],
+    nodes: [node("a", "a.js"), node("b", "b.js"), node("consumer", "consumer.js"), node("tail", "tail.js")],
+    edges: [edge("consumer", "a"), edge("consumer", "b"), edge("tail", "consumer")]
+  });
+  const roomy = composeProjectImpact({ paths: ["a.js", "b.js"] }, sharedObservation);
+  const tail = roomy.affectedFiles.find((item) => item.path === "tail.js");
+  assert.equal(tail.origins.length, 2);
+  assert.equal(new Set(tail.origins.map((origin) => origin.witness.id)).size, 1);
+  const limited = composeProjectImpact({ paths: ["a.js", "b.js"], limits: { originWitnessRecords: 3 } }, sharedObservation);
+  assert.deepEqual(limited.affectedFiles.map((item) => item.path), ["consumer.js"]);
+  assert.equal(limited.affectedFiles[0].origins.length, 2);
+  assert.deepEqual(limited.completeness.output, ["witness_budget"]);
+});
+
+test("M10 accepts the exact empty Unicode multi-envelope and rejects one byte less", () => {
+  const paths = ["origins/ä.js", "origins/ß.js"];
+  const observation = fixture({
+    files: [...paths.map((path) => source(path)), source("consumers/漢.js")],
+    nodes: [node("a", paths[0]), node("b", paths[1]), node("consumer", "consumers/漢.js")],
+    edges: [edge("consumer", "a"), edge("consumer", "b")],
+    status: "partial",
+    limited: true,
+    sourceLimited: true
+  });
+  const request = { paths: [...paths].reverse() };
+  const zero = findBudgetResult(request, observation, (result) => result.affectedFiles.length === 0);
+  let exactBudget = bytes(zero);
+  let exact;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    exact = composeProjectImpact({ ...request, limits: { compactBytes: exactBudget } }, observation);
+    assert.deepEqual(exact.affectedFiles, []);
+    const measured = bytes(exact);
+    if (measured === exactBudget) break;
+    exactBudget = measured;
+  }
+  assert.equal(bytes(exact), exactBudget);
+  const canonicalPaths = [...paths].sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+  assert.deepEqual(exact.targets.map(({ originPath, targetSource, findingState, completeness }) => ({ originPath, targetSource, findingState, completeness })), canonicalPaths.map((originPath) => ({
+    originPath,
+    targetSource: { path: originPath, hash: observation.snapshot.files.find((file) => file.path === originPath).sha256 },
+    findingState: "not_evaluated",
+    completeness: { source: ["source_limit"], provider: ["provider_partial"], traversal: [], output: ["output_byte_limit"] }
+  })));
+  assert.deepEqual(exact.completeness, { source: ["source_limit"], provider: ["provider_partial"], traversal: [], output: ["output_byte_limit"] });
+  assert.equal(exact.findingState, "not_evaluated");
+  assert.equal(exact.observation.incomplete, true);
+  throwsCode("impact_budget_exceeded", () => composeProjectImpact({ ...request, limits: { compactBytes: exactBudget - 1 } }, observation));
+});
