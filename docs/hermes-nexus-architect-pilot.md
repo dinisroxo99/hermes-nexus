@@ -22,31 +22,65 @@ transport failures, and verifies the returned identity and provenance before it
 exposes data. It does not discover projects, inspect Git, retry, cache, trim domain
 results, or infer safety. Existing `project_map_*` tools are unchanged.
 
-### Cooperative transport-cleanup guarantee
+### Architect-only Option L lifecycle disclosure
 
-The supported production boundary is the plugin-owned, per-invocation HTTPX 0.28.1
-default plain-HTTP/asyncio transport. Caller-configurable transports, hooks,
-arbitrary client subclasses, cancellation-swallowing closers, and a stalled
-scheduler or operating system are not termination guarantees. Injection seams are
-test-only.
+The architect-only Option L pilot retains HTTPX 0.28.1 and its default transport,
+one bounded request, fail-closed results, and no retries. The 60.0-second total
+operation allowance includes request construction, send/read, response validation,
+and lower-library unwind while the HTTP operation remains pending, including
+automatic EOF cleanup encountered within it. The shared 2.0-second cleanup deadline
+begins at the first plugin-observable explicit/EOF response or client close, or at a
+plugin-observed caller-cancellation/total-timeout cleanup transition. A hidden
+HTTPX/httpcore internal close does not start it. At expiry the plugin requests
+cancellation and joins its owned work. Settlement can exceed the nominal deadline,
+and non-cooperation can leave the invocation unresolved. These are cooperative
+bounds, not a hard two-second settlement or absolute end-to-end return guarantee.
 
-EOF, rejection, error, timeout, and cancellation use one observed response-stream
-and client-close lifecycle. Its single monotonic 2.0-second deadline begins at the
-first cleanup initiation, including automatic EOF close. At the deadline the
-plugin requests cancellation of unfinished owned cleanup, then joins every owned
-task and consumes every outcome before returning or re-raising caller
-cancellation. It never treats HTTPX `is_closed` or task cancellation alone as
-proof of release, and it does not detach cleanup to a background reaper. Success
-requires both required closes to have completed successfully within the deadline.
-Close failure or deadline expiry is reported as static `nexus_cleanup_failed` with
-the received status retained, unless caller cancellation takes precedence.
+Every plugin-created task/timer and plugin-invoked close is settled and consumed
+before return. Observable caller cancellation is retained separately from plugin
+timeouts and re-raised after settlement, including repeated cancellation and
+overlap with protocol or cleanup failure. An already-recorded caller cancellation
+cannot be erased by a later library exception. Where a library replaces an
+exception before any caller-origin signal is observable, the plugin can classify
+only the surfaced public outcome; it does not claim to reconstruct the original
+cause. Plugin-observed explicit/EOF cleanup failure or shared cleanup-deadline
+expiry fails closed as `nexus_cleanup_failed`. Opaque internal unwind is classified
+by its surfaced send/read exception unless recorded cancellation or timeout takes
+precedence. Known HTTP status is retained.
 
-The 2.0 seconds is therefore a cooperative cleanup/cancellation-initiation
-deadline, not a hard preemptive wall-clock bound on draining. Cancellation
-settlement and scheduling can extend elapsed time beyond it. If the supported
-library stack becomes non-cooperative and never settles, the invocation can remain
-unresolved rather than falsely report success or leave plugin-owned work behind.
-Hard containment would require separately authorized runtime/process isolation.
+Cleanup is best effort for both response and client where available. A later no-op
+close, `is_closed` flag, joined operation, or trace-complete event does not prove
+that an earlier interrupted or failed internal release succeeded. Option L does
+not guarantee complete physical release or exact close-origin attribution across
+exceptional HTTPX/httpcore transport-failure/cancellation overlap. This is an
+accepted architect-pilot risk, not evidence that the historical Option B/T
+findings were fixed. Tests are not installation, runtime-exposure, or live-Nexus
+proof.
+
+Stop issuing pilot requests and escalate to the coordinator/operator on an
+invocation that fails to settle after cancellation, observed socket/descriptor/task
+accumulation, unconsumed task errors, swallowed or spuriously raised caller
+cancellation, repeated cleanup failures, or an identity/provenance mismatch. Do
+not retry, detach a reaper, auto-restart services, or change dependencies as
+remediation. Preserve only safe task/run/implementation-SHA/version identifiers,
+elapsed timing, known status, and static error codes; never log raw headers, body,
+trace information, paths containing secrets, or credentials. A cleanup overrun
+that later joins is a disclosed limitation, not by itself proof of a hang. Any
+separately authorized live pilot must define its observation/watchdog window and
+operator stop procedure without converting it into a library termination promise.
+
+Hard lifecycle isolation MUST be re-evaluated before any unattended 24/7 rollout,
+or immediately if a separately authorized live pilot shows hangs, leaks, or
+cancellation problems. Re-evaluation is an architecture/operator decision, not
+permission to add a custom transport/process, restart services, or continue the
+pilot automatically. Neither this runbook nor G1 authorizes installation, profile
+configuration, a live pilot, rollout, Step 4, push, merge, release, or deployment.
+
+Gates record the interpreter plus HTTPX/httpcore/AnyIO versions. Option L adds no
+per-request exact-version rejection. Version drift or a missing dependency blocks
+the gate and requires lifecycle requalification without modifying the environment;
+it is not authority to install, update, downgrade, or silently substitute a
+transport.
 
 This pilot is restricted to a clean, available linked worktree with an explicit
 persisted project ID, locator, full commit, branch (or explicit detached `null`),
@@ -73,11 +107,12 @@ global rollout, service start/restart, registry mutation, or cleanup.
 
 ## G1 — immutable implementation verification
 
-Provision an independent review workspace at the implementation SHA. Confirm the
-root, attached branch/SHA, clean index/worktree, and applicable `AGENTS.md` before
-running anything. Do not use a globally installed test dependency. Verify the
-existing Hermes interpreter rather than assuming a venv spelling; in the current
-installation it resolves from:
+Keep the correction writer attached to its approved branch. Provision independent
+tester and reviewer workspaces detached at the same immutable correction SHA.
+Confirm each root, SHA, clean index/tracked/non-ignored-untracked state, and
+applicable `AGENTS.md` before running anything. Do not use a globally installed
+test dependency. Verify the existing Hermes interpreter rather than assuming a
+venv spelling; in the current installation it resolves from:
 
 ```text
 /home/dinis/.hermes/hermes-agent/venv/bin/python
@@ -86,18 +121,22 @@ installation it resolves from:
 Run:
 
 ```text
-/home/dinis/.hermes/hermes-agent/venv/bin/python -B -m unittest discover -s tests/hermes_nexus_plugin -p 'test_*.py'
+PYTHONDONTWRITEBYTECODE=1 /home/dinis/.hermes/hermes-agent/venv/bin/python -B -m unittest discover -s tests/hermes_nexus_plugin -p 'test_*.py'
+hermes plugins validate integrations/hermes-nexus --json
 node --test tests/task-context-routes.test.js tests/task-context.test.js tests/task-context-providers.test.js tests/project-impact-routes.test.js tests/project-impact-service.test.js tests/project-impact.test.js tests/impact-policy.test.js tests/projects.test.js tests/project-revision.test.js
 npm test
 npm run check
-git diff --check
+git diff --check 6bdca67517c844f67476cc39fc688ed8334eedc4..HEAD
+git diff --check 4d8d23e564e355d84916b93d890762ac0c7498ee..HEAD
 ```
 
-If `node_modules` is absent, first verify `package.json` and `package-lock.json`
-against the accepted baseline. Only a deterministic `npm ci` is permitted, and the
-manifests and cleanliness must be checked again afterward. Record exact pass/fail/
-skip counts. Opt-in real Docker/Serena cases may remain skipped, but the skip count
-must be reported and mocks must not be called live Serena proof.
+Use existing dependencies only. If `node_modules` or another prerequisite is
+absent, block for separate authorization; this lane does not authorize `npm ci` or
+other provisioning. Verify `package.json` and `package-lock.json` against the
+accepted baseline and verify that no `tsconfig.json` was added. Record exact
+pass/fail/skip counts. Opt-in real Docker/Serena cases may remain skipped, but the
+skip count must be reported as a limitation and mocks must not be called live
+Serena proof.
 
 Independent review must verify:
 
