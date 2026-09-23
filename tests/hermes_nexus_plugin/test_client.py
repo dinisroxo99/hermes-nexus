@@ -756,6 +756,40 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(caught.exception.http_status, 200)
         self.assertEqual(set(calls), {"response", "client"})
 
+    async def test_actual_httpx_eof_completion_observes_both_closers(self):
+        raw = encoded_envelope(context_data(), "Task context constructed.")
+        calls = []
+
+        class TrackingEofStream(StreamingBytes):
+            async def aclose(self):
+                calls.append("response")
+                await super().aclose()
+
+        class TrackingClient(httpx.AsyncClient):
+            async def aclose(self):
+                calls.append("client")
+                await super().aclose()
+
+        async def handler(_request):
+            return httpx.Response(
+                200,
+                stream=TrackingEofStream(raw),
+                headers={"content-type": "application/json"},
+            )
+
+        nexus = client_module.NexusClient(
+            "http://127.0.0.1:8770",
+            transport=httpx.MockTransport(handler),
+            client_factory=TrackingClient,
+        )
+        result = await nexus.request("project_task_context", arguments(), {})
+        self.assertTrue(result["ok"])
+        self.assertEqual(set(calls), {"response", "client"})
+        self.assertFalse([
+            item for item in asyncio.all_tasks()
+            if not item.done() and item.get_name().startswith("hermes-nexus-close-")
+        ])
+
     async def test_actual_httpx_eof_uses_cleanup_deadline_and_completes_owned_tasks(self):
         original = client_module.CLEANUP_TIMEOUT_SECONDS
         client_module.CLEANUP_TIMEOUT_SECONDS = 0.01
