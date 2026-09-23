@@ -260,6 +260,7 @@ test("composition errors abort before all live reobservation stages", (t) => {
 
 test("buildProjectImpact detects a genuine successive dirty-source mutation before later stages", (t) => {
   const f = taskContextFixture(t);
+  f.write("src/one.ts", "export class One { dirtyVersion = 1; }\n");
   const calls = [];
   const project = getProjectByIdForIntelligence(f.request.projectId, f.options.registry);
   const excludedPaths = getNestedProjectPaths(project, f.options.registry);
@@ -275,7 +276,7 @@ test("buildProjectImpact detects a genuine successive dirty-source mutation befo
     analyzeSources(selected, files, analyzerOptions) {
       calls.push("analyze");
       const graph = analyzeContextSources(selected, files, analyzerOptions);
-      f.write("src/one.ts", "export class One { changed = true; }\n");
+      f.write("src/one.ts", "export class One { dirtyVersion = 2; }\n");
       return graph;
     }
   };
@@ -476,24 +477,48 @@ test("linked worktree observation uses selected sources and both selected/canoni
 });
 
 test("linked worktree re-resolution rejects selected/canonical parent identity changes", (t) => {
-  const f = taskContextFixture(t);
-  const linked = f.worktree();
-  const relocated = path.join(f.root, "relocated-parent");
-  fs.mkdirSync(relocated);
-  let reads = 0;
-  const options = {
-    ...f.options,
-    readRevision(project) {
-      if (++reads === 2) {
-        fs.writeFileSync(f.options.registry.manualProjectsFile, JSON.stringify([
-          { ...f.entries[0], relativePath: "relocated-parent" }
-        ]));
+  {
+    const f = taskContextFixture(t);
+    const linked = f.worktree();
+    const relocated = path.join(f.root, "relocated-parent");
+    fs.mkdirSync(relocated);
+    let reads = 0;
+    const options = {
+      ...f.options,
+      readRevision(project) {
+        if (++reads === 2) {
+          fs.writeFileSync(f.options.registry.manualProjectsFile, JSON.stringify([
+            { ...f.entries[0], relativePath: "relocated-parent" }
+          ]));
+        }
+        return safeRevision(project);
       }
-      return safeRevision(project);
-    }
-  };
-  throwsCode("impact_project_changed", () => buildProjectImpact(f.request.projectId, {
-    paths: ["src/one.ts"],
-    worktree: { rootId: "test", relativePath: path.basename(linked) }
-  }, options));
+    };
+    throwsCode("impact_project_changed", () => buildProjectImpact(f.request.projectId, {
+      paths: ["src/one.ts"],
+      worktree: { rootId: "test", relativePath: path.basename(linked) }
+    }, options));
+  }
+
+  {
+    const f = taskContextFixture(t);
+    const linked = f.worktree();
+    const alternateRoot = path.join(f.root, "alternate");
+    fs.mkdirSync(alternateRoot);
+    f.worktree("alternate/main");
+    f.worktree("alternate/linked");
+    let reads = 0;
+    const options = {
+      ...f.options,
+      readRevision(project) {
+        const revision = safeRevision(project);
+        if (++reads === 2) options.registry.roots[0].path = alternateRoot;
+        return revision;
+      }
+    };
+    throwsCode("impact_project_changed", () => buildProjectImpact(f.request.projectId, {
+      paths: ["src/one.ts"],
+      worktree: { rootId: "test", relativePath: path.basename(linked) }
+    }, options));
+  }
 });
