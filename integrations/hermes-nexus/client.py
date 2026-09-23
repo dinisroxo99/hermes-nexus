@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-from contextlib import suppress
+import math
+import re
 from dataclasses import dataclass
 from typing import Any, Callable
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
 import httpx
 
@@ -15,6 +16,7 @@ REQUEST_MAX_BYTES = 65_536
 RESPONSE_MAX_BYTES = 1_048_576
 TOTAL_TIMEOUT_SECONDS = 60.0
 CLEANUP_TIMEOUT_SECONDS = 2.0
+_BASE_URL_RE = re.compile(r"http://127\.0\.0\.1:([0-9]{1,5})(/)?\Z", re.ASCII)
 
 _SUCCESS = {
     "project_task_context": ("task-context", "task-context-v1", "Task context constructed."),
@@ -102,26 +104,12 @@ def _error(code: str, category: str, status: int | None = None, *, fields: list[
 
 
 def validate_base_url(value: Any) -> str:
-    if not isinstance(value, str) or not value or value.endswith("//"):
+    if not isinstance(value, str):
         raise _error("nexus_configuration_error", "configuration")
-    try:
-        parsed = urlsplit(value)
-        port = parsed.port
-    except (TypeError, ValueError):
-        raise _error("nexus_configuration_error", "configuration") from None
-    if (
-        parsed.scheme != "http"
-        or parsed.hostname != "127.0.0.1"
-        or parsed.username is not None
-        or parsed.password is not None
-        or port is None
-        or not 1 <= port <= 65535
-        or parsed.path not in {"", "/"}
-        or parsed.query
-        or parsed.fragment
-    ):
+    match = _BASE_URL_RE.fullmatch(value)
+    if match is None or not 1 <= int(match.group(1)) <= 65535:
         raise _error("nexus_configuration_error", "configuration")
-    return value[:-1] if value.endswith("/") else value
+    return value[:-1] if match.group(2) else value
 
 
 def serialize_request(body: Any) -> bytes:
@@ -141,6 +129,13 @@ def serialize_request(body: Any) -> bytes:
 
 def _reject_constant(_value: str) -> None:
     raise ValueError("non-finite JSON number")
+
+
+def _parse_finite_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError("non-finite JSON number")
+    return parsed
 
 
 def _reject_duplicate(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -166,7 +161,12 @@ def _check_depth(value: Any, depth: int = 0) -> None:
 def parse_response(raw: bytes) -> dict[str, Any]:
     try:
         text = raw.decode("utf-8", errors="strict")
-        value = json.loads(text, object_pairs_hook=_reject_duplicate, parse_constant=_reject_constant)
+        value = json.loads(
+            text,
+            object_pairs_hook=_reject_duplicate,
+            parse_constant=_reject_constant,
+            parse_float=_parse_finite_float,
+        )
         _check_depth(value)
     except (UnicodeError, ValueError, RecursionError):
         raise _error("nexus_invalid_response", "protocol") from None
@@ -405,27 +405,33 @@ class NexusClient:
         except asyncio.CancelledError as exc:
             cancelled = exc
         except TimeoutError:
-            pending_error = _error("nexus_timeout", "transport")
+            pending_error = _error("nexus_timeout", "transport", self._status(response))
         except httpx.TimeoutException:
-            pending_error = _error("nexus_timeout", "transport")
+            pending_error = _error("nexus_timeout", "transport", self._status(response))
         except (httpx.ConnectError, httpx.NetworkError, httpx.RemoteProtocolError):
-            pending_error = _error("nexus_connection_failed", "transport")
+            pending_error = _error("nexus_connection_failed", "transport", self._status(response))
         except (httpx.DecodingError, httpx.StreamError):
-            pending_error = _error("nexus_invalid_response", "protocol", response.status_code if response else None)
+            pending_error = _error("nexus_invalid_response", "protocol", self._status(response))
         except NexusClientError as exc:
             pending_error = exc
         except Exception:
-            pending_error = _error("nexus_client_failed", "protocol")
-        cleanup_failed = not await self._cleanup(response, client)
+            pending_error = _error("nexus_client_failed", "protocol", self._status(response))
+        cleanup_ok, cleanup_cancellation = await self._cleanup(response, client)
+        if cancelled is None:
+            cancelled = cleanup_cancellation
         if cancelled is not None:
             raise cancelled
-        if cleanup_failed:
-            raise _error("nexus_cleanup_failed", "transport")
+        if not cleanup_ok:
+            raise _error("nexus_cleanup_failed", "transport", self._status(response))
         if pending_error is not None:
             raise pending_error
         if result is None:
             raise _error("nexus_client_failed", "protocol")
         return result
+
+    @staticmethod
+    def _status(response: httpx.Response | None) -> int | None:
+        return response.status_code if response is not None else None
 
     async def _read_response(self, response: httpx.Response) -> bytes:
         content_type = response.headers.get("content-type", "")
@@ -460,18 +466,66 @@ class NexusClient:
             raise _error("nexus_invalid_response", "protocol", response.status_code)
         return b"".join(chunks)
 
-    async def _cleanup(self, response: httpx.Response | None, client: httpx.AsyncClient) -> bool:
-        async def close() -> None:
-            if response is not None:
-                await response.aclose()
-            await client.aclose()
+    async def _cleanup(
+        self,
+        response: httpx.Response | None,
+        client: httpx.AsyncClient,
+    ) -> tuple[bool, asyncio.CancelledError | None]:
+        """Attempt every closer within one deadline and defer caller cancellation."""
+        closers = []
+        if response is not None:
+            closers.append(("response", response.aclose))
+        closers.append(("client", client.aclose))
+        tasks = {
+            asyncio.create_task(closer(), name=f"hermes-nexus-close-{name}")
+            for name, closer in closers
+        }
+        pending = set(tasks)
+        deadline = asyncio.get_running_loop().time() + CLEANUP_TIMEOUT_SECONDS
+        cancellation: asyncio.CancelledError | None = None
+        timed_out = False
 
-        task = asyncio.create_task(close())
-        try:
-            await asyncio.wait_for(asyncio.shield(task), timeout=CLEANUP_TIMEOUT_SECONDS)
-            return True
-        except (TimeoutError, Exception):
-            task.cancel()
-            with suppress(BaseException):
-                await task
-            return False
+        while pending:
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                timed_out = True
+                break
+            try:
+                _done, pending = await asyncio.wait(pending, timeout=remaining)
+            except asyncio.CancelledError as exc:
+                if cancellation is None:
+                    cancellation = exc
+                current = asyncio.current_task()
+                if current is not None:
+                    current.uncancel()
+                continue
+            if pending:
+                timed_out = True
+                break
+
+        if pending:
+            # A second cancellation terminates a closer that handled the first.
+            # Each pulse yields only one event-loop turn and cannot extend the
+            # configured cleanup deadline into another blocking wait.
+            for _attempt in range(4):
+                for task in pending:
+                    task.cancel()
+                try:
+                    await asyncio.sleep(0)
+                except asyncio.CancelledError as exc:
+                    if cancellation is None:
+                        cancellation = exc
+                    current = asyncio.current_task()
+                    if current is not None:
+                        current.uncancel()
+                pending = {task for task in pending if not task.done()}
+                if not pending:
+                    break
+
+        failed = timed_out or bool(pending)
+        for task in tasks - pending:
+            try:
+                task.result()
+            except BaseException:
+                failed = True
+        return not failed, cancellation
