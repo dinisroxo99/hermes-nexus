@@ -707,22 +707,66 @@ test("multi-target eligibility is target-local and canonical across missing and 
     originPaths: ["missing.js", "uncovered.py"],
     graph: { ...boundGraph, nodes: [{ malformed: true }], edges: [{ malformed: true }] }
   });
+  assert.deepEqual(allIneligible.targets, [
+    {
+      originPath: "missing.js",
+      status: "partial",
+      findingState: "not_evaluated",
+      completeness: { source: ["source_unavailable"], provider: ["uncovered_language"], traversal: [], output: [] }
+    },
+    {
+      originPath: "uncovered.py",
+      status: "partial",
+      findingState: "not_evaluated",
+      completeness: { source: [], provider: ["uncovered_language"], traversal: [], output: [] }
+    }
+  ]);
+  assert.equal(allIneligible.status, "partial");
   assert.equal(allIneligible.findingState, "not_evaluated");
   assert.deepEqual(allIneligible.affectedFiles, []);
+  assert.deepEqual(allIneligible.completeness, {
+    source: ["source_unavailable"], provider: ["uncovered_language"], traversal: [], output: []
+  });
+  assert.deepEqual(allIneligible.provider, { id: nativeProvider.id, version: nativeProvider.version });
+  assert.equal(allIneligible.snapshotToken, boundGraph.snapshotToken);
 });
 
 test("multi-target terminal and no-capability providers return fixed unevaluated results before graph preparation", () => {
   const symbolsOnly = normalizeProviderDescriptor({ ...nativeProvider, capabilities: capabilities({ dependencies: "unsupported", references: "unsupported" }) });
-  for (const selected of [
-    graph({ status: "unsupported", sourcePaths: ["a.js", "b.js"] }),
-    graph({ status: "unavailable", sourcePaths: ["a.js", "b.js"] }),
-    graph({ provider: symbolsOnly, sourcePaths: ["a.js", "b.js"], nodes: [{ malformed: true }], edges: [{ malformed: true }] })
+  for (const { selected, expectedStatus, providerReason, expectedProvider } of [
+    {
+      selected: graph({ status: "unsupported", sourcePaths: ["a.js", "b.js"] }),
+      expectedStatus: "unsupported",
+      providerReason: "provider_unsupported",
+      expectedProvider: null
+    },
+    {
+      selected: graph({ status: "unavailable", sourcePaths: ["a.js", "b.js"] }),
+      expectedStatus: "unavailable",
+      providerReason: "provider_partial",
+      expectedProvider: null
+    },
+    {
+      selected: graph({ provider: symbolsOnly, sourcePaths: ["a.js", "b.js"], nodes: [{ malformed: true }], edges: [{ malformed: true }] }),
+      expectedStatus: "partial",
+      providerReason: "provider_unsupported",
+      expectedProvider: { id: symbolsOnly.id, version: symbolsOnly.version }
+    }
   ]) {
     const result = analyzeMultiFileReverseImpact({ originPaths: ["b.js", "a.js"], graph: selected });
+    const expectedCompleteness = { source: [], provider: [providerReason], traversal: [], output: [] };
+    assert.deepEqual(result.targets, ["a.js", "b.js"].map((originPath) => ({
+      originPath,
+      status: expectedStatus,
+      findingState: "not_evaluated",
+      completeness: expectedCompleteness
+    })));
+    assert.equal(result.status, expectedStatus);
     assert.equal(result.findingState, "not_evaluated");
     assert.deepEqual(result.affectedFiles, []);
-    assert(result.targets.every((target) => target.findingState === "not_evaluated"));
-    assert(result.completeness.provider.length > 0);
+    assert.deepEqual(result.completeness, expectedCompleteness);
+    assert.deepEqual(result.provider, expectedProvider);
+    assert.equal(result.snapshotToken, selected.snapshotToken);
   }
 });
 

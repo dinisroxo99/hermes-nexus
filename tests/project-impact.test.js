@@ -628,17 +628,77 @@ test("M6 preserves exact mixed eligibility and terminal provider semantics in ca
   assert.equal(mixed.findingState, "evidence_found");
   assert.deepEqual(mixed.completeness, { source: ["source_unavailable"], provider: ["uncovered_language"], traversal: [], output: [] });
 
+  const allIneligibleObservation = fixture({
+    files: [source("uncovered.py")],
+    nodes: [{ malformed: true }],
+    edges: [{ malformed: true }],
+    uncovered: ["python"]
+  });
+  const allIneligible = composeProjectImpact({ paths: ["uncovered.py", "missing.js"] }, allIneligibleObservation);
+  assert.deepEqual(allIneligible.targets, [
+    {
+      originPath: "missing.js",
+      targetSource: null,
+      status: "partial",
+      findingState: "not_evaluated",
+      completeness: { source: ["source_unavailable"], provider: ["uncovered_language"], traversal: [], output: [] }
+    },
+    {
+      originPath: "uncovered.py",
+      targetSource: { path: "uncovered.py", hash: allIneligibleObservation.snapshot.files[0].sha256 },
+      status: "partial",
+      findingState: "not_evaluated",
+      completeness: { source: [], provider: ["uncovered_language"], traversal: [], output: [] }
+    }
+  ]);
+  assert.equal(allIneligible.status, "partial");
+  assert.equal(allIneligible.findingState, "not_evaluated");
+  assert.deepEqual(allIneligible.affectedFiles, []);
+  assert.deepEqual(allIneligible.completeness, {
+    source: ["source_unavailable"], provider: ["uncovered_language"], traversal: [], output: []
+  });
+  assert.deepEqual(allIneligible.provider, { id: nativeProvider.id, version: nativeProvider.version });
+  assert.equal(allIneligible.snapshotToken, allIneligibleObservation.snapshot.token);
+
   const symbolsOnly = normalizeProviderDescriptor({ ...nativeProvider, capabilities: capabilities({ dependencies: "unsupported", references: "unsupported" }) });
-  for (const observation of [
-    fixture({ files: [source("a.js"), source("b.js")], nodes: [], edges: [], status: "unsupported", provider: null }),
-    fixture({ files: [source("a.js"), source("b.js")], nodes: [], edges: [], status: "unavailable", provider: null }),
-    fixture({ files: [source("a.js"), source("b.js")], nodes: [], edges: [], provider: symbolsOnly })
+  for (const { observation, expectedStatus, providerReason, expectedProvider } of [
+    {
+      observation: fixture({ files: [source("a.js"), source("b.js")], nodes: [], edges: [], status: "unsupported", provider: null }),
+      expectedStatus: "unsupported",
+      providerReason: "provider_unsupported",
+      expectedProvider: null
+    },
+    {
+      observation: fixture({ files: [source("a.js"), source("b.js")], nodes: [], edges: [], status: "unavailable", provider: null }),
+      expectedStatus: "unavailable",
+      providerReason: "provider_partial",
+      expectedProvider: null
+    },
+    {
+      observation: fixture({ files: [source("a.js"), source("b.js")], nodes: [], edges: [], provider: symbolsOnly }),
+      expectedStatus: "partial",
+      providerReason: "provider_unsupported",
+      expectedProvider: { id: symbolsOnly.id, version: symbolsOnly.version }
+    }
   ]) {
     const result = composeProjectImpact({ paths: ["b.js", "a.js"] }, observation);
+    const expectedCompleteness = { source: [], provider: [providerReason], traversal: [], output: [] };
+    assert.deepEqual(result.targets, ["a.js", "b.js"].map((originPath) => ({
+      originPath,
+      targetSource: {
+        path: originPath,
+        hash: observation.snapshot.files.find((file) => file.path === originPath).sha256
+      },
+      status: expectedStatus,
+      findingState: "not_evaluated",
+      completeness: expectedCompleteness
+    })));
+    assert.equal(result.status, expectedStatus);
     assert.equal(result.findingState, "not_evaluated");
     assert.deepEqual(result.affectedFiles, []);
-    assert(result.targets.every((target) => target.findingState === "not_evaluated"));
-    assert(result.completeness.provider.length > 0);
+    assert.deepEqual(result.completeness, expectedCompleteness);
+    assert.deepEqual(result.provider, expectedProvider);
+    assert.equal(result.snapshotToken, observation.snapshot.token);
   }
 });
 
