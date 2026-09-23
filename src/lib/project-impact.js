@@ -1,4 +1,4 @@
-import { analyzeSingleFileReverseImpact } from "./impact-traversal.js";
+import { analyzeMultiFileReverseImpact, analyzeSingleFileReverseImpact } from "./impact-traversal.js";
 import {
   IMPACT_ANALYSIS_VERSION,
   normalizeImpactCompleteness,
@@ -27,9 +27,23 @@ const CONTROL = /[\u0000-\u001f\u007f]/;
  */
 export function composeProjectImpact(input, observation) {
   const request = normalizeImpactRequest(input);
-  if (request.paths.length !== 1 || request.includeTests) throw projectImpactError("impact_request_not_supported", "This Impact v2 composer supports one file without affected tests.");
+  if (request.includeTests) throw projectImpactError("impact_request_not_supported", "This Impact v2 composer supports one file without affected tests.");
 
   const bound = validateObservation(request, observation);
+  if (request.paths.length > 1) {
+    const primitive = bound.snapshot.files.length === 0
+      ? emptyMultiSourceImpact(bound, observation, request.paths)
+      : analyzeMultiFileReverseImpact({
+        originPaths: request.paths,
+        limits: request.limits,
+        snapshot: observation.snapshot,
+        graph: observation.graph,
+        sourceFiles: observation.snapshot.files,
+        sourceLimited: bound.sourceLimited,
+        sourceUnavailable: bound.sourceUnavailable
+      });
+    return enforceMultiOutputBounds({ request, bound, primitive });
+  }
   const primitive = bound.snapshot.files.length === 0
     ? emptySourceImpact(bound, observation)
     : analyzeSingleFileReverseImpact({
@@ -159,6 +173,127 @@ function emptySourceImpact(bound, observation) {
     affectedFiles: [],
     completeness: normalizeImpactCompleteness(completeness)
   };
+}
+
+function emptyMultiSourceImpact(bound, observation, originPaths) {
+  const primitive = emptySourceImpact(bound, observation);
+  return {
+    ...primitive,
+    targets: originPaths.map((originPath) => ({
+      originPath,
+      status: primitive.status,
+      findingState: primitive.findingState,
+      completeness: cloneCompleteness(primitive.completeness)
+    }))
+  };
+}
+
+function enforceMultiOutputBounds({ request, bound, primitive }) {
+  let affectedFiles = primitive.affectedFiles.slice();
+  const completeness = cloneCompleteness(primitive.completeness);
+  const targetState = new Map(primitive.targets.map((target) => [target.originPath, {
+    ...target,
+    completeness: cloneCompleteness(target.completeness)
+  }]));
+
+  let retainedWitnesses = 0;
+  let witnessCut = affectedFiles.length;
+  for (let index = 0; index < affectedFiles.length; index += 1) {
+    const count = affectedFiles[index].origins.length;
+    if (retainedWitnesses + count > request.limits.originWitnessRecords) {
+      witnessCut = index;
+      break;
+    }
+    retainedWitnesses += count;
+  }
+  if (witnessCut < affectedFiles.length) {
+    addTargetOmissionReasons(targetState, affectedFiles.slice(witnessCut), "witness_budget");
+    affectedFiles = affectedFiles.slice(0, witnessCut);
+    addReason(completeness, "output", "witness_budget");
+  }
+
+  let result = buildMultiResult({ request, bound, primitive, targetState, affectedFiles, completeness });
+  if (byteLength(result) <= request.limits.compactBytes) return result;
+  if (affectedFiles.length === 0) throw projectImpactError("impact_budget_exceeded", "Impact v2 result cannot fit the requested compact byte budget.");
+
+  addReason(completeness, "output", "output_byte_limit");
+  while (affectedFiles.length > 0) {
+    const removed = affectedFiles[affectedFiles.length - 1];
+    addTargetOmissionReasons(targetState, [removed], "output_byte_limit");
+    affectedFiles = affectedFiles.slice(0, -1);
+    result = buildMultiResult({ request, bound, primitive, targetState, affectedFiles, completeness });
+    if (byteLength(result) <= request.limits.compactBytes) return result;
+  }
+  result = buildMultiResult({ request, bound, primitive, targetState, affectedFiles, completeness });
+  if (byteLength(result) <= request.limits.compactBytes) return result;
+  throw projectImpactError("impact_budget_exceeded", "Impact v2 result cannot fit the requested compact byte budget.");
+}
+
+function buildMultiResult({ request, bound, primitive, targetState, affectedFiles, completeness }) {
+  const retainedOrigins = new Set(affectedFiles.flatMap((item) => item.origins.map((origin) => origin.originPath)));
+  const targets = request.paths.map((originPath) => {
+    const primitiveTarget = primitive.targets.find((target) => target.originPath === originPath);
+    const target = targetState.get(originPath);
+    const canonicalCompleteness = normalizeImpactCompleteness(target.completeness);
+    const targetSource = bound.snapshot.files.find((file) => file.path === originPath);
+    return {
+      originPath,
+      targetSource: targetSource ? { path: targetSource.path, hash: targetSource.sha256 } : null,
+      status: finalStatus(target.status, canonicalCompleteness),
+      findingState: retainedOrigins.has(originPath)
+        ? "evidence_found"
+        : primitiveTarget.findingState === "evidence_found" ? "not_evaluated" : primitiveTarget.findingState,
+      completeness: canonicalCompleteness
+    };
+  });
+  const canonicalCompleteness = unionCompleteness(completeness, targets.map((target) => target.completeness));
+  const status = finalStatus(primitive.status, canonicalCompleteness);
+  const findingState = affectedFiles.length > 0
+    ? "evidence_found"
+    : targets.every((target) => target.findingState === "no_evidence_found") ? "no_evidence_found" : "not_evaluated";
+  const revision = bound.snapshot.revision;
+  const incomplete = hasCompleteness(canonicalCompleteness) || status !== "available" || revision.status === "unavailable" || revision.status === null;
+
+  return {
+    schemaVersion: 1,
+    analysisVersion: IMPACT_ANALYSIS_VERSION,
+    projectId: bound.project.projectId,
+    project: { rootId: bound.project.rootId, relativePath: bound.project.relativePath },
+    targets,
+    revision,
+    worktree: revision.worktreeId === null ? null : { worktreeId: revision.worktreeId },
+    snapshotToken: bound.snapshot.token,
+    generatedAt: null,
+    provider: primitive.provider,
+    coverage: bound.graph.coverage,
+    observation: {
+      basis: "working_tree",
+      cacheReuse: "disabled",
+      digestCoverage: "bounded_collected_sources",
+      incomplete
+    },
+    limits: request.limits,
+    status,
+    findingState,
+    affectedFiles,
+    affectedTests: { status: "not_requested", candidates: [] },
+    completeness: canonicalCompleteness
+  };
+}
+
+function addTargetOmissionReasons(targetState, items, reason) {
+  const origins = new Set(items.flatMap((item) => item.origins.map((origin) => origin.originPath)));
+  for (const originPath of origins) addReason(targetState.get(originPath).completeness, "output", reason);
+}
+
+function unionCompleteness(base, additions) {
+  const result = cloneCompleteness(base);
+  for (const completeness of additions) {
+    for (const [dimension, reasons] of Object.entries(completeness)) {
+      for (const reason of reasons) addReason(result, dimension, reason);
+    }
+  }
+  return normalizeImpactCompleteness(result);
 }
 
 function enforceOutputBounds({ request, bound, primitive }) {

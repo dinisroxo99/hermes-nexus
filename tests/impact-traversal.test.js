@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { analyzeSingleFileReverseImpact } from "../src/lib/impact-traversal.js";
+import { analyzeMultiFileReverseImpact, analyzeSingleFileReverseImpact } from "../src/lib/impact-traversal.js";
 import { IMPACT_LIMITS, normalizeImpactRequest, validateCompletedAffectedItem } from "../src/lib/impact-policy.js";
 import { createProviderSnapshot, normalizeProviderDescriptor } from "../src/analyzers/common/analyzer-provider-contract.js";
 import { analyzeProviderSnapshot } from "../src/analyzers/common/analyzer-providers.js";
@@ -541,4 +541,115 @@ test("does not report depth truncation for redundant out-of-bound paths", () => 
 
   const genuine = analyzeSingleFileReverseImpact({ originPath: "o.js", sourceFiles: sources(["o.js", "a.js", "b.js"]), graph: graph({ nodes: [node("o", "o.js"), node("a", "a.js"), node("b", "b.js")], edges: [edge("a", "o"), edge("b", "a")] }), limits: { depth: 1 } });
   assert.deepEqual(genuine.completeness.traversal, ["depth_limit"]);
+});
+
+test("multi-target traversal merges per-origin witnesses before deterministic output caps", () => {
+  const boundGraph = graph({
+    sourcePaths: ["a.js", "b.js", "a-shared.js", "z-first.js"],
+    nodes: [node("a", "a.js"), node("b", "b.js"), node("shared", "a-shared.js"), node("first", "z-first.js")],
+    edges: [edge("first", "a"), edge("shared", "first"), edge("shared", "b")]
+  });
+  const result = analyzeMultiFileReverseImpact({
+    originPaths: ["b.js", "a.js"],
+    graph: boundGraph,
+    limits: { affectedFiles: 1 }
+  });
+  assert.deepEqual(result.targets.map((target) => target.originPath), ["a.js", "b.js"]);
+  assert.deepEqual(result.affectedFiles.map((item) => item.path), ["a-shared.js"]);
+  assert.deepEqual(result.affectedFiles[0].origins.map(({ originPath, minimumDistance }) => ({ originPath, minimumDistance })), [
+    { originPath: "b.js", minimumDistance: 1 },
+    { originPath: "a.js", minimumDistance: 2 }
+  ]);
+  assert.deepEqual(result.affectedFiles[0].originSummary, {
+    discoveredOriginCount: 2,
+    retainedOriginWitnessCount: 2,
+    attributionTruncated: false,
+    reasons: []
+  });
+  assert(result.completeness.output.includes("origin_limit"));
+});
+
+test("multi-target traversal applies per-item origin caps without originless output", () => {
+  const boundGraph = graph({
+    sourcePaths: ["a.js", "b.js", "consumer.js"],
+    nodes: [node("a", "a.js"), node("b", "b.js"), node("consumer", "consumer.js")],
+    edges: [edge("consumer", "a"), edge("consumer", "b")]
+  });
+  const result = analyzeMultiFileReverseImpact({
+    originPaths: ["a.js", "b.js"],
+    graph: boundGraph,
+    limits: { originWitnessesPerItem: 1 }
+  });
+  assert.equal(result.affectedFiles.length, 1);
+  assert.deepEqual(result.affectedFiles[0].origins.map((origin) => origin.originPath), ["a.js"]);
+  assert.deepEqual(result.affectedFiles[0].originSummary, {
+    discoveredOriginCount: 2,
+    retainedOriginWitnessCount: 1,
+    attributionTruncated: true,
+    reasons: ["origin_limit"]
+  });
+  assert.equal(result.targets[0].findingState, "evidence_found");
+  assert.equal(result.targets[1].findingState, "not_evaluated");
+  assert.deepEqual(result.targets[1].completeness.output, ["origin_limit"]);
+});
+
+test("multi-target retained origins match roomy independent single-origin witnesses", () => {
+  const boundGraph = graph({
+    sourcePaths: ["a.js", "b.js", "consumer.js", "tail.js"],
+    nodes: [node("a", "a.js"), node("b", "b.js"), node("consumer", "consumer.js"), node("tail", "tail.js")],
+    edges: [edge("consumer", "a"), edge("consumer", "b"), edge("tail", "consumer")]
+  });
+  const multi = analyzeMultiFileReverseImpact({ originPaths: ["a.js", "b.js"], graph: boundGraph });
+  for (const item of multi.affectedFiles) {
+    for (const origin of item.origins) {
+      const single = analyzeSingleFileReverseImpact({ originPath: origin.originPath, graph: boundGraph });
+      const expected = single.affectedFiles.find((candidate) => candidate.path === item.path)?.origins[0];
+      assert.deepEqual(origin, expected);
+    }
+  }
+});
+
+test("multi-target traversal shares visited-state work globally and identifies later unstarted origins", () => {
+  const boundGraph = graph({
+    sourcePaths: ["a.js", "b.js", "consumer.js"],
+    nodes: [node("a", "a.js"), node("b", "b.js"), node("consumer", "consumer.js")],
+    edges: [edge("consumer", "a"), edge("consumer", "b")]
+  });
+  const result = analyzeMultiFileReverseImpact({
+    originPaths: ["a.js", "b.js"],
+    graph: boundGraph,
+    limits: { traversalVisitedStates: 2 }
+  });
+  assert.equal(result.targets[0].findingState, "evidence_found");
+  assert.deepEqual(result.targets[0].completeness.traversal, []);
+  assert.equal(result.targets[1].findingState, "not_evaluated");
+  assert.deepEqual(result.targets[1].completeness.traversal, ["traversal_work_limit"]);
+  assert.deepEqual(result.affectedFiles[0].origins.map((origin) => origin.originPath), ["a.js"]);
+});
+
+test("multi-target traversal shares edge-examination work globally across origin-node states", () => {
+  const boundGraph = graph({
+    sourcePaths: ["a.js", "b.js", "consumer.js"],
+    nodes: [node("a", "a.js"), node("b", "b.js"), node("consumer", "consumer.js")],
+    edges: [edge("consumer", "a"), edge("consumer", "b")]
+  });
+  const result = analyzeMultiFileReverseImpact({
+    originPaths: ["a.js", "b.js"],
+    graph: boundGraph,
+    limits: { traversalEdgeExaminations: 1 }
+  });
+  assert.equal(result.targets[0].findingState, "evidence_found");
+  assert.equal(result.targets[1].findingState, "not_evaluated");
+  assert.deepEqual(result.targets[1].completeness.traversal, ["traversal_work_limit"]);
+  assert.deepEqual(result.affectedFiles[0].origins.map((origin) => origin.originPath), ["a.js"]);
+});
+
+test("multi-target traversal preserves one target's evaluated absence beside missing evidence", () => {
+  const boundGraph = graph({ sourcePaths: ["empty.js"], nodes: [], edges: [] });
+  const result = analyzeMultiFileReverseImpact({ originPaths: ["missing.js", "empty.js"], graph: boundGraph });
+  assert.deepEqual(result.targets.map(({ originPath, findingState }) => ({ originPath, findingState })), [
+    { originPath: "empty.js", findingState: "no_evidence_found" },
+    { originPath: "missing.js", findingState: "not_evaluated" }
+  ]);
+  assert.equal(result.findingState, "not_evaluated");
 });

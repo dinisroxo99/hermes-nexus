@@ -58,97 +58,26 @@ export function analyzeSingleFileReverseImpact(input = {}) {
     return finish({ ...base, status: statusFromCompleteness(completeness), findingState: "not_evaluated" });
   }
 
-  let nodes;
-  let edges;
-  try {
-    nodes = normalizeNodes(graph.nodes, sourceByPath);
-    edges = normalizeEdges(graph.edges, provider, sourceByPath);
-  } catch (error) {
-    if (error?.code === "invalid_impact_traversal") throw error;
-    throw invalidImpactTraversal();
-  }
-  const nodeById = new Map(nodes.map((node) => [node.id, node]));
-  for (const edge of edges) {
-    if (!nodeById.has(edge.from) || !nodeById.has(edge.to)) throw invalidImpactTraversal();
-  }
+  const { nodes, nodeById, incoming } = prepareTraversalGraph(graph, provider, sourceByPath);
   const originNodes = nodes.filter((node) => node.file === originPath);
   if (originNodes.length === 0) return finish({ ...base, status: statusFromCompleteness(completeness), findingState: "no_evidence_found" });
   if (limits.depth === 0) return finish({ ...base, status: statusFromCompleteness(completeness), findingState: "no_evidence_found" });
 
-  const incoming = new Map();
-  for (const edge of edges) {
-    if (!nodeById.has(edge.from) || !nodeById.has(edge.to)) continue;
-    const list = incoming.get(edge.to) ?? [];
-    list.push(edge);
-    incoming.set(edge.to, list);
-  }
-  for (const list of incoming.values()) list.sort(compareEdges);
+  const discovery = traverseOrigin({
+    originPath,
+    originNodes: originNodes.sort(compareNodes),
+    nodeById,
+    incoming,
+    graph,
+    provider,
+    sourceByPath,
+    limits,
+    work: { visitedStates: 0, edgeExaminations: 0 }
+  });
+  if (discovery.depthLimited) addReason(completeness, "traversal", "depth_limit");
+  if (discovery.workLimited) addReason(completeness, "traversal", "traversal_work_limit");
 
-  const frontier = [];
-  let workLimited = false;
-  for (const node of originNodes.sort(compareNodes)) {
-    if (frontier.length >= limits.traversalVisitedStates) {
-      workLimited = true;
-      continue;
-    }
-    frontier.push({ id: node.id, distance: 0 });
-  }
-  const bestNodeDistance = new Map(frontier.map((state) => [state.id, state.distance]));
-  const bestObservedInBoundDistance = new Map(bestNodeDistance);
-  const bestFile = new Map();
-  const overDepthCandidates = new Map();
-  let edgeExaminations = 0;
-  let stopTraversal = false;
-
-  while (frontier.length > 0) {
-    frontier.sort(compareStates);
-    const state = frontier.shift();
-    if (state.distance !== bestNodeDistance.get(state.id)) continue;
-    const currentNode = nodeById.get(state.id);
-    const candidates = incoming.get(state.id) ?? [];
-    for (const edge of candidates) {
-      if (edgeExaminations >= limits.traversalEdgeExaminations) {
-        workLimited = true;
-        stopTraversal = true;
-        break;
-      }
-      edgeExaminations += 1;
-      const consumer = nodeById.get(edge.from);
-      if (!consumer) continue;
-      const nextDistance = state.distance + (consumer.file === currentNode.file ? 0 : 1);
-      const known = bestNodeDistance.get(consumer.id);
-      if (nextDistance > limits.depth) {
-        if (known === undefined || nextDistance < known) {
-          const currentOverDepth = overDepthCandidates.get(consumer.id);
-          if (currentOverDepth === undefined || nextDistance < currentOverDepth) overDepthCandidates.set(consumer.id, nextDistance);
-        }
-        continue;
-      }
-      const observed = bestObservedInBoundDistance.get(consumer.id);
-      if (observed === undefined || nextDistance < observed) bestObservedInBoundDistance.set(consumer.id, nextDistance);
-      const witness = makeWitness({ edge, graph, provider, sourceByPath, consumer });
-      if (consumer.file !== originPath || nextDistance === 0) {
-        retainFile(bestFile, consumer.file, originPath, nextDistance, witness);
-      }
-      if (known === undefined || nextDistance < known) {
-        if (bestNodeDistance.size >= limits.traversalVisitedStates && known === undefined) {
-          workLimited = true;
-          continue;
-        }
-        bestNodeDistance.set(consumer.id, nextDistance);
-        frontier.push({ id: consumer.id, distance: nextDistance });
-      }
-    }
-    if (stopTraversal) break;
-  }
-
-  if ([...overDepthCandidates.keys()].some((id) => {
-    const best = bestObservedInBoundDistance.get(id);
-    return best === undefined || best > limits.depth;
-  })) addReason(completeness, "traversal", "depth_limit");
-  if (workLimited) addReason(completeness, "traversal", "traversal_work_limit");
-
-  let affectedFiles = [...bestFile.values()].sort(compareAffectedItems);
+  let affectedFiles = [...discovery.bestFile.values()].sort(compareAffectedItems);
   if (affectedFiles.length > limits.affectedFiles) {
     affectedFiles = affectedFiles.slice(0, limits.affectedFiles);
     addReason(completeness, "output", "origin_limit");
@@ -161,6 +90,105 @@ export function analyzeSingleFileReverseImpact(input = {}) {
     findingState: affectedFiles.length > 0 ? "evidence_found" : "no_evidence_found",
     affectedFiles
   });
+}
+
+export function analyzeMultiFileReverseImpact(input = {}) {
+  const originPaths = normalizeImpactPaths(input.originPaths);
+  const limits = normalizeImpactLimits(input.limits);
+  const graph = input.graph && typeof input.graph === "object" ? input.graph : null;
+  const snapshot = normalizeBoundSnapshot(input.snapshot ?? graph?.snapshot);
+  const sourceFiles = snapshot.files;
+  const sourceByPath = new Map(sourceFiles.map((source) => [source.path, source]));
+  validateSnapshotBinding({ graph, snapshot, sourceByPath, sourceFiles: input.sourceFiles });
+
+  const commonCompleteness = emptyCompleteness();
+  if (input.sourceLimited) addReason(commonCompleteness, "source", "source_limit");
+  if (input.sourceUnavailable || sourceFiles.length === 0) addReason(commonCompleteness, "source", "source_unavailable");
+  const { state: providerState, provider } = classifyProvider(graph, commonCompleteness);
+  const targetState = new Map(originPaths.map((originPath) => [originPath, {
+    originPath,
+    status: providerState,
+    findingState: "not_evaluated",
+    completeness: cloneCompleteness(commonCompleteness),
+    discovered: false
+  }]));
+  const base = {
+    schemaVersion: 1,
+    analysisVersion: IMPACT_ANALYSIS_VERSION,
+    targets: [],
+    snapshotToken: snapshot.token,
+    provider: provider ? providerSummary(provider) : null,
+    revision: snapshot.revision,
+    worktree: snapshot.worktree,
+    limits,
+    affectedFiles: [],
+    affectedTests: { status: "not_requested", candidates: [] },
+    completeness: commonCompleteness
+  };
+
+  if (providerState !== "evaluated") return finishMulti(base, targetState, providerState);
+  if (!isRelevantOperationSupported(provider)) {
+    addReason(commonCompleteness, "provider", "provider_unsupported");
+    for (const target of targetState.values()) {
+      target.completeness = cloneCompleteness(commonCompleteness);
+      target.status = statusFromCompleteness(target.completeness);
+    }
+    return finishMulti(base, targetState);
+  }
+
+  const eligible = [];
+  for (const originPath of originPaths) {
+    const target = targetState.get(originPath);
+    target.completeness = cloneCompleteness(commonCompleteness);
+    if (!sourceByPath.has(originPath)) {
+      addReason(target.completeness, "source", "source_unavailable");
+    } else if (!isOriginLanguageCovered(graph, originPath, sourceByPath)) {
+      addReason(target.completeness, "provider", "uncovered_language");
+    } else {
+      eligible.push(originPath);
+    }
+    target.status = statusFromCompleteness(target.completeness);
+  }
+  if (eligible.length === 0) return finishMulti(base, targetState);
+
+  const { nodes, nodeById, incoming } = prepareTraversalGraph(graph, provider, sourceByPath);
+  const work = { visitedStates: 0, edgeExaminations: 0 };
+  const merged = new Map();
+
+  for (const originPath of eligible) {
+    const target = targetState.get(originPath);
+    const originNodes = nodes.filter((node) => node.file === originPath).sort(compareNodes);
+    if (originNodes.length === 0 || limits.depth === 0) {
+      target.findingState = "no_evidence_found";
+      continue;
+    }
+    const discovery = traverseOrigin({ originPath, originNodes, nodeById, incoming, graph, provider, sourceByPath, limits, work });
+    if (discovery.depthLimited) addReason(target.completeness, "traversal", "depth_limit");
+    if (discovery.workLimited) addReason(target.completeness, "traversal", "traversal_work_limit");
+    target.status = statusFromCompleteness(target.completeness);
+    target.discovered = discovery.bestFile.size > 0;
+    target.findingState = target.discovered ? "evidence_found" : discovery.unstarted ? "not_evaluated" : "no_evidence_found";
+    mergeOriginDiscoveries(merged, discovery.bestFile);
+  }
+
+  const mergedOutput = buildMergedAffectedFiles(merged, limits, targetState);
+  let affectedFiles = mergedOutput.affectedFiles;
+  if (mergedOutput.originLimited) addReason(commonCompleteness, "output", "origin_limit");
+  if (affectedFiles.length > limits.affectedFiles) {
+    for (const item of affectedFiles.slice(limits.affectedFiles)) {
+      for (const origin of item.origins) addReason(targetState.get(origin.originPath).completeness, "output", "origin_limit");
+    }
+    affectedFiles = affectedFiles.slice(0, limits.affectedFiles);
+    addReason(commonCompleteness, "output", "origin_limit");
+  }
+  const retainedOrigins = new Set(affectedFiles.flatMap((item) => item.origins.map((origin) => origin.originPath)));
+  for (const target of targetState.values()) {
+    target.status = statusFromCompleteness(target.completeness);
+    if (retainedOrigins.has(target.originPath)) target.findingState = "evidence_found";
+    else if (target.discovered) target.findingState = "not_evaluated";
+  }
+  base.affectedFiles = affectedFiles.map((item) => validateCompletedAffectedItem(item));
+  return finishMulti(base, targetState);
 }
 
 function normalizeSources(sources, sourceByPath) {
@@ -385,6 +413,171 @@ function retainFile(bestFile, path, originPath, minimumDistance, witness) {
   };
   const current = bestFile.get(path);
   if (!current || compareAffectedItems(candidate, current) < 0) bestFile.set(path, candidate);
+}
+
+function buildIncoming(edges) {
+  const incoming = new Map();
+  for (const edge of edges) {
+    const list = incoming.get(edge.to) ?? [];
+    list.push(edge);
+    incoming.set(edge.to, list);
+  }
+  for (const list of incoming.values()) list.sort(compareEdges);
+  return incoming;
+}
+
+function prepareTraversalGraph(graph, provider, sourceByPath) {
+  try {
+    const nodes = normalizeNodes(graph.nodes, sourceByPath);
+    const edges = normalizeEdges(graph.edges, provider, sourceByPath);
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    for (const edge of edges) {
+      if (!nodeById.has(edge.from) || !nodeById.has(edge.to)) throw invalidImpactTraversal();
+    }
+    return { nodes, nodeById, incoming: buildIncoming(edges) };
+  } catch (error) {
+    if (error?.code === "invalid_impact_traversal") throw error;
+    throw invalidImpactTraversal();
+  }
+}
+
+function traverseOrigin({ originPath, originNodes, nodeById, incoming, graph, provider, sourceByPath, limits, work }) {
+  const frontier = [];
+  let workLimited = false;
+  for (const node of originNodes) {
+    if (work.visitedStates >= limits.traversalVisitedStates) {
+      workLimited = true;
+      continue;
+    }
+    work.visitedStates += 1;
+    frontier.push({ id: node.id, distance: 0 });
+  }
+  const admittedSeeds = frontier.length;
+  const bestNodeDistance = new Map(frontier.map((state) => [state.id, state.distance]));
+  const bestObservedInBoundDistance = new Map(bestNodeDistance);
+  const bestFile = new Map();
+  const overDepthCandidates = new Map();
+  let stopTraversal = false;
+  let examinedForOrigin = 0;
+
+  while (frontier.length > 0) {
+    frontier.sort(compareStates);
+    const state = frontier.shift();
+    if (state.distance !== bestNodeDistance.get(state.id)) continue;
+    const currentNode = nodeById.get(state.id);
+    const candidates = incoming.get(state.id) ?? [];
+    for (const edge of candidates) {
+      if (work.edgeExaminations >= limits.traversalEdgeExaminations) {
+        workLimited = true;
+        stopTraversal = true;
+        break;
+      }
+      work.edgeExaminations += 1;
+      examinedForOrigin += 1;
+      const consumer = nodeById.get(edge.from);
+      if (!consumer) continue;
+      const nextDistance = state.distance + (consumer.file === currentNode.file ? 0 : 1);
+      const known = bestNodeDistance.get(consumer.id);
+      if (nextDistance > limits.depth) {
+        if (known === undefined || nextDistance < known) {
+          const currentOverDepth = overDepthCandidates.get(consumer.id);
+          if (currentOverDepth === undefined || nextDistance < currentOverDepth) overDepthCandidates.set(consumer.id, nextDistance);
+        }
+        continue;
+      }
+      const observed = bestObservedInBoundDistance.get(consumer.id);
+      if (observed === undefined || nextDistance < observed) bestObservedInBoundDistance.set(consumer.id, nextDistance);
+      const witness = makeWitness({ edge, graph, provider, sourceByPath, consumer });
+      if (consumer.file !== originPath || nextDistance === 0) retainFile(bestFile, consumer.file, originPath, nextDistance, witness);
+      if (known === undefined || nextDistance < known) {
+        if (known === undefined && work.visitedStates >= limits.traversalVisitedStates) {
+          workLimited = true;
+          continue;
+        }
+        if (known === undefined) work.visitedStates += 1;
+        bestNodeDistance.set(consumer.id, nextDistance);
+        frontier.push({ id: consumer.id, distance: nextDistance });
+      }
+    }
+    if (stopTraversal) break;
+  }
+
+  const depthLimited = [...overDepthCandidates.keys()].some((id) => {
+    const best = bestObservedInBoundDistance.get(id);
+    return best === undefined || best > limits.depth;
+  });
+  const hasRelevantIncoming = originNodes.some((node) => (incoming.get(node.id)?.length ?? 0) > 0);
+  const unstarted = admittedSeeds === 0 || (examinedForOrigin === 0 && hasRelevantIncoming && work.edgeExaminations >= limits.traversalEdgeExaminations);
+  return { bestFile, depthLimited, workLimited, unstarted };
+}
+
+function mergeOriginDiscoveries(merged, bestFile) {
+  for (const item of bestFile.values()) {
+    const origin = item.origins[0];
+    const byOrigin = merged.get(item.path) ?? new Map();
+    const current = byOrigin.get(origin.originPath);
+    if (!current || compareOrigins(origin, current) < 0) byOrigin.set(origin.originPath, origin);
+    merged.set(item.path, byOrigin);
+  }
+}
+
+function buildMergedAffectedFiles(merged, limits, targetState) {
+  let originLimited = false;
+  const affectedFiles = [];
+  for (const [path, byOrigin] of merged) {
+    const discovered = [...byOrigin.values()].sort(compareOrigins);
+    const origins = discovered.slice(0, limits.originWitnessesPerItem);
+    const omitted = discovered.slice(origins.length);
+    if (omitted.length > 0) {
+      originLimited = true;
+      for (const origin of omitted) addReason(targetState.get(origin.originPath).completeness, "output", "origin_limit");
+    }
+    affectedFiles.push({
+      path,
+      origins,
+      originSummary: {
+        discoveredOriginCount: discovered.length,
+        retainedOriginWitnessCount: origins.length,
+        attributionTruncated: omitted.length > 0,
+        reasons: omitted.length > 0 ? ["origin_limit"] : []
+      }
+    });
+  }
+  affectedFiles.sort(compareAffectedItems);
+  return { affectedFiles, originLimited };
+}
+
+function compareOrigins(left, right) {
+  return left.minimumDistance - right.minimumDistance
+    || compare(left.originPath, right.originPath)
+    || compare(left.witness.id, right.witness.id);
+}
+
+function finishMulti(base, targetState, terminalStatus = null) {
+  const targets = [...targetState.values()].map((target) => ({
+    originPath: target.originPath,
+    status: normalizeImpactStatus(target.status),
+    findingState: normalizeImpactFindingState(target.findingState),
+    completeness: normalizeImpactCompleteness(target.completeness)
+  }));
+  const completeness = cloneCompleteness(base.completeness);
+  for (const target of targets) {
+    for (const [dimension, reasons] of Object.entries(target.completeness)) {
+      for (const reason of reasons) addReason(completeness, dimension, reason);
+    }
+  }
+  const status = terminalStatus === "unsupported" || terminalStatus === "unavailable"
+    ? terminalStatus
+    : statusFromCompleteness(completeness);
+  const findingState = base.affectedFiles.length > 0
+    ? "evidence_found"
+    : targets.every((target) => target.findingState === "no_evidence_found") ? "no_evidence_found" : "not_evaluated";
+  return finish({ ...base, targets, status, findingState, completeness });
+}
+
+function cloneCompleteness(completeness) {
+  const normalized = normalizeImpactCompleteness(completeness);
+  return Object.fromEntries(Object.entries(normalized).map(([dimension, reasons]) => [dimension, [...reasons]]));
 }
 
 function finish(result) {
