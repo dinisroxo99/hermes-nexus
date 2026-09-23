@@ -20,9 +20,9 @@ export function analyzeSingleFileReverseImpact(input = {}) {
   const limits = normalizeImpactLimits(input.limits);
   const graph = input.graph && typeof input.graph === "object" ? input.graph : null;
   const snapshot = normalizeBoundSnapshot(input.snapshot ?? graph?.snapshot);
-  validateSnapshotBinding({ graph, snapshot, sourceFiles: input.sourceFiles });
   const sourceFiles = snapshot.files;
   const sourceByPath = new Map(sourceFiles.map((source) => [source.path, source]));
+  validateSnapshotBinding({ graph, snapshot, sourceByPath, sourceFiles: input.sourceFiles });
   const completeness = emptyCompleteness();
 
   if (input.sourceLimited) addReason(completeness, "source", "source_limit");
@@ -163,18 +163,19 @@ export function analyzeSingleFileReverseImpact(input = {}) {
   });
 }
 
-function normalizeSources(sources) {
+function normalizeSources(sources, sourceByPath) {
   try {
     if (!Array.isArray(sources) || sources.length > CONTEXT_SOURCE_LIMITS.maxFiles) throw invalidImpactTraversal();
-    const textSources = sources.filter((source) => Object.hasOwn(source ?? {}, "text")).map((source) => {
-      if (!source || typeof source !== "object" || Array.isArray(source) || typeof source.text !== "string") throw invalidImpactTraversal();
-      return { path: source.path, text: source.text };
+    const exactSources = sources.map((source) => {
+      if (!source || typeof source !== "object" || Array.isArray(source)) throw invalidImpactTraversal();
+      const path = requireExactSnapshotPath(source.path, sourceByPath);
+      if (Object.hasOwn(source, "text") && typeof source.text !== "string") throw invalidImpactTraversal();
+      return { source, path };
     });
+    const textSources = exactSources.filter(({ source }) => Object.hasOwn(source, "text")).map(({ source, path }) => ({ path, text: source.text }));
     const normalizedText = new Map(normalizeContextSources(textSources).map((source) => [source.path, source]));
     const seen = new Set();
-    return sources.map((source) => {
-      if (!source || typeof source !== "object" || Array.isArray(source)) throw invalidImpactTraversal();
-      const path = normalizeImpactPaths([source.path])[0];
+    return exactSources.map(({ source, path }) => {
       if (seen.has(path)) throw invalidImpactTraversal();
       seen.add(path);
       const hashes = [];
@@ -214,10 +215,10 @@ function normalizeBoundSnapshot(snapshot) {
   }
 }
 
-function validateSnapshotBinding({ graph, snapshot, sourceFiles }) {
+function validateSnapshotBinding({ graph, snapshot, sourceByPath, sourceFiles }) {
   if (!graph || typeof graph !== "object" || Array.isArray(graph)) return;
   if (graph.snapshotToken !== snapshot.token) throw invalidImpactTraversal();
-  if (sourceFiles !== undefined && canonicalJson(normalizeSources(sourceFiles).map(sourceIdentity)) !== canonicalJson(snapshot.files.map(sourceIdentity))) {
+  if (sourceFiles !== undefined && canonicalJson(normalizeSources(sourceFiles, sourceByPath).map(sourceIdentity)) !== canonicalJson(snapshot.files.map(sourceIdentity))) {
     throw invalidImpactTraversal();
   }
   if (graph.projectId !== undefined && graph.projectId !== null && graph.projectId !== snapshot.projectId) throw invalidImpactTraversal();
@@ -252,6 +253,17 @@ function boundedHash(value) {
 function canonicalSourceHash(value) {
   if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) throw invalidImpactTraversal();
   return value;
+}
+
+function requireExactSnapshotPath(value, sourceByPath) {
+  try {
+    if (typeof value !== "string" || !sourceByPath.has(value)) throw invalidImpactTraversal();
+    if (normalizeImpactPaths([value])[0] !== value) throw invalidImpactTraversal();
+    return value;
+  } catch (error) {
+    if (error?.code === "invalid_impact_traversal") throw error;
+    throw invalidImpactTraversal();
+  }
 }
 
 function classifyProvider(graph, completeness) {
@@ -297,7 +309,7 @@ function normalizeNodes(nodes, sourceByPath) {
   const seen = new Map();
   for (const node of nodes) {
     if (!node || typeof node !== "object" || Array.isArray(node) || typeof node.id !== "string" || typeof node.file !== "string") throw invalidImpactTraversal();
-    const file = normalizeImpactPaths([node.file])[0];
+    const file = requireExactSnapshotPath(node.file, sourceByPath);
     const source = sourceByPath.get(file);
     if (!source) throw invalidImpactTraversal();
     const line = node.line === undefined || node.line === null ? null : positiveInteger(node.line);
@@ -337,7 +349,7 @@ function capabilityForRelation(relation) {
 function normalizeOptionalLocation(location, sourceByPath) {
   if (location === undefined || location === null) return null;
   if (!location || typeof location !== "object" || Array.isArray(location)) throw invalidImpactTraversal();
-  const normalized = { path: normalizeImpactPaths([location.path])[0], line: positiveInteger(location.line), column: positiveInteger(location.column) };
+  const normalized = { path: requireExactSnapshotPath(location.path, sourceByPath), line: positiveInteger(location.line), column: positiveInteger(location.column) };
   const source = sourceByPath.get(normalized.path);
   if (!source || !isValidSnapshotSourcePosition(source, normalized.line, normalized.column)) throw invalidImpactTraversal();
   return normalized;
@@ -350,7 +362,7 @@ function positiveInteger(value) {
 
 function makeWitness({ edge, graph, provider, sourceByPath, consumer }) {
   const capability = edge.relation === "imports" ? "dependencies" : "references";
-  const sourcePath = edge.location?.path ?? consumer.file;
+  const sourcePath = requireExactSnapshotPath(edge.location?.path ?? consumer.file, sourceByPath);
   const source = sourceByPath.get(sourcePath);
   if (!source) throw invalidImpactTraversal();
   return {

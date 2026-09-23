@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { analyzeSingleFileReverseImpact } from "../src/lib/impact-traversal.js";
-import { IMPACT_LIMITS, validateCompletedAffectedItem } from "../src/lib/impact-policy.js";
+import { IMPACT_LIMITS, normalizeImpactRequest, validateCompletedAffectedItem } from "../src/lib/impact-policy.js";
 import { createProviderSnapshot, normalizeProviderDescriptor } from "../src/analyzers/common/analyzer-provider-contract.js";
 import { analyzeProviderSnapshot } from "../src/analyzers/common/analyzer-providers.js";
 
@@ -255,6 +255,103 @@ test("validates optional source identity independently for text and hash records
   invalid([{ path: origin.path, sha256: origin.sha256 }, { path: origin.path, sha256: origin.sha256 }, { path: consumer.path, sha256: consumer.sha256 }]);
   invalid([{ path: origin.path, sha256: origin.sha256 }]);
   invalid([{ path: origin.path, sha256: origin.sha256 }, { path: consumer.path, sha256: consumer.sha256 }, { path: "extra.js", sha256: "0".repeat(64) }]);
+});
+
+test("requires exact optional source identities in text, hash-only and mixed modes", () => {
+  const boundGraph = graph({ nodes: [node("origin", "origin.js"), node("consumer", "a.js")], edges: [edge("consumer", "origin", "references", { path: "a.js", line: 1, column: 1 })] });
+  const byPath = new Map(boundGraph.snapshot.files.map((source) => [source.path, source]));
+  const origin = byPath.get("origin.js");
+  const canonical = byPath.get("a.js");
+  const run = (sourceFiles) => analyzeSingleFileReverseImpact({ originPath: "origin.js", sourceFiles, graph: boundGraph });
+  const invalid = (sourceFiles) => assert.throws(() => run(sourceFiles), { code: "invalid_impact_traversal" });
+
+  const result = run([
+    { path: "origin.js", text: origin.text },
+    { path: "a.js", sha256: canonical.sha256 }
+  ]);
+  const item = result.affectedFiles[0];
+  const witness = item.origins[0].witness;
+  assert.equal(item.path, "a.js");
+  assert.equal(item.origins[0].originPath, "origin.js");
+  assert.equal(witness.source.path, "a.js");
+  assert.equal(witness.source.hash, canonical.sha256);
+  assert.deepEqual(witness.location, { path: "a.js", line: 1, column: 1 });
+
+  for (const alias of ["a.js/", " a.js", "a.js ", "./a.js"]) {
+    const aliasedText = { path: alias, text: canonical.text };
+    const aliasedHash = { path: alias, sha256: canonical.sha256 };
+    invalid([{ path: origin.path, sha256: origin.sha256 }, aliasedText]);
+    invalid([{ path: origin.path, sha256: origin.sha256 }, aliasedHash]);
+    invalid([{ path: origin.path, text: origin.text }, aliasedHash]);
+    invalid([aliasedHash, { path: origin.path, text: origin.text }]);
+  }
+});
+
+test("requires exact graph node and explicit location identities before traversal", () => {
+  const base = graph({
+    sourcePaths: ["origin.js", "a.js", "other.js"],
+    nodes: [node("origin", "origin.js"), node("consumer", "a.js"), node("other", "other.js")],
+    edges: [edge("consumer", "origin", "references", { path: "a.js", line: 1, column: 1 })]
+  });
+  const run = (patch, limits) => analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: { ...base, ...patch }, ...(limits ? { limits } : {}) });
+  const invalid = (patch, limits) => assert.throws(() => run(patch, limits), { code: "invalid_impact_traversal" });
+
+  for (const alias of ["a.js/", " a.js", "a.js ", "./a.js"]) {
+    const originAlias = alias.replace("a.js", "origin.js");
+    invalid({ nodes: [node("origin", "origin.js"), node("consumer", alias)], edges: [edge("consumer", "origin", "references", { path: "other.js", line: 1, column: 1 })] });
+    invalid({ nodes: [node("origin", originAlias), node("consumer", "a.js")] });
+    invalid({ edges: [edge("consumer", "origin", "references", { path: alias, line: 1, column: 1 })] });
+    invalid({ nodes: [...base.nodes, node("disconnected", alias)] }, { depth: 0 });
+    invalid({ edges: [...base.edges, edge("other", "consumer", "references", { path: alias, line: 1, column: 1 })] }, { depth: 0, traversalEdgeExaminations: 1 });
+  }
+
+  const canonical = run({ edges: [base.edges[0], base.edges[0]] });
+  assert.deepEqual(pathsOf(canonical), ["a.js:1"]);
+  assert.equal(canonical.affectedFiles[0].origins[0].witness.source.path, "a.js");
+});
+
+test("rejects evidence aliases without changing request path normalization", () => {
+  const nested = graph({
+    sourcePaths: ["origin.js", "dir/a.js"],
+    nodes: [node("origin", "origin.js"), node("consumer", "dir/a.js")],
+    edges: [edge("consumer", "origin", "references")]
+  });
+  assert.deepEqual(normalizeImpactRequest({ paths: [" dir\\a.js/ "] }).paths, ["dir/a.js"]);
+  assert.throws(() => normalizeImpactRequest({ paths: ["./a.js"] }), { code: "invalid_impact_request" });
+  assert.throws(() => analyzeSingleFileReverseImpact({
+    originPath: "origin.js",
+    graph: { ...nested, nodes: [node("origin", "origin.js"), node("consumer", "dir\\a.js")] }
+  }), { code: "invalid_impact_traversal" });
+  for (const alias of ["dir/a.js/", "dir/a.js\\", "dir//a.js", "dir/./a.js", "dir/../a.js", "DIR/a.js", "dir/%61.js"]) {
+    assert.throws(() => analyzeSingleFileReverseImpact({
+      originPath: "origin.js",
+      graph: { ...nested, nodes: [node("origin", "origin.js"), node("consumer", alias)] }
+    }), { code: "invalid_impact_traversal" });
+  }
+});
+
+test("preserves exact valid evidence spellings and deterministic identity failures", () => {
+  const exactPaths = ["origin.js", "Dir/Case.js", "nested/internal space.js", "unicode/ä.js"];
+  const exactNodes = [node("origin", exactPaths[0]), ...exactPaths.slice(1).map((file, index) => node(`consumer${index}`, file))];
+  const exactEdges = exactNodes.slice(1).map((consumer) => edge(consumer.id, "origin", "references", { path: consumer.file, line: 1, column: 1 }));
+  const exact = analyzeSingleFileReverseImpact({ originPath: "origin.js", graph: graph({ sourcePaths: exactPaths, nodes: exactNodes, edges: exactEdges }) });
+  assert.deepEqual(exact.affectedFiles.map((item) => item.path).sort(), exactPaths.slice(1).sort());
+  for (const item of exact.affectedFiles) {
+    assert.equal(item.origins[0].witness.source.path, item.path);
+    assert.equal(item.origins[0].witness.location.path, item.path);
+  }
+
+  const boundGraph = graph({ nodes: [node("origin", "origin.js"), node("consumer", "a.js")], edges: [edge("consumer", "origin")] });
+  const [a, origin] = boundGraph.snapshot.files;
+  const invalid = (sourceFiles) => assert.throws(() => analyzeSingleFileReverseImpact({ originPath: "origin.js", sourceFiles, graph: boundGraph }), { code: "invalid_impact_traversal" });
+  for (const records of [
+    [{ path: origin.path, sha256: origin.sha256 }],
+    [{ path: origin.path, sha256: origin.sha256 }, { path: a.path, sha256: a.sha256 }, { path: "extra.js", sha256: a.sha256 }],
+    [{ path: a.path, sha256: a.sha256 }, { path: a.path, sha256: a.sha256 }, { path: origin.path, sha256: origin.sha256 }]
+  ]) {
+    invalid(records);
+    invalid([...records].reverse());
+  }
 });
 
 test("gates no-evidence on supported capabilities and target coverage", () => {
