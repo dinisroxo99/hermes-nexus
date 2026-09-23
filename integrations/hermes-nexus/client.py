@@ -213,8 +213,9 @@ def _revision_mismatches(data: dict[str, Any], arguments: dict[str, Any], *, con
     worktree_id = _require(revision, "worktreeId", str)
     if not _opaque(repository_id) or not _opaque(worktree_id):
         raise _error("nexus_invalid_response", "protocol")
-    if "repositoryId" in revision:
-        alias = _require(revision, "repositoryId", str)
+    alias_key = "repositoryId" if context else "repositoryIdentity"
+    if alias_key in revision:
+        alias = _require(revision, alias_key, str)
         if not _opaque(alias):
             raise _error("nexus_invalid_response", "protocol")
     else:
@@ -389,6 +390,8 @@ class NexusClient:
             async with asyncio.timeout(TOTAL_TIMEOUT_SECONDS):
                 request = client.build_request("POST", url, content=payload)
                 response = await client.send(request, stream=True)
+                if 300 <= response.status_code <= 399:
+                    raise _error("nexus_redirect_rejected", "http", response.status_code)
                 raw = await self._read_response(response)
                 try:
                     envelope = parse_response(raw)

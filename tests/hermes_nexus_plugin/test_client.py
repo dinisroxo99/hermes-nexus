@@ -238,6 +238,18 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(caught.exception.code, "nexus_context_mismatch")
             self.assertIn(expected_field, caught.exception.mismatched_fields)
 
+    async def test_impact_conflicting_context_style_repository_alias_fails_closed(self):
+        data = impact_data()
+        data["revision"]["repositoryIdentity"] = "e" * 64
+
+        async def handler(_request):
+            return response(data, "Project impact constructed.")
+
+        with self.assertRaises(client_module.NexusClientError) as caught:
+            await self._call("project_impact", arguments(impact=True), {}, handler)
+        self.assertEqual(caught.exception.code, "nexus_context_mismatch")
+        self.assertIn("repositoryId", caught.exception.mismatched_fields)
+
     async def test_missing_metadata_is_invalid_and_wrong_version_incompatible(self):
         data = context_data()
         data["revision"].pop("worktreeId")
@@ -290,7 +302,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         async def handler(_request):
             nonlocal calls
             calls += 1
-            return httpx.Response(302, json={"ok": False, "error": "redirect"}, headers={"content-type": "application/json", "location": "http://127.0.0.1:8770/other"})
+            return httpx.Response(302, content=b"not JSON", headers={"content-type": "text/html", "location": "http://127.0.0.1:8770/other"})
 
         with self.assertRaises(client_module.NexusClientError) as caught:
             await self._call("project_task_context", arguments(), {}, handler)
