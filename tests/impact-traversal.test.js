@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { analyzeMultiFileReverseImpact, analyzeSingleFileReverseImpact } from "../src/lib/impact-traversal.js";
 import { IMPACT_LIMITS, normalizeImpactRequest, validateCompletedAffectedItem } from "../src/lib/impact-policy.js";
-import { createProviderSnapshot, normalizeProviderDescriptor } from "../src/analyzers/common/analyzer-provider-contract.js";
+import { PROVIDER_LIMITS, createProviderSnapshot, normalizeProviderDescriptor } from "../src/analyzers/common/analyzer-provider-contract.js";
 import { analyzeProviderSnapshot } from "../src/analyzers/common/analyzer-providers.js";
 
 function capabilities(overrides = {}) {
@@ -652,4 +652,33 @@ test("multi-target traversal preserves one target's evaluated absence beside mis
     { originPath: "missing.js", findingState: "not_evaluated" }
   ]);
   assert.equal(result.findingState, "not_evaluated");
+});
+
+test("multi-target traversal bounds raw graph cardinality before depth and work shortcuts", () => {
+  const baseNodes = [node("a", "a.js"), node("b", "b.js")];
+  const duplicateNodes = Array.from({ length: PROVIDER_LIMITS.nodes }, (_, index) => baseNodes[index % baseNodes.length]);
+  const nodeGraph = graph({ sourcePaths: ["a.js", "b.js"], nodes: duplicateNodes, edges: [] });
+  assert.equal(analyzeMultiFileReverseImpact({
+    originPaths: ["a.js", "b.js"],
+    graph: nodeGraph,
+    limits: { depth: 0, traversalVisitedStates: 1, traversalEdgeExaminations: 1 }
+  }).findingState, "no_evidence_found");
+  assert.throws(() => analyzeMultiFileReverseImpact({
+    originPaths: ["a.js", "b.js"],
+    graph: { ...nodeGraph, nodes: [...duplicateNodes, baseNodes[0]] },
+    limits: { depth: 0, traversalVisitedStates: 1, traversalEdgeExaminations: 1 }
+  }), { code: "invalid_impact_traversal", message: "Invalid Impact v2 traversal input." });
+
+  const duplicateEdges = Array(PROVIDER_LIMITS.edges).fill(edge("b", "a"));
+  const edgeGraph = graph({ sourcePaths: ["a.js", "b.js"], nodes: baseNodes, edges: duplicateEdges });
+  assert.equal(analyzeMultiFileReverseImpact({
+    originPaths: ["a.js", "b.js"],
+    graph: edgeGraph,
+    limits: { depth: 0, traversalVisitedStates: 1, traversalEdgeExaminations: 1 }
+  }).findingState, "no_evidence_found");
+  assert.throws(() => analyzeMultiFileReverseImpact({
+    originPaths: ["a.js", "b.js"],
+    graph: { ...edgeGraph, edges: [...duplicateEdges, duplicateEdges[0]] },
+    limits: { depth: 0, traversalVisitedStates: 1, traversalEdgeExaminations: 1 }
+  }), { code: "invalid_impact_traversal", message: "Invalid Impact v2 traversal input." });
 });

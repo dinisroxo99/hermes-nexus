@@ -1,5 +1,5 @@
 import { CONTEXT_SOURCE_LIMITS, contextDigest, compareContextStrings as compare, normalizeContextSources } from "./project-context-files.js";
-import { createProviderSnapshot, detectSnapshotLanguages, isValidSnapshotSourcePosition, normalizeProviderDescriptor } from "../analyzers/common/analyzer-provider-contract.js";
+import { PROVIDER_LIMITS, createProviderSnapshot, detectSnapshotLanguages, isValidSnapshotSourcePosition, normalizeProviderDescriptor } from "../analyzers/common/analyzer-provider-contract.js";
 import {
   IMPACT_ANALYSIS_VERSION,
   IMPACT_LIMITS,
@@ -151,6 +151,8 @@ export function analyzeMultiFileReverseImpact(input = {}) {
   }
   if (eligible.length === 0) return finishMulti(base, targetState);
 
+  if (!Array.isArray(graph.nodes) || graph.nodes.length > PROVIDER_LIMITS.nodes
+    || !Array.isArray(graph.edges) || graph.edges.length > PROVIDER_LIMITS.edges) throw invalidImpactTraversal();
   const { nodes, nodeById, incoming } = prepareTraversalGraph(graph, provider, sourceByPath);
   const work = { visitedStates: 0, edgeExaminations: 0 };
   const merged = new Map();
