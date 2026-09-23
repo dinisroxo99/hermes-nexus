@@ -213,9 +213,11 @@ def _boolean(value: Any, expected: bool | None = None) -> bool:
 
 
 def _number(value: Any, *, integer: bool) -> int | float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         _fail()
-    if integer and not isinstance(value, int):
+    if isinstance(value, float) and not math.isfinite(value):
+        _fail()
+    if integer and type(value) is not int:
         _fail()
     return value
 

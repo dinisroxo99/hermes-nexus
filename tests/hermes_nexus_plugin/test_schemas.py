@@ -105,6 +105,23 @@ class ValidationTests(unittest.TestCase):
         value["includeTests"] = True
         self.assertEqual(schemas.validate_impact_arguments(value), value)
 
+    def test_arbitrary_integers_are_preserved_for_server_owned_limit_policy(self):
+        for candidate in (10 ** 400, -(10 ** 400)):
+            with self.subTest(tool="context", candidate_sign=candidate > 0):
+                value = context_args()
+                value["limits"] = {"files": candidate}
+                self.assertEqual(
+                    schemas.validate_task_context_arguments(value)["limits"]["files"],
+                    candidate,
+                )
+            with self.subTest(tool="impact", candidate_sign=candidate > 0):
+                value = impact_args()
+                value["limits"] = {"depth": candidate}
+                self.assertEqual(
+                    schemas.validate_impact_arguments(value)["limits"]["depth"],
+                    candidate,
+                )
+
     def test_missing_required_and_unknown_top_level_rejected(self):
         self.assert_context_rejected(lambda value: value.pop("task"))
         self.assert_context_rejected(lambda value: value.update(provider="bad"))
@@ -229,6 +246,17 @@ class ValidationTests(unittest.TestCase):
             )
         self.assert_context_rejected(lambda value: value.update(includeExcerpts=1))
         self.assert_impact_rejected(lambda value: value.update(includeTests="false"))
+
+    def test_finite_float_rules_remain_distinct_between_tools(self):
+        value = context_args()
+        value["limits"] = {"files": -1.25}
+        self.assertEqual(
+            schemas.validate_task_context_arguments(value)["limits"]["files"],
+            -1.25,
+        )
+        self.assert_impact_rejected(
+            lambda candidate: candidate.update(limits={"depth": -1.25})
+        )
 
     def test_wrong_container_and_item_types_rejected(self):
         self.assert_context_rejected(lambda value: value.update(task=[]))

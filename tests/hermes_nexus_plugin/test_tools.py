@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import ast
 import importlib
 import importlib.util
 import json
+import logging
 import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Callable, cast
 
 import httpx
 
@@ -190,6 +193,38 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["httpStatus"], 409)
         self.assertNotIn("data", result)
 
+    async def test_large_integer_limits_reach_both_tools_unchanged(self):
+        cases = (
+            (self.context_handler, context_args, "files"),
+            (self.impact_handler, impact_args, "depth"),
+        )
+        for handler, factory, key in cases:
+            for candidate in (10 ** 400, -(10 ** 400)):
+                with self.subTest(key=key, positive=candidate > 0):
+                    args = factory()
+                    args["limits"] = {key: candidate}
+                    result = json.loads(await handler(args))
+                    self.assertTrue(result["ok"])
+                    _tool, validated, body = RecordingClient.instances[-1].calls[0]
+                    self.assertEqual(validated["limits"][key], candidate)
+                    self.assertEqual(body["limits"][key], candidate)
+
+    async def test_limit_numeric_type_failures_are_static_and_pre_network(self):
+        cases = (
+            (self.context_handler, context_args, "files", (True, float("nan"), float("inf"))),
+            (self.impact_handler, impact_args, "depth", (True, 1.5, float("nan"), float("inf"))),
+        )
+        for handler, factory, key, invalid_values in cases:
+            for invalid in invalid_values:
+                before = len(RecordingClient.instances)
+                with self.subTest(key=key, invalid=repr(invalid)):
+                    args = factory()
+                    args["limits"] = {key: invalid}
+                    result = json.loads(await handler(args))
+                    self.assertEqual(result["error"], "nexus_invalid_arguments")
+                    self.assertEqual(result["category"], "input")
+                    self.assertEqual(len(RecordingClient.instances), before)
+
 
 class Handle:
     def __init__(self, name, owner):
@@ -345,19 +380,127 @@ class RegistrationTests(unittest.TestCase):
         self.assertIs(registry["project_map_search"], sentinel)
         self.assertEqual(set(registry), {"project_map_search", "project_task_context", "project_impact"})
 
-    def test_profile_enablement_is_loader_scoped_not_global(self):
-        homes = {
-            name: FakeContext(profile_name=name)
-            for name in ("architect", "default", "workspace-manager", "orchestrator", "implementer", "tester", "reviewer", "documenter")
-        }
-        enabled_profiles = {"architect"}
-        for name, ctx in homes.items():
-            if name in enabled_profiles:
-                self.plugin.register(ctx)
-        self.assertEqual(set(homes["architect"].registry), {"project_task_context", "project_impact"})
-        for name, ctx in homes.items():
-            if name != "architect":
-                self.assertEqual(ctx.registry, {})
+    def test_successful_registration_is_confined_to_architect_merged_scope(self):
+        hermes_root = Path.home() / ".hermes" / "hermes-agent"
+        registry_module = None
+        original_registry = None
+        sys.path.insert(0, str(hermes_root))
+        try:
+            registry_module = importlib.import_module("tools.registry")
+            original_registry = registry_module.registry
+            registry = registry_module.ToolRegistry()
+            setattr(registry_module, "registry", registry)
+
+            tree = ast.parse((hermes_root / "hermes_cli/plugins.py").read_text())
+            context_class = next(
+                node for node in tree.body
+                if isinstance(node, ast.ClassDef) and node.name == "PluginContext"
+            )
+            register_method = next(
+                node for node in context_class.body
+                if isinstance(node, ast.FunctionDef) and node.name == "register_tool"
+            )
+            register_method.decorator_list = []
+            isolated_module = ast.Module(
+                body=[
+                    ast.ImportFrom(
+                        module="__future__",
+                        names=[ast.alias(name="annotations")],
+                        level=0,
+                    ),
+                    register_method,
+                ],
+                type_ignores=[],
+            )
+            namespace = {"logger": logging.getLogger("hermes-nexus-registry-test")}
+            exec(
+                compile(
+                    ast.fix_missing_locations(isolated_module),
+                    "isolated_actual_register_tool",
+                    "exec",
+                ),
+                namespace,
+            )
+            actual_register_tool = cast(Callable[..., object], namespace["register_tool"])
+
+            class Manager:
+                def __init__(self, scope):
+                    self.scope_key = scope
+                    self._plugin_tool_names = set()
+
+                def _remove_tool_name_if_unowned(self, name):
+                    self._plugin_tool_names.discard(name)
+
+                def _track_scoped_registration(
+                    self, _manifest, _kind, name, owner, current, previous, finalize
+                ):
+                    scope = self.scope_key
+
+                    class RegistrationHandle:
+                        def dispose(self):
+                            owner.restore_registration(
+                                name, current, previous, scope=scope
+                            )
+                            finalize()
+
+                    return RegistrationHandle()
+
+            class ActualRegistryContext:
+                register_tool = actual_register_tool
+                manifest = SimpleNamespace(name="hermes-nexus")
+
+                def __init__(self, scope):
+                    self._manager = Manager(scope)
+
+                def get_config(self, _key):
+                    return "http://127.0.0.1:8770"
+
+            architect_scope = "/isolated/architect"
+            sentinel = lambda _args: "legacy"
+            registry.register(
+                name="project_map_search",
+                toolset="project_map",
+                schema={},
+                handler=sentinel,
+            )
+            self.plugin.register(ActualRegistryContext(architect_scope))
+
+            names = ("project_task_context", "project_impact")
+            for name in names:
+                self.assertIsNotNone(registry.get_entry(name, scope=architect_scope))
+                self.assertIsNone(registry.snapshot_registration(name, scope=None))
+            for profile in (
+                "default", "workspace-manager", "orchestrator", "implementer",
+                "tester", "reviewer", "documenter",
+            ):
+                for name in names:
+                    self.assertIsNone(
+                        registry.get_entry(name, scope=f"/isolated/{profile}")
+                    )
+            self.assertIs(
+                registry.get_entry("project_map_search", scope=architect_scope).handler,
+                sentinel,
+            )
+
+            rollback_registry = registry_module.ToolRegistry()
+            setattr(registry_module, "registry", rollback_registry)
+
+            class RefuseSecond(ActualRegistryContext):
+                def register_tool(self, **kwargs):
+                    if kwargs["name"] == "project_impact":
+                        return None
+                    return super().register_tool(**kwargs)
+
+            with self.assertRaisesRegex(RuntimeError, "registration was refused"):
+                self.plugin.register(RefuseSecond(architect_scope))
+            for name in names:
+                self.assertIsNone(
+                    rollback_registry.get_entry(name, scope=architect_scope)
+                )
+        finally:
+            if registry_module is not None:
+                setattr(registry_module, "registry", original_registry)
+            sys.path.remove(str(hermes_root))
 
     def test_schema_advertisement_and_handler_validation_agree_on_unknown_fields(self):
         ctx = FakeContext()
