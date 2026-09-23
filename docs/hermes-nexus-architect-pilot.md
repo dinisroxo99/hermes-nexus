@@ -102,7 +102,8 @@ must be reported and mocks must not be called live Serena proof.
 Independent review must verify:
 
 - only the approved plugin, test, and runbook files changed;
-- the four required commits pair behavior with tests and retain their order;
+- the original four implementation commits and later correction commits pair
+  behavior with tests and retain their order;
 - no package manifest, Nexus server, Hermes core, profile, registry, or service was
   changed;
 - both schemas reject unknown fields at every object level and handlers validate
