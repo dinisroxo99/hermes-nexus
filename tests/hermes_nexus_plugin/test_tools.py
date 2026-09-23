@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import importlib.util
 import json
 import sys
@@ -179,9 +180,18 @@ class Handle:
 
 
 class FakeContext:
-    def __init__(self, base_url="http://127.0.0.1:8770", registry=None, refuse=None, profile_name="architect", real_context=False):
+    def __init__(
+        self,
+        base_url="http://127.0.0.1:8770",
+        registry=None,
+        global_registry=None,
+        refuse=None,
+        profile_name="architect",
+        real_context=False,
+    ):
         self.base_url = base_url
         self.registry = registry if registry is not None else {}
+        self.global_registry = global_registry if global_registry is not None else {}
         self.refuse = refuse
         self.profile_name = profile_name
         self.calls = []
@@ -192,10 +202,17 @@ class FakeContext:
         self.calls.append(("get_config", key))
         return self.base_url if key == "base_url" else default
 
+    def has_registered_tool(self, name):
+        self.calls.append(("has_registered_tool", name))
+        return name in self.registry or name in self.global_registry
+
     def register_tool(self, **kwargs):
         name = kwargs["name"]
         self.calls.append(("register_tool", name))
-        if name == self.refuse or name in self.registry:
+        if name == self.refuse or name in self.global_registry:
+            return None
+        existing = self.registry.get(name)
+        if existing is not None and existing.get("toolset") != kwargs["toolset"]:
             return None
         self.registry[name] = kwargs
         return Handle(name, self.registry)
@@ -230,6 +247,73 @@ class RegistrationTests(unittest.TestCase):
             self.plugin.register(ctx)
         self.assertEqual(ctx.registry, {})
 
+    def test_refused_first_registration_changes_nothing(self):
+        ctx = FakeContext(refuse="project_task_context", real_context=True)
+        with self.assertRaisesRegex(RuntimeError, "registration was refused"):
+            self.plugin.register(ctx)
+        self.assertEqual(ctx.registry, {})
+
+    def test_preexisting_names_are_refused_before_registration_and_preserved(self):
+        for collision_name in ("project_task_context", "project_impact"):
+            for location in ("scoped", "global"):
+                sentinel = {
+                    "name": collision_name,
+                    "toolset": "project_intelligence" if location == "scoped" else "other_tools",
+                    "handler": object(),
+                }
+                scoped = {collision_name: sentinel} if location == "scoped" else {}
+                global_registry = {collision_name: sentinel} if location == "global" else {}
+                ctx = FakeContext(registry=scoped, global_registry=global_registry)
+                with self.subTest(name=collision_name, location=location):
+                    with self.assertRaisesRegex(RuntimeError, "registration was refused"):
+                        self.plugin.register(ctx)
+                    self.assertNotIn("register_tool", [call[0] for call in ctx.calls])
+                    owner = scoped if location == "scoped" else global_registry
+                    self.assertIs(owner[collision_name], sentinel)
+
+    def test_preflight_uses_actual_hermes_merged_scope_semantics(self):
+        hermes_root = Path.home() / ".hermes" / "hermes-agent"
+        registry_module = None
+        original_registry = None
+        sys.path.insert(0, str(hermes_root))
+        try:
+            registry_module = importlib.import_module("tools.registry")
+            original_registry = getattr(registry_module, "registry")
+            registry_type = getattr(registry_module, "ToolRegistry")
+            isolated_registry = registry_type()
+            setattr(registry_module, "registry", isolated_registry)
+            scope = "/isolated/architect-profile"
+
+            class ActualRegistryContext:
+                _manager = SimpleNamespace(scope_key=scope)
+
+                def get_config(self, _key):
+                    return "http://127.0.0.1:8770"
+
+                def register_tool(self, **_kwargs):
+                    raise AssertionError("preflight must run before registration")
+
+            for location in ("scoped", "global"):
+                sentinel = lambda _args: "sentinel"
+                isolated_registry.register(
+                    name="project_task_context",
+                    toolset="project_intelligence",
+                    schema={},
+                    handler=sentinel,
+                    scope=scope if location == "scoped" else None,
+                )
+                with self.subTest(location=location):
+                    with self.assertRaisesRegex(RuntimeError, "registration was refused"):
+                        self.plugin.register(ActualRegistryContext())
+                    entry = isolated_registry.get_entry("project_task_context", scope=scope)
+                    self.assertIs(entry.handler, sentinel)
+                isolated_registry = registry_type()
+                setattr(registry_module, "registry", isolated_registry)
+        finally:
+            if registry_module is not None:
+                setattr(registry_module, "registry", original_registry)
+            sys.path.remove(str(hermes_root))
+
     def test_existing_low_level_tools_are_not_changed(self):
         sentinel = {"name": "project_map_search", "owner": "legacy"}
         registry = {"project_map_search": sentinel}
@@ -243,7 +327,10 @@ class RegistrationTests(unittest.TestCase):
             name: FakeContext(profile_name=name)
             for name in ("architect", "default", "workspace-manager", "orchestrator", "implementer", "tester", "reviewer", "documenter")
         }
-        self.plugin.register(homes["architect"])
+        enabled_profiles = {"architect"}
+        for name, ctx in homes.items():
+            if name in enabled_profiles:
+                self.plugin.register(ctx)
         self.assertEqual(set(homes["architect"].registry), {"project_task_context", "project_impact"})
         for name, ctx in homes.items():
             if name != "architect":

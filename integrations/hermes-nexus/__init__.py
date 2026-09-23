@@ -2,14 +2,33 @@
 
 from __future__ import annotations
 
+import importlib
+
 from .client import NexusClientError, validate_base_url
 from .schemas import PROJECT_IMPACT_SCHEMA, PROJECT_TASK_CONTEXT_SCHEMA
 from .tools import create_handlers
 
 
+_TOOL_NAMES = ("project_task_context", "project_impact")
+
+
+def _tool_exists(ctx, name: str) -> bool:
+    probe = getattr(ctx, "has_registered_tool", None)
+    if callable(probe):
+        return bool(probe(name))
+    manager = getattr(ctx, "_manager", None)
+    scope = getattr(manager, "scope_key", None)
+    if scope is None:
+        return False
+    registry = importlib.import_module("tools.registry").registry
+    return registry.get_entry(name, scope=scope) is not None
+
+
 def register(ctx) -> None:
     """Register exactly two async, read-only tools without contacting Nexus."""
     base_url = ctx.get_config("base_url")
+    if any(_tool_exists(ctx, name) for name in _TOOL_NAMES):
+        raise RuntimeError("Hermes Nexus tool registration was refused.")
     task_context, impact = create_handlers(base_url)
 
     def available() -> bool:
@@ -21,8 +40,8 @@ def register(ctx) -> None:
 
     handles = []
     registrations = (
-        ("project_task_context", PROJECT_TASK_CONTEXT_SCHEMA, task_context),
-        ("project_impact", PROJECT_IMPACT_SCHEMA, impact),
+        (_TOOL_NAMES[0], PROJECT_TASK_CONTEXT_SCHEMA, task_context),
+        (_TOOL_NAMES[1], PROJECT_IMPACT_SCHEMA, impact),
     )
     try:
         for name, schema, handler in registrations:
