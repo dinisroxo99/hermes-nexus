@@ -109,8 +109,27 @@ function throwsCode(code, fn) {
   assert.throws(fn, (error) => error?.code === code && !JSON.stringify(error).includes("must not leak"));
 }
 
+function throwsInvalidObservation(fn) {
+  assert.throws(fn, (error) => error?.code === "invalid_impact_observation"
+    && error.message === "Invalid Impact v2 observation."
+    && !JSON.stringify(error).includes("must not leak"));
+}
+
 function bytes(value) {
   return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+
+function findBudgetResult(request, observation, predicate) {
+  const roomy = composeProjectImpact({ ...request, limits: { ...request.limits, compactBytes: 128 * 1024 } }, observation);
+  for (let compactBytes = bytes(roomy) - 1; compactBytes > 0; compactBytes -= 1) {
+    try {
+      const result = composeProjectImpact({ ...request, limits: { ...request.limits, compactBytes } }, observation);
+      if (predicate(result)) return result;
+    } catch (error) {
+      if (error?.code !== "impact_budget_exceeded") throw error;
+    }
+  }
+  assert.fail("No compact byte budget produced the expected result.");
 }
 
 test("C1 composes a pure immutable single-target observation and locally gates later request slices", () => {
@@ -164,6 +183,61 @@ test("C3 enforces selected worktree consistency and rejects cross-snapshot graph
 
   const changed = fixture({ files: [source("origin.js", "changed\n"), source("consumer.js")] });
   throwsCode("invalid_impact_observation", () => composeProjectImpact({ paths: ["origin.js"] }, { ...changed, graph: observation.graph }));
+});
+
+test("C2/C3 validates optional graph identities before terminal and zero-source traversal bypasses", () => {
+  const empty = fixture({ files: [], nodes: [], edges: [], status: "unsupported", provider: null });
+  const matchingGraph = {
+    ...empty.graph,
+    projectId: empty.snapshot.projectId,
+    revision: empty.snapshot.revision,
+    worktree: null
+  };
+  const matching = composeProjectImpact({ paths: ["origin.js"] }, { ...empty, graph: matchingGraph });
+  assert.equal(matching.status, "unavailable");
+  assert.equal(matching.findingState, "not_evaluated");
+
+  const conflicts = [
+    { name: "projectId", value: "Other_Project" },
+    { name: "revision", value: { ...empty.snapshot.revision, branch: "replayed" } },
+    { name: "worktree", value: { worktreeId: "wt_replayed" } }
+  ];
+  for (const { name, value } of conflicts) {
+    throwsInvalidObservation(() => composeProjectImpact({ paths: ["origin.js"] }, {
+      ...empty,
+      graph: { ...matchingGraph, [name]: value, diagnostics: [{ message: "must not leak" }] }
+    }));
+  }
+
+  for (const invalid of [
+    { ...empty, snapshot: { ...empty.snapshot, token: "stale" } },
+    { ...empty, graph: { ...matchingGraph, snapshotToken: "stale", attempts: [{ reason: "must not leak" }] } }
+  ]) throwsInvalidObservation(() => composeProjectImpact({ paths: ["origin.js"] }, invalid));
+
+  const linkedProject = { ...project, rootId: "worktrees", relativePath: "repo/task" };
+  const linkedRevision = { ...revision, worktreeId: "wt_task", isLinkedWorktree: true };
+  const linked = fixture({ selectedProject: linkedProject, selectedRevision: linkedRevision });
+  const linkedGraph = {
+    ...linked.graph,
+    projectId: linked.snapshot.projectId,
+    revision: linked.snapshot.revision,
+    worktree: { worktreeId: "wt_task" }
+  };
+  assert.equal(composeProjectImpact({ paths: ["origin.js"], worktree: { rootId: "worktrees", relativePath: "repo/task" } }, {
+    ...linked,
+    graph: linkedGraph
+  }).worktree.worktreeId, "wt_task");
+});
+
+test("C2 rejects a conflicting declared source hash without changing canonical source evidence", () => {
+  const observation = fixture();
+  const files = observation.snapshot.files.map((file) => file.path === "origin.js"
+    ? { ...file, sha256: "0".repeat(64) }
+    : file);
+  throwsInvalidObservation(() => composeProjectImpact({ paths: ["origin.js"] }, {
+    ...observation,
+    snapshot: { ...observation.snapshot, files }
+  }));
 });
 
 test("C4/C5 consumes native and external facade-shaped evidence and matches the accepted primitive", () => {
@@ -264,6 +338,31 @@ test("C7 reports symbol-free, missing, partial, unsupported, unavailable and zer
   throwsCode("invalid_impact_observation", () => composeProjectImpact({ paths: ["origin.js"] }, { ...empty, graph: { ...empty.graph, nodes: [node("x", "origin.js")] } }));
 });
 
+test("C7 preserves selected-provider partial and limited completeness on valid zero-source observations", () => {
+  const cases = [
+    { status: "partial", limited: false },
+    { status: "available", limited: true }
+  ];
+  for (const selected of cases) {
+    const observation = fixture({
+      files: [],
+      nodes: [],
+      edges: [],
+      provider: nativeProvider,
+      status: selected.status,
+      limited: selected.limited,
+      sourceLimited: true
+    });
+    const result = composeProjectImpact({ paths: ["origin.js"] }, observation);
+    assert.equal(result.status, "unavailable");
+    assert.equal(result.findingState, "not_evaluated");
+    assert.deepEqual(result.provider, { id: nativeProvider.id, version: nativeProvider.version });
+    assert.deepEqual(result.completeness.source, ["source_limit", "source_unavailable"]);
+    assert.deepEqual(result.completeness.provider, ["provider_partial"]);
+    assert.equal(result.observation.incomplete, true);
+  }
+});
+
 test("C8 safely projects clean, dirty, unborn, not_git, unavailable and null revision states", () => {
   for (const [status, dirty] of [["available", false], ["available", true], ["unborn", false], ["not_git", false], ["unavailable", null], [null, null]]) {
     const selectedRevision = { ...revision, status, dirty, commitSha: status === "available" ? "b".repeat(40) : null, branch: null, isGit: status === "available" ? true : status === "not_git" ? false : null };
@@ -310,6 +409,64 @@ test("C10 enforces the full UTF-8 compact envelope and throws when mandatory met
   assert(trimmed.affectedFiles.length < 2);
   assert(trimmed.completeness.output.includes("output_byte_limit"));
   throwsCode("impact_budget_exceeded", () => composeProjectImpact({ paths: ["origin.js"], limits: { compactBytes: 1 } }, observation));
+});
+
+test("C10 trims the full envelope to zero evidence with honest semantics at the exact UTF-8 boundary", () => {
+  const observation = fixture({
+    files: [source("origin.js"), source("a.js"), source("unicode/ä.js")],
+    nodes: [node("origin", "origin.js"), node("a", "a.js"), node("unicode", "unicode/ä.js")],
+    edges: [edge("a", "origin"), edge("unicode", "origin")],
+    status: "partial",
+    limited: true,
+    sourceLimited: true
+  });
+  const request = { paths: ["origin.js"] };
+  const zero = findBudgetResult(request, observation, (result) => result.affectedFiles.length === 0);
+  let exactBudget = bytes(zero);
+  let exact;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    exact = composeProjectImpact({ ...request, limits: { compactBytes: exactBudget } }, observation);
+    assert.equal(exact.affectedFiles.length, 0);
+    const measured = bytes(exact);
+    if (measured === exactBudget) break;
+    exactBudget = measured;
+  }
+
+  assert.equal(bytes(exact), exactBudget);
+  assert.equal(bytes(exact) <= exact.limits.compactBytes, true);
+  assert.equal(exact.status, "partial");
+  assert.equal(exact.findingState, "not_evaluated");
+  assert.equal(exact.observation.incomplete, true);
+  assert.deepEqual(exact.completeness.source, ["source_limit"]);
+  assert.deepEqual(exact.completeness.provider, ["provider_partial"]);
+  assert(exact.completeness.output.includes("output_byte_limit"));
+  throwsCode("impact_budget_exceeded", () => composeProjectImpact({ ...request, limits: { compactBytes: exactBudget - 1 } }, observation));
+});
+
+test("C9/C10 preserves file, witness and byte reasons while retaining an unchanged deterministic prefix", () => {
+  const observation = fixture({
+    files: [source("origin.js"), source("a.js"), source("b.js"), source("c.js"), source("d.js")],
+    nodes: [node("origin", "origin.js"), node("a", "a.js"), node("b", "b.js"), node("c", "c.js"), node("d", "d.js")],
+    edges: [edge("a", "origin"), edge("b", "origin"), edge("c", "origin"), edge("d", "origin")]
+  });
+  const request = { paths: ["origin.js"], limits: { affectedFiles: 3, originWitnessRecords: 2 } };
+  const beforeBytes = composeProjectImpact(request, observation);
+  assert.deepEqual(beforeBytes.affectedFiles.map((item) => item.path), ["a.js", "b.js"]);
+  assert.deepEqual(beforeBytes.completeness.output, ["origin_limit", "witness_budget"]);
+
+  const trimmed = findBudgetResult(request, observation, (result) => result.affectedFiles.length === 1);
+  assert.deepEqual(trimmed.affectedFiles.map((item) => item.path), ["a.js"]);
+  assert.deepEqual(trimmed.affectedFiles[0], beforeBytes.affectedFiles[0]);
+  assert.equal(trimmed.affectedFiles[0].origins[0].witness.trust, "derived_analysis");
+  assert.equal(trimmed.affectedFiles[0].origins[0].witness.basis, "structural");
+  assert.deepEqual(trimmed.affectedFiles[0].originSummary, {
+    discoveredOriginCount: 1,
+    retainedOriginWitnessCount: 1,
+    attributionTruncated: false,
+    reasons: []
+  });
+  assert.deepEqual(trimmed.completeness.output, ["origin_limit", "output_byte_limit", "witness_budget"]);
+  assert.equal(bytes(trimmed) <= trimmed.limits.compactBytes, true);
 });
 
 test("C11 is deterministic under source, node, edge and coverage permutations without mutation", () => {
