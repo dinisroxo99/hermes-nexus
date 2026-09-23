@@ -142,8 +142,8 @@ test("C1 composes pure immutable requests, preserving aliases as the single-targ
   assert.doesNotThrow(() => normalizeImpactRequest({ paths: ["a.js", "b.js"], includeTests: true }));
   const multi = composeProjectImpact({ paths: ["origin.js", "consumer.js"] }, observation);
   assert.deepEqual(multi.targets.map((target) => target.originPath), ["consumer.js", "origin.js"]);
-  throwsCode("impact_request_not_supported", () => composeProjectImpact({ paths: ["origin.js"], includeTests: true }, observation));
-  throwsCode("impact_request_not_supported", () => composeProjectImpact({ paths: ["origin.js", "consumer.js"], includeTests: true }, observation));
+  assert.deepEqual(composeProjectImpact({ paths: ["origin.js"], includeTests: true }, observation).affectedTests.candidates, []);
+  assert.deepEqual(composeProjectImpact({ paths: ["origin.js", "consumer.js"], includeTests: true }, observation).affectedTests.candidates, []);
   throwsCode("invalid_impact_request", () => composeProjectImpact({ paths: ["origin.js"], command: "run" }, observation));
 });
 
@@ -852,4 +852,203 @@ test("M10 accepts the exact empty Unicode multi-envelope and rejects one byte le
   assert.equal(exact.findingState, "not_evaluated");
   assert.equal(exact.observation.incomplete, true);
   throwsCode("impact_budget_exceeded", () => composeProjectImpact({ ...request, limits: { compactBytes: exactBudget - 1 } }, observation));
+});
+
+test("T1/T2 activates affected tests without changing false mode and recognizes only witnessed path conventions", () => {
+  const positive = [
+    "src/unit.test.js", "src/unit.SPEC.TS", "tests/helper.tsx", "test/view.jsx", "specs/api.java",
+    "__TESTS__/worker.rs", "ServiceTest.cs", "ServiceTests.CS", "test_module.py", "pkg/value_test.go"
+  ];
+  const negative = ["src/contest.js", "docs/tests.md", "src/helper.js"];
+  const files = [source("origin.js"), ...positive.map((path) => source(path)), ...negative.map((path) => source(path))];
+  const nodes = [node("origin", "origin.js"), ...positive.map((path, index) => node(`p${index}`, path)), ...negative.map((path, index) => node(`n${index}`, path))];
+  const edges = [...positive.map((path, index) => edge(`p${index}`, "origin")), ...negative.map((path, index) => edge(`n${index}`, "origin"))];
+  const polyglotProvider = normalizeProviderDescriptor({
+    ...nativeProvider,
+    id: "fixture.polyglot",
+    languages: ["csharp", "go", "java", "javascript", "python", "rust", "typescript"]
+  });
+  const observation = deepFreeze(fixture({ files, nodes, edges, provider: polyglotProvider }));
+  const request = deepFreeze({ paths: ["origin.js"] });
+
+  const omitted = composeProjectImpact(request, observation);
+  const explicitFalse = composeProjectImpact({ ...request, includeTests: false }, observation);
+  assert.equal(JSON.stringify(omitted), JSON.stringify(explicitFalse));
+  const tightFalseRequest = { ...request, limits: { originWitnessRecords: 1, compactBytes: bytes(omitted) } };
+  assert.equal(
+    JSON.stringify(composeProjectImpact(tightFalseRequest, observation)),
+    JSON.stringify(composeProjectImpact({ ...tightFalseRequest, includeTests: false }, observation))
+  );
+  const requested = deepFreeze({ ...request, includeTests: true });
+  const result = composeProjectImpact(requested, observation);
+  assert.equal(JSON.stringify(result), JSON.stringify(composeProjectImpact(requested, observation)));
+  assert.deepEqual(result.affectedTests.candidates.map((candidate) => candidate.path), [...positive].sort());
+  assert.deepEqual(Object.keys(result.affectedTests), ["status", "findingState", "candidates", "completeness"]);
+  for (const candidate of result.affectedTests.candidates) {
+    assert.deepEqual(Object.keys(candidate), ["path", "origins", "originSummary", "provenance"]);
+    const affected = result.affectedFiles.find((item) => item.path === candidate.path);
+    assert.deepEqual({ path: candidate.path, origins: candidate.origins, originSummary: candidate.originSummary }, affected);
+    const boundSource = observation.snapshot.files.find((file) => file.path === candidate.path);
+    assert.deepEqual(candidate.provenance, {
+      trust: "derived_analysis", basis: "heuristic", reason: "test_path_convention",
+      source: { path: candidate.path, hash: boundSource.sha256 }
+    });
+  }
+  assert.equal(result.affectedTests.status, "available");
+  assert.equal(result.affectedTests.findingState, "evidence_found");
+  assert.deepEqual(result.affectedTests.completeness, result.completeness);
+  assert.equal(JSON.stringify(result).includes("must not leak"), false);
+});
+
+test("T2/T3 rejects target-only, disconnected, label, location and basename-only test inference", () => {
+  const observation = fixture({
+    files: [source("requested.test.js"), source("origin.js"), source("src/helper.js"), source("tests/disconnected.js"), source("tests/location.js")],
+    nodes: [
+      node("requested", "requested.test.js"), node("origin", "origin.js"),
+      { ...node("test_named_symbol", "src/helper.js"), label: "SomethingTests" },
+      node("disconnected", "tests/disconnected.js"), node("location", "src/helper.js")
+    ],
+    edges: [edge("test_named_symbol", "origin"), edge("location", "origin", "references", { path: "tests/location.js", line: 1, column: 1 })]
+  });
+  const result = composeProjectImpact({ paths: ["origin.js"], includeTests: true }, observation);
+  assert.deepEqual(result.affectedFiles.map((item) => item.path), ["src/helper.js"]);
+  assert.deepEqual(result.affectedTests, {
+    status: "available", findingState: "no_evidence_found", candidates: [],
+    completeness: { source: [], provider: [], traversal: [], output: [] }
+  });
+  const depthZero = composeProjectImpact({ paths: ["requested.test.js"], includeTests: true, limits: { depth: 0 } }, observation);
+  assert.deepEqual(depthZero.affectedTests.candidates, []);
+  assert.equal(depthZero.affectedTests.findingState, "no_evidence_found");
+});
+
+test("T3/T4 preserves transitive multi-origin witnesses and candidate-local provenance exactly", () => {
+  const observation = fixture({
+    files: [source("a.js"), source("b.js"), source("middle.js"), source("tests/shared.spec.js"), source("references/evidence.js")],
+    nodes: [node("a", "a.js"), node("b", "b.js"), node("middle", "middle.js"), node("test", "tests/shared.spec.js")],
+    edges: [edge("middle", "a"), edge("test", "middle"), edge("test", "b", "references", { path: "references/evidence.js", line: 1, column: 1 })]
+  });
+  const result = composeProjectImpact({ paths: ["b.js", "a.js"], includeTests: true }, observation);
+  const file = result.affectedFiles.find((item) => item.path === "tests/shared.spec.js");
+  const candidate = result.affectedTests.candidates[0];
+  assert.deepEqual({ path: candidate.path, origins: candidate.origins, originSummary: candidate.originSummary }, file);
+  assert.deepEqual(candidate.origins.map(({ originPath, minimumDistance }) => ({ originPath, minimumDistance })), [
+    { originPath: "b.js", minimumDistance: 1 }, { originPath: "a.js", minimumDistance: 2 }
+  ]);
+  assert.equal(candidate.origins[0].witness.source.path, "references/evidence.js");
+  assert.equal(candidate.provenance.source.path, "tests/shared.spec.js");
+  assert.equal(result.targets.every((target) => target.findingState === "evidence_found"), true);
+});
+
+test("T5 projects clean, incomplete and terminal affected-test status independently", () => {
+  const clean = composeProjectImpact({ paths: ["origin.js"], includeTests: true }, fixture({ nodes: [], edges: [] }));
+  assert.deepEqual(clean.affectedTests, {
+    status: "available", findingState: "no_evidence_found", candidates: [],
+    completeness: { source: [], provider: [], traversal: [], output: [] }
+  });
+  const partial = composeProjectImpact({ paths: ["origin.js"], includeTests: true }, fixture({ nodes: [], edges: [], status: "partial", limited: true }));
+  assert.equal(partial.affectedTests.status, "partial");
+  assert.equal(partial.affectedTests.findingState, "not_evaluated");
+  assert.deepEqual(partial.affectedTests.completeness, partial.completeness);
+  for (const status of ["unsupported", "unavailable"]) {
+    const terminal = composeProjectImpact({ paths: ["origin.js"], includeTests: true }, fixture({ status, nodes: [], edges: [] }));
+    assert.equal(terminal.affectedTests.status, status);
+    assert.equal(terminal.affectedTests.findingState, "not_evaluated");
+    assert.deepEqual(terminal.affectedTests.candidates, []);
+  }
+});
+
+test("T6 applies affected-test count and combined serialized-origin budgets as whole prefixes", () => {
+  const paths = Array.from({ length: 33 }, (_, index) => `tests/t${String(index).padStart(2, "0")}.test.js`);
+  const observation = fixture({
+    files: [source("origin.js"), ...paths.map((path) => source(path))],
+    nodes: [node("origin", "origin.js"), ...paths.map((path, index) => node(`t${index}`, path))],
+    edges: paths.map((path, index) => edge(`t${index}`, "origin"))
+  });
+  const defaults = composeProjectImpact({ paths: ["origin.js"], includeTests: true }, observation);
+  assert.equal(defaults.affectedTests.candidates.length, 16);
+  assert(defaults.completeness.output.includes("origin_limit"));
+  const maximum = composeProjectImpact({ paths: ["origin.js"], includeTests: true, limits: { affectedTests: 32 } }, observation);
+  assert.equal(maximum.affectedTests.candidates.length, 32);
+  assert(maximum.completeness.output.includes("origin_limit"));
+
+  const one = fixture({
+    files: [source("origin.js"), source("tests/one.test.js")],
+    nodes: [node("origin", "origin.js"), node("test", "tests/one.test.js")], edges: [edge("test", "origin")]
+  });
+  const exact = composeProjectImpact({ paths: ["origin.js"], includeTests: true, limits: { originWitnessRecords: 2 } }, one);
+  assert.equal(exact.affectedTests.candidates.length, 1);
+  assert.equal(exact.completeness.output.includes("witness_budget"), false);
+  const limited = composeProjectImpact({ paths: ["origin.js"], includeTests: true, limits: { originWitnessRecords: 1 } }, one);
+  assert.equal(limited.affectedFiles.length, 1);
+  assert.deepEqual(limited.affectedTests.candidates, []);
+  assert.deepEqual(limited.completeness.output, ["witness_budget"]);
+  assert.equal(limited.findingState, "evidence_found");
+  assert.equal(limited.affectedTests.findingState, "not_evaluated");
+});
+
+test("T6 stops at the first candidate that cannot fit without skipping a cheaper suffix", () => {
+  const observation = fixture({
+    files: [source("a.js"), source("b.js"), source("tests/aa.test.js"), source("tests/zz.test.js")],
+    nodes: [node("a", "a.js"), node("b", "b.js"), node("aa", "tests/aa.test.js"), node("zz", "tests/zz.test.js")],
+    edges: [edge("aa", "a"), edge("aa", "b"), edge("zz", "a")]
+  });
+  const result = composeProjectImpact({ paths: ["a.js", "b.js"], includeTests: true, limits: { originWitnessRecords: 4 } }, observation);
+  assert.deepEqual(result.affectedFiles.map((item) => item.path), ["tests/aa.test.js", "tests/zz.test.js"]);
+  assert.deepEqual(result.affectedTests.candidates, []);
+  assert(result.completeness.output.includes("witness_budget"));
+  assert.equal(result.targets.every((target) => target.findingState === "evidence_found"), true);
+  assert.equal(result.targets.every((target) => target.completeness.output.includes("witness_budget")), true);
+  assert.equal(result.affectedTests.status, "partial");
+  assert.equal(result.affectedTests.findingState, "not_evaluated");
+});
+
+test("T7 trims candidate suffixes before affected files and honors requested-envelope UTF-8 boundaries", () => {
+  const observation = fixture({
+    files: [source("origin.js"), source("tests/ä.test.js"), source("tests/漢.spec.js")],
+    nodes: [node("origin", "origin.js"), node("a", "tests/ä.test.js"), node("b", "tests/漢.spec.js")],
+    edges: [edge("a", "origin"), edge("b", "origin")]
+  });
+  const request = { paths: ["origin.js"], includeTests: true };
+  const roomy = composeProjectImpact(request, observation);
+  let exactBudget = bytes(roomy);
+  let exact;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    exact = composeProjectImpact({ ...request, limits: { compactBytes: exactBudget } }, observation);
+    const measured = bytes(exact);
+    if (measured === exactBudget) break;
+    exactBudget = measured;
+  }
+  assert.equal(bytes(exact), exactBudget);
+  assert.equal(exact.affectedTests.candidates.length, 2);
+  const candidateTrimmed = composeProjectImpact({ ...request, limits: { compactBytes: exactBudget - 1 } }, observation);
+  assert.deepEqual(candidateTrimmed.affectedFiles, exact.affectedFiles);
+  assert(candidateTrimmed.affectedTests.candidates.length < exact.affectedTests.candidates.length);
+  assert(candidateTrimmed.completeness.output.includes("output_byte_limit"));
+
+  const zero = findBudgetResult(request, observation, (result) => result.affectedFiles.length === 0 && result.affectedTests.candidates.length === 0);
+  let zeroBudget = bytes(zero);
+  let boundary;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    boundary = composeProjectImpact({ ...request, limits: { compactBytes: zeroBudget } }, observation);
+    const measured = bytes(boundary);
+    if (measured === zeroBudget) break;
+    zeroBudget = measured;
+  }
+  assert.equal(bytes(boundary), zeroBudget);
+  assert.deepEqual(boundary.affectedFiles, []);
+  assert.deepEqual(boundary.affectedTests.candidates, []);
+  throwsCode("impact_budget_exceeded", () => composeProjectImpact({ ...request, limits: { compactBytes: zeroBudget - 1 } }, observation));
+});
+
+test("T8 validates hostile evidence before affected-test shortcuts and supports 32 normalized targets", () => {
+  const observation = fixture();
+  throwsCode("invalid_impact_traversal", () => composeProjectImpact({
+    paths: ["origin.js"], includeTests: true, limits: { depth: 0, compactBytes: 1 }
+  }, { ...observation, graph: { ...observation.graph, nodes: [...observation.graph.nodes, node("bad", "consumer.js/")] } }));
+  const paths = Array.from({ length: 32 }, (_, index) => `target-${String(index).padStart(2, "0")}.js`);
+  const many = fixture({ files: paths.map((path) => source(path)), nodes: [], edges: [] });
+  const result = composeProjectImpact({ paths: [...paths].reverse(), includeTests: true }, many);
+  assert.equal(result.targets.length, 32);
+  assert.equal(result.affectedTests.findingState, "no_evidence_found");
+  assert.deepEqual(result.affectedTests.completeness, result.completeness);
 });

@@ -27,7 +27,6 @@ const CONTROL = /[\u0000-\u001f\u007f]/;
  */
 export function composeProjectImpact(input, observation) {
   const request = normalizeImpactRequest(input);
-  if (request.includeTests) throw projectImpactError("impact_request_not_supported", "This Impact v2 composer supports one file without affected tests.");
 
   const bound = validateObservation(request, observation);
   if (request.paths.length > 1) {
@@ -188,7 +187,183 @@ function emptyMultiSourceImpact(bound, observation, originPaths) {
   };
 }
 
+// Keep this private predicate byte-for-byte equivalent in meaning to the Task
+// Context Pack path convention. Impact candidates additionally require retained
+// reverse-impact evidence; Context Pack basename relevance is intentionally absent.
+function isImpactTestPath(path) {
+  return /\.(?:tsx?|jsx?|cs|py|go|rs|java)$/i.test(path)
+    && /(?:^|\/)(?:__tests__|tests?|specs?)(?:\/|$)|\.(?:test|spec)\.|Tests?\.cs$|(?:^|\/)test_|_test\.go$/i.test(path);
+}
+
+function deriveAffectedTestCandidates(affectedFiles, bound) {
+  const sources = new Map(bound.snapshot.files.map((file) => [file.path, file]));
+  const candidates = [];
+  for (const item of affectedFiles) {
+    const source = sources.get(item.path);
+    if (!source) throw invalidObservation();
+    if (!isImpactTestPath(item.path)) continue;
+    candidates.push({
+      path: item.path,
+      origins: item.origins,
+      originSummary: item.originSummary,
+      provenance: {
+        trust: "derived_analysis",
+        basis: "heuristic",
+        reason: "test_path_convention",
+        source: { path: source.path, hash: source.sha256 }
+      }
+    });
+  }
+  return candidates;
+}
+
+function buildAffectedTestsSection({ status, completeness, candidates, allTargetsEvaluated }) {
+  const canonicalCompleteness = cloneCompleteness(completeness);
+  const findingState = candidates.length > 0
+    ? "evidence_found"
+    : !hasCompleteness(canonicalCompleteness) && allTargetsEvaluated ? "no_evidence_found" : "not_evaluated";
+  return { status, findingState, candidates, completeness: canonicalCompleteness };
+}
+
+function enforceMultiOutputBoundsWithTests({ request, bound, primitive }) {
+  let affectedFiles = primitive.affectedFiles.slice();
+  const completeness = cloneCompleteness(primitive.completeness);
+  const targetState = new Map(primitive.targets.map((target) => [target.originPath, {
+    ...target,
+    completeness: cloneCompleteness(target.completeness)
+  }]));
+
+  let retainedWitnesses = 0;
+  let witnessCut = affectedFiles.length;
+  for (let index = 0; index < affectedFiles.length; index += 1) {
+    const count = affectedFiles[index].origins.length;
+    if (retainedWitnesses + count > request.limits.originWitnessRecords) {
+      witnessCut = index;
+      break;
+    }
+    retainedWitnesses += count;
+  }
+  if (witnessCut < affectedFiles.length) {
+    addTargetOmissionReasons(targetState, affectedFiles.slice(witnessCut), "witness_budget");
+    affectedFiles = affectedFiles.slice(0, witnessCut);
+    addReason(completeness, "output", "witness_budget");
+  }
+
+  let candidates = deriveAffectedTestCandidates(affectedFiles, bound);
+  if (candidates.length > request.limits.affectedTests) {
+    addTargetOmissionReasons(targetState, candidates.slice(request.limits.affectedTests), "origin_limit");
+    candidates = candidates.slice(0, request.limits.affectedTests);
+    addReason(completeness, "output", "origin_limit");
+  }
+
+  let retainedCandidateWitnesses = 0;
+  let candidateWitnessCut = candidates.length;
+  const remainingWitnesses = request.limits.originWitnessRecords - retainedWitnesses;
+  for (let index = 0; index < candidates.length; index += 1) {
+    const count = candidates[index].origins.length;
+    if (retainedCandidateWitnesses + count > remainingWitnesses) {
+      candidateWitnessCut = index;
+      break;
+    }
+    retainedCandidateWitnesses += count;
+  }
+  if (candidateWitnessCut < candidates.length) {
+    addTargetOmissionReasons(targetState, candidates.slice(candidateWitnessCut), "witness_budget");
+    candidates = candidates.slice(0, candidateWitnessCut);
+    addReason(completeness, "output", "witness_budget");
+  }
+
+  let result = buildMultiResult({ request, bound, primitive, targetState, affectedFiles, completeness, candidates });
+  if (byteLength(result) <= request.limits.compactBytes) return result;
+  if (candidates.length === 0 && affectedFiles.length === 0) {
+    throw projectImpactError("impact_budget_exceeded", "Impact v2 result cannot fit the requested compact byte budget.");
+  }
+
+  addReason(completeness, "output", "output_byte_limit");
+  while (candidates.length > 0) {
+    const removed = candidates[candidates.length - 1];
+    addTargetOmissionReasons(targetState, [removed], "output_byte_limit");
+    candidates = candidates.slice(0, -1);
+    result = buildMultiResult({ request, bound, primitive, targetState, affectedFiles, completeness, candidates });
+    if (byteLength(result) <= request.limits.compactBytes) return result;
+  }
+  while (affectedFiles.length > 0) {
+    const removed = affectedFiles[affectedFiles.length - 1];
+    addTargetOmissionReasons(targetState, [removed], "output_byte_limit");
+    affectedFiles = affectedFiles.slice(0, -1);
+    result = buildMultiResult({ request, bound, primitive, targetState, affectedFiles, completeness, candidates });
+    if (byteLength(result) <= request.limits.compactBytes) return result;
+  }
+  result = buildMultiResult({ request, bound, primitive, targetState, affectedFiles, completeness, candidates });
+  if (byteLength(result) <= request.limits.compactBytes) return result;
+  throw projectImpactError("impact_budget_exceeded", "Impact v2 result cannot fit the requested compact byte budget.");
+}
+
+function enforceOutputBoundsWithTests({ request, bound, primitive }) {
+  let affectedFiles = primitive.affectedFiles.slice();
+  const completeness = cloneCompleteness(primitive.completeness);
+  const originallyHadEvidence = affectedFiles.length > 0;
+  let retainedWitnesses = 0;
+  let witnessCut = affectedFiles.length;
+  for (let index = 0; index < affectedFiles.length; index += 1) {
+    const count = affectedFiles[index].origins.length;
+    if (retainedWitnesses + count > request.limits.originWitnessRecords) {
+      witnessCut = index;
+      break;
+    }
+    retainedWitnesses += count;
+  }
+  if (witnessCut < affectedFiles.length) {
+    affectedFiles = affectedFiles.slice(0, witnessCut);
+    addReason(completeness, "output", "witness_budget");
+  }
+
+  let candidates = deriveAffectedTestCandidates(affectedFiles, bound);
+  if (candidates.length > request.limits.affectedTests) {
+    candidates = candidates.slice(0, request.limits.affectedTests);
+    addReason(completeness, "output", "origin_limit");
+  }
+
+  let retainedCandidateWitnesses = 0;
+  let candidateWitnessCut = candidates.length;
+  const remainingWitnesses = request.limits.originWitnessRecords - retainedWitnesses;
+  for (let index = 0; index < candidates.length; index += 1) {
+    const count = candidates[index].origins.length;
+    if (retainedCandidateWitnesses + count > remainingWitnesses) {
+      candidateWitnessCut = index;
+      break;
+    }
+    retainedCandidateWitnesses += count;
+  }
+  if (candidateWitnessCut < candidates.length) {
+    candidates = candidates.slice(0, candidateWitnessCut);
+    addReason(completeness, "output", "witness_budget");
+  }
+
+  let result = buildResult({ request, bound, primitive, affectedFiles, completeness, originallyHadEvidence, candidates });
+  if (byteLength(result) <= request.limits.compactBytes) return result;
+  if (candidates.length === 0 && affectedFiles.length === 0) {
+    throw projectImpactError("impact_budget_exceeded", "Impact v2 result cannot fit the requested compact byte budget.");
+  }
+
+  addReason(completeness, "output", "output_byte_limit");
+  while (candidates.length > 0) {
+    candidates = candidates.slice(0, -1);
+    result = buildResult({ request, bound, primitive, affectedFiles, completeness, originallyHadEvidence, candidates });
+    if (byteLength(result) <= request.limits.compactBytes) return result;
+  }
+  while (affectedFiles.length > 0) {
+    affectedFiles = affectedFiles.slice(0, -1);
+    result = buildResult({ request, bound, primitive, affectedFiles, completeness, originallyHadEvidence, candidates });
+    if (byteLength(result) <= request.limits.compactBytes) return result;
+  }
+  result = buildResult({ request, bound, primitive, affectedFiles, completeness, originallyHadEvidence, candidates });
+  if (byteLength(result) <= request.limits.compactBytes) return result;
+  throw projectImpactError("impact_budget_exceeded", "Impact v2 result cannot fit the requested compact byte budget.");
+}
+
 function enforceMultiOutputBounds({ request, bound, primitive }) {
+  if (request.includeTests) return enforceMultiOutputBoundsWithTests({ request, bound, primitive });
   let affectedFiles = primitive.affectedFiles.slice();
   const completeness = cloneCompleteness(primitive.completeness);
   const targetState = new Map(primitive.targets.map((target) => [target.originPath, {
@@ -229,7 +404,7 @@ function enforceMultiOutputBounds({ request, bound, primitive }) {
   throw projectImpactError("impact_budget_exceeded", "Impact v2 result cannot fit the requested compact byte budget.");
 }
 
-function buildMultiResult({ request, bound, primitive, targetState, affectedFiles, completeness }) {
+function buildMultiResult({ request, bound, primitive, targetState, affectedFiles, completeness, candidates = null }) {
   const retainedOrigins = new Set(affectedFiles.flatMap((item) => item.origins.map((origin) => origin.originPath)));
   const targets = request.paths.map((originPath) => {
     const primitiveTarget = primitive.targets.find((target) => target.originPath === originPath);
@@ -276,7 +451,14 @@ function buildMultiResult({ request, bound, primitive, targetState, affectedFile
     status,
     findingState,
     affectedFiles,
-    affectedTests: { status: "not_requested", candidates: [] },
+    affectedTests: candidates === null
+      ? { status: "not_requested", candidates: [] }
+      : buildAffectedTestsSection({
+        status,
+        completeness: canonicalCompleteness,
+        candidates,
+        allTargetsEvaluated: primitive.targets.every((target) => target.findingState !== "not_evaluated")
+      }),
     completeness: canonicalCompleteness
   };
 }
@@ -297,6 +479,7 @@ function unionCompleteness(base, additions) {
 }
 
 function enforceOutputBounds({ request, bound, primitive }) {
+  if (request.includeTests) return enforceOutputBoundsWithTests({ request, bound, primitive });
   let affectedFiles = primitive.affectedFiles.slice();
   const completeness = cloneCompleteness(primitive.completeness);
   const originallyHadEvidence = affectedFiles.length > 0;
@@ -330,7 +513,7 @@ function enforceOutputBounds({ request, bound, primitive }) {
   throw projectImpactError("impact_budget_exceeded", "Impact v2 result cannot fit the requested compact byte budget.");
 }
 
-function buildResult({ request, bound, primitive, affectedFiles, completeness, originallyHadEvidence }) {
+function buildResult({ request, bound, primitive, affectedFiles, completeness, originallyHadEvidence, candidates = null }) {
   const canonicalCompleteness = normalizeImpactCompleteness(completeness);
   const status = finalStatus(primitive.status, canonicalCompleteness);
   const findingState = affectedFiles.length > 0
@@ -363,7 +546,14 @@ function buildResult({ request, bound, primitive, affectedFiles, completeness, o
     status,
     findingState,
     affectedFiles,
-    affectedTests: { status: "not_requested", candidates: [] },
+    affectedTests: candidates === null
+      ? { status: "not_requested", candidates: [] }
+      : buildAffectedTestsSection({
+        status,
+        completeness: canonicalCompleteness,
+        candidates,
+        allTargetsEvaluated: primitive.findingState !== "not_evaluated"
+      }),
     completeness: canonicalCompleteness
   };
 }
