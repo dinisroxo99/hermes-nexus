@@ -36,6 +36,7 @@ export function createProjectImpactHandler(dependencies = {}) {
 
   return async function handleProjectImpact(req, res, params) {
     let bodyBuffer;
+    let responseTooLarge = false;
     try {
       validateProjectId(params.projectId);
       const body = await readBoundedImpactBody(req);
@@ -54,12 +55,16 @@ export function createProjectImpactHandler(dependencies = {}) {
       const serialized = JSON.stringify(ok(result, SUCCESS_MESSAGE));
       bodyBuffer = Buffer.from(serialized, "utf8");
       if (bodyBuffer.length > IMPACT_HTTP_RESPONSE_MAX_BYTES) {
-        sendError(res, 500, "impact_response_too_large", ERROR_MESSAGE);
-        return;
+        responseTooLarge = true;
       }
     } catch (error) {
       const { status, code } = classifyImpactError(error);
       sendError(res, status, code, ERROR_MESSAGE);
+      return;
+    }
+
+    if (responseTooLarge) {
+      sendError(res, 500, "impact_response_too_large", ERROR_MESSAGE);
       return;
     }
 

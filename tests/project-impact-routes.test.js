@@ -299,6 +299,20 @@ test("project impact handler maps serialization failures to generic impact_faile
   assert.equal(result.res.writes.filter((write) => write.status === 200).length, 0);
 });
 
+test("project impact handler never attempts a second response when an overflow error write fails", async () => {
+  const req = requestFrom(JSON.stringify({ paths: ["src/one.ts"] }));
+  const heads = [];
+  const res = {
+    writeHead(status) { heads.push(status); },
+    end() { throw new Error("socket closed after headers"); }
+  };
+  const handler = createProjectImpactHandler(dependencies({
+    buildProjectImpact: () => syntheticObjectAtEnvelopeBytes(SUCCESS_LIMIT + 1)
+  }));
+  await assert.rejects(() => handler(req, res, { projectId: "PrJ_Impact" }), /socket closed/);
+  assert.deepEqual(heads, [500]);
+});
+
 test("intelligence router registers project impact and serves exact bytes over loopback HTTP", async (t) => {
   const data = syntheticDataAtEnvelopeBytes(SUCCESS_LIMIT);
   const router = createRouter();
