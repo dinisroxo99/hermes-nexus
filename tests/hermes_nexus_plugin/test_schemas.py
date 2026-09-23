@@ -111,11 +111,80 @@ class ValidationTests(unittest.TestCase):
         self.assert_impact_rejected(lambda value: value.pop("paths"))
         self.assert_impact_rejected(lambda value: value.update(base_url="http://127.0.0.1:1"))
 
+    def test_every_required_field_is_enforced(self):
+        context_cases: list = [
+            lambda value, field=field: value.pop(field)
+            for field in ("projectId", "worktree", "expectedRevision", "task")
+        ]
+        context_cases.extend((
+            lambda value: value["worktree"].pop("rootId"),
+            lambda value: value["worktree"].pop("relativePath"),
+            lambda value: value["task"].pop("title"),
+        ))
+        for field in ("status", "commitSha", "branch", "dirty", "isLinkedWorktree"):
+            context_cases.append(lambda value, name=field: value["expectedRevision"].pop(name))
+        for index, mutate in enumerate(context_cases):
+            with self.subTest(tool="context", case=index):
+                self.assert_context_rejected(mutate)
+
+        impact_cases: list = [
+            lambda value, field=field: value.pop(field)
+            for field in ("projectId", "worktree", "expectedRevision", "paths")
+        ]
+        impact_cases.extend((
+            lambda value: value["worktree"].pop("rootId"),
+            lambda value: value["worktree"].pop("relativePath"),
+        ))
+        for field in (
+            "status", "commitSha", "branch", "dirty", "isLinkedWorktree",
+            "repositoryId", "worktreeId",
+        ):
+            impact_cases.append(lambda value, name=field: value["expectedRevision"].pop(name))
+        for index, mutate in enumerate(impact_cases):
+            with self.subTest(tool="impact", case=index):
+                self.assert_impact_rejected(mutate)
+
     def test_unknown_nested_fields_rejected(self):
         self.assert_context_rejected(lambda value: value["worktree"].update(extra=True))
         self.assert_context_rejected(lambda value: value["task"].update(extra=True))
         self.assert_context_rejected(lambda value: value["expectedRevision"].update(revision="bad"))
         self.assert_impact_rejected(lambda value: value.update(limits={"files": 1}))
+        self.assert_context_rejected(lambda value: value.update(limits={"extra": 1}))
+        self.assert_impact_rejected(lambda value: value["worktree"].update(extra=True))
+        self.assert_impact_rejected(lambda value: value["expectedRevision"].update(extra=True))
+
+    def test_top_level_and_nested_type_matrix_rejected(self):
+        context_cases = (
+            lambda value: value.update(projectId=1),
+            lambda value: value.update(worktree=[]),
+            lambda value: value.update(expectedRevision=[]),
+            lambda value: value.update(task="task"),
+            lambda value: value.update(limits=[]),
+            lambda value: value.update(includeExcerpts=0),
+            lambda value: value["worktree"].update(rootId=1),
+            lambda value: value["worktree"].update(relativePath=1),
+            lambda value: value["expectedRevision"].update(branch=1),
+            lambda value: value["task"].update(id=1),
+            lambda value: value["task"].update(description=1),
+            lambda value: value["task"].update(symbols="symbol"),
+        )
+        impact_cases = (
+            lambda value: value.update(projectId=1),
+            lambda value: value.update(worktree=[]),
+            lambda value: value.update(expectedRevision=[]),
+            lambda value: value.update(paths="path"),
+            lambda value: value.update(limits=[]),
+            lambda value: value.update(includeTests=0),
+            lambda value: value["expectedRevision"].update(repositoryId=1),
+            lambda value: value["expectedRevision"].update(worktreeId=1),
+            lambda value: value.update(paths=[1]),
+        )
+        for index, mutate in enumerate(context_cases):
+            with self.subTest(tool="context", case=index):
+                self.assert_context_rejected(mutate)
+        for index, mutate in enumerate(impact_cases):
+            with self.subTest(tool="impact", case=index):
+                self.assert_impact_rejected(mutate)
 
     def test_project_id_syntax_and_string_bounds_rejected(self):
         for project_id in ("", "-bad", "bad space", "x" * 129):
