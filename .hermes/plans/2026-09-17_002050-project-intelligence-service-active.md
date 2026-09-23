@@ -8,7 +8,7 @@ Branch:
 
 Latest implementation checkpoint (pending independent MC10 validation/acceptance):
 
-`f238349 feat: expose bounded project impact HTTP endpoint`
+`080b15c fix: avoid duplicate impact response writes`
 
 Impact v2 Step 3 now has the accepted pure single/multi-target composer, optional
 affected-test candidates, an observation-bound live project service, and a
@@ -18,7 +18,9 @@ the existing trusted single-provider policy, and reobserves sources, revision,
 project identity and exclusions before returning success. Domain compact-result
 bytes remain 64 KiB default / 128 KiB maximum; the complete compact HTTP success
 body has a separate fixed 160 KiB ceiling. This checkpoint is implemented and
-locally verified, but is not yet an independent acceptance record.
+locally verified. The full suite reports 501 tests: 487 passed, 0 failed and 14
+skipped opt-in real Docker/Serena cases. It is not yet an independent acceptance
+record.
 
 Previous Serena/Python implementation/test checkpoint:
 
