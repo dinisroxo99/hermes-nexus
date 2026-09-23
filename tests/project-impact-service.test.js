@@ -191,6 +191,37 @@ test("buildProjectImpact excludes registered nested project sources from provide
   assert.equal(observed.some((file) => file.startsWith("nested/")), false);
 });
 
+test("buildProjectImpact isolates same-name projects by persisted ID and rejects unavailable IDs", (t) => {
+  const f = taskContextFixture(t);
+  const secondRoot = path.join(f.root, "second-root");
+  const secondProject = path.join(secondRoot, "project");
+  fs.mkdirSync(path.join(secondProject, "src"), { recursive: true });
+  fs.writeFileSync(path.join(secondProject, "src", "two.ts"), "export class Two {}\n");
+  fs.writeFileSync(f.options.registry.manualProjectsFile, JSON.stringify([
+    ...f.entries,
+    { name: "fixture", rootId: "second", relativePath: "project", projectId: "PrJ_Other" }
+  ]));
+  const registry = {
+    ...f.options.registry,
+    roots: [...f.options.registry.roots, { id: "second", path: secondRoot }]
+  };
+  let observed = [];
+  const result = buildProjectImpact("PrJ_Other", { paths: ["src/two.ts"] }, {
+    registry,
+    analyzeSources(project, files, options) {
+      observed = files.map((file) => file.path);
+      return analyzeContextSources(project, files, options);
+    }
+  });
+  assert.equal(result.projectId, "PrJ_Other");
+  assert.deepEqual(result.project, { rootId: "second", relativePath: "project" });
+  assert.deepEqual(observed, ["src/two.ts"]);
+  throwsCode("project_not_found", () => buildProjectImpact("PrJ_Missing", { paths: ["src/two.ts"] }, { registry }));
+
+  fs.rmSync(secondProject, { recursive: true });
+  throwsCode("project_unavailable", () => buildProjectImpact("PrJ_Other", { paths: ["src/two.ts"] }, { registry }));
+});
+
 test("buildProjectImpact resolves a real linked worktree and rejects an unrelated checkout", (t) => {
   const f = taskContextFixture(t);
   const linked = f.worktree();
