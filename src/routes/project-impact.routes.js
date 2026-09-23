@@ -59,22 +59,41 @@ export function createProjectImpactHandler(dependencies = {}) {
       }
     } catch (error) {
       const { status, code } = classifyImpactError(error);
-      sendError(res, status, code, ERROR_MESSAGE);
+      writeResponseSafely(res, () => sendError(res, status, code, ERROR_MESSAGE));
       return;
     }
 
     if (responseTooLarge) {
-      sendError(res, 500, "impact_response_too_large", ERROR_MESSAGE);
+      writeResponseSafely(res, () => sendError(res, 500, "impact_response_too_large", ERROR_MESSAGE));
       return;
     }
 
-    res.writeHead(200, {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
-      "content-length": bodyBuffer.length
+    writeResponseSafely(res, () => {
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "content-length": bodyBuffer.length
+      });
+      res.end(bodyBuffer);
     });
-    res.end(bodyBuffer);
   };
+}
+
+function writeResponseSafely(res, write) {
+  try {
+    write();
+  } catch (error) {
+    if (!responseStarted(res)) throw error;
+    try {
+      if (!res.destroyed && typeof res.destroy === "function") res.destroy();
+    } catch {
+      // The response has already started; no second writer can safely recover it.
+    }
+  }
+}
+
+function responseStarted(res) {
+  return res.headersSent === true || res.writableEnded === true || res.writableFinished === true;
 }
 
 function readBoundedImpactBody(req) {

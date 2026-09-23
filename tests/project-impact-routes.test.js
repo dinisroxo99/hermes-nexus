@@ -299,19 +299,54 @@ test("project impact handler maps serialization failures to generic impact_faile
   assert.equal(result.res.writes.filter((write) => write.status === 200).length, 0);
 });
 
-test("project impact handler never attempts a second response when an overflow error write fails", async () => {
-  const req = requestFrom(JSON.stringify({ paths: ["src/one.ts"] }));
-  const heads = [];
-  const res = {
-    writeHead(status) { heads.push(status); },
-    end() { throw new Error("socket closed after headers"); }
-  };
-  const handler = createProjectImpactHandler(dependencies({
-    buildProjectImpact: () => syntheticObjectAtEnvelopeBytes(SUCCESS_LIMIT + 1)
-  }));
-  await assert.rejects(() => handler(req, res, { projectId: "PrJ_Impact" }), /socket closed/);
-  assert.deepEqual(heads, [500]);
-});
+for (const fault of ["success", "error"]) {
+  test(`project impact dispatch contains ${fault}-write failure before the production-equivalent fallback`, async () => {
+    const req = requestFrom(JSON.stringify({ paths: ["src/one.ts"] }));
+    const counters = { build: 0, head: 0, end: 0, destroy: 0, outerCatch: 0, fallback: 0 };
+    const res = {
+      headersSent: false,
+      destroyed: false,
+      writeHead() {
+        counters.head += 1;
+        this.headersSent = true;
+      },
+      end() {
+        counters.end += 1;
+        throw new Error("socket closed after headers");
+      },
+      destroy() {
+        counters.destroy += 1;
+        this.destroyed = true;
+      }
+    };
+    const router = createRouter();
+    router.add("POST", "/api/intelligence/projects/:projectId/impact", createProjectImpactHandler(dependencies({
+      buildProjectImpact: () => {
+        counters.build += 1;
+        return fault === "error" ? syntheticObjectAtEnvelopeBytes(SUCCESS_LIMIT + 1) : { bounded: true };
+      }
+    })));
+
+    try {
+      await router.dispatch(req, res);
+    } catch (error) {
+      counters.outerCatch += 1;
+      counters.fallback += 1;
+      res.writeHead(500);
+      res.end(JSON.stringify({ ok: false, error: "internal_error", message: error.message }));
+    }
+
+    assert.deepEqual(counters, {
+      build: 1,
+      head: 1,
+      end: 1,
+      destroy: 1,
+      outerCatch: 0,
+      fallback: 0
+    });
+    assert.equal(res.destroyed, true);
+  });
+}
 
 test("intelligence router registers project impact and serves exact bytes over loopback HTTP", async (t) => {
   const data = syntheticDataAtEnvelopeBytes(SUCCESS_LIMIT);
