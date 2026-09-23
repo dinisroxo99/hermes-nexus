@@ -10,6 +10,7 @@
 | What do the terms mean? | [Concepts](CONCEPTS.md) |
 | How does it fit with Hermes? | [Public architecture](ARCHITECTURE.md) |
 | What can I use now? | [Current status](CURRENT_STATUS.md) |
+| What defects remain open or deferred? | [Known issues and deferred technical debt](KNOWN_ISSUES.md) |
 | How do I run it or call the API? | [Service reference](SERVICE_REFERENCE.md) |
 
 The [current checkpoint](CURRENT_STATUS.md) includes completed Project Identity /

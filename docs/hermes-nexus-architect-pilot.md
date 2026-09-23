@@ -31,10 +31,18 @@ and lower-library unwind while the HTTP operation remains pending, including
 automatic EOF cleanup encountered within it. The shared 2.0-second cleanup deadline
 begins at the first plugin-observable explicit/EOF response or client close, or at a
 plugin-observed caller-cancellation/total-timeout cleanup transition. A hidden
-HTTPX/httpcore internal close does not start it. At expiry the plugin requests
-cancellation and joins its owned work. Settlement can exceed the nominal deadline,
-and non-cooperation can leave the invocation unresolved. These are cooperative
-bounds, not a hard two-second settlement or absolute end-to-end return guarantee.
+HTTPX/httpcore internal close does not start it. Deadline cancellation logic applies
+to plugin-invoked closer tasks, not a still-pending HTTP send/read worker or unwind
+after an observable caller-cancellation/total-timeout transition. Supervision can
+continue awaiting that worker beyond the shared cleanup deadline; later
+`nexus_cleanup_failed` does not establish deadline enforcement. See
+[OPTION-L-R1 — HTTPX lifecycle cleanup timing](KNOWN_ISSUES.md#option-l-r1--httpx-lifecycle-cleanup-timing)
+for the revision-bound limitation, priority rule, ownership, and closure criteria.
+This is not fixed: formal G1 remains rejected and `OPTION-L-R1/R2` remain open.
+Settlement can exceed the nominal deadline, and non-cooperation can leave the
+invocation unresolved. No hard cleanup, cancellation, resource-release, two-second
+settlement, or absolute end-to-end return guarantee is established. A stable,
+separately gated bounded pilot does not close these findings.
 
 Every plugin-created task/timer and plugin-invoked close is settled and consumed
 before return. Observable caller cancellation is retained separately from plugin
