@@ -367,6 +367,15 @@ class _CloseLifecycle:
         self._settled = False
         self._ok = False
 
+    @property
+    def failed(self) -> bool:
+        return self._settled and not self._ok
+
+    def begin_cleanup(self) -> None:
+        """Arm the one shared clock at the first observable cleanup transition."""
+        if self._deadline is None:
+            self._deadline = asyncio.get_running_loop().time() + CLEANUP_TIMEOUT_SECONDS
+
     def attach_stream(self, stream: httpx.AsyncByteStream) -> httpx.AsyncByteStream:
         self._stream_close = stream.aclose
         return _OwnedResponseStream(stream, self)
@@ -378,8 +387,7 @@ class _CloseLifecycle:
     def _start(self) -> None:
         if self._tasks:
             return
-        loop = asyncio.get_running_loop()
-        self._deadline = loop.time() + CLEANUP_TIMEOUT_SECONDS
+        self.begin_cleanup()
         closers: list[tuple[str, Callable[[], Awaitable[None]]]] = []
         if self._stream_close is not None:
             closers.append(("response", self._stream_close))
@@ -392,16 +400,6 @@ class _CloseLifecycle:
             for name, closer in closers
         }
 
-    @staticmethod
-    def _defer_cancellation(
-        cancellation: asyncio.CancelledError | None,
-        caught: asyncio.CancelledError,
-    ) -> asyncio.CancelledError:
-        current = asyncio.current_task()
-        if current is not None:
-            current.uncancel()
-        return cancellation if cancellation is not None else caught
-
     async def close(self) -> tuple[bool, asyncio.CancelledError | None]:
         """Apply one cooperative deadline, then join and consume every closer."""
         if self._settled:
@@ -413,7 +411,15 @@ class _CloseLifecycle:
         timed_out = False
         assert self._deadline is not None
 
-        while pending:
+        if pending and self._deadline <= asyncio.get_running_loop().time():
+            timed_out = True
+            try:
+                await asyncio.sleep(0)
+            except asyncio.CancelledError as exc:
+                cancellation = exc
+            pending = {task for task in pending if not task.done()}
+
+        while pending and not timed_out:
             remaining = self._deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
                 timed_out = True
@@ -421,7 +427,8 @@ class _CloseLifecycle:
             try:
                 _done, pending = await asyncio.wait(pending, timeout=remaining)
             except asyncio.CancelledError as exc:
-                cancellation = self._defer_cancellation(cancellation, exc)
+                if cancellation is None:
+                    cancellation = exc
                 continue
             if pending:
                 timed_out = True
@@ -434,13 +441,16 @@ class _CloseLifecycle:
                 try:
                     _done, pending = await asyncio.wait(pending)
                 except asyncio.CancelledError as exc:
-                    cancellation = self._defer_cancellation(cancellation, exc)
+                    if cancellation is None:
+                        cancellation = exc
 
         failed = timed_out
         for task in self._tasks:
             try:
                 task.result()
-            except BaseException:
+            except asyncio.CancelledError:
+                failed = True
+            except Exception:
                 failed = True
         self._ok = not failed
         self._settled = True
@@ -462,6 +472,39 @@ class _OwnedResponseStream(httpx.AsyncByteStream):
         _ok, cancellation = await self._lifecycle.close()
         if cancellation is not None:
             raise cancellation
+
+
+class _InvocationState:
+    """Sticky invocation facts shared by the phase worker and its supervisor."""
+
+    def __init__(self, lifecycle: _CloseLifecycle):
+        self.lifecycle = lifecycle
+        self.response: httpx.Response | None = None
+        self.worker: asyncio.Task[dict[str, Any]] | None = None
+        self.total_deadline: float | None = None
+        self.total_timer: asyncio.TimerHandle | None = None
+        self.total_expired = False
+
+    def arm_total(self) -> None:
+        loop = asyncio.get_running_loop()
+        self.total_deadline = loop.time() + TOTAL_TIMEOUT_SECONDS
+        self.total_timer = loop.call_at(self.total_deadline, self._expire_total)
+
+    def _expire_total(self) -> None:
+        if self.total_expired:
+            return
+        self.total_expired = True
+        self.lifecycle.begin_cleanup()
+        if self.worker is not None and not self.worker.done():
+            self.worker.cancel()
+
+    def finish_total(self) -> None:
+        if self.total_deadline is not None:
+            if asyncio.get_running_loop().time() >= self.total_deadline:
+                self.total_expired = True
+                self.lifecycle.begin_cleanup()
+        if self.total_timer is not None:
+            self.total_timer.cancel()
 
 
 class NexusClient:
@@ -491,14 +534,14 @@ class NexusClient:
             },
         )
         lifecycle = _CloseLifecycle(client.aclose)
-        response: httpx.Response | None = None
-        cancelled: asyncio.CancelledError | None = None
-        result: dict[str, Any] | None = None
-        pending_error: NexusClientError | None = None
-        try:
-            async with asyncio.timeout(TOTAL_TIMEOUT_SECONDS):
+        state = _InvocationState(lifecycle)
+
+        async def http_phase() -> dict[str, Any]:
+            state.arm_total()
+            try:
                 request = client.build_request("POST", url, content=payload)
                 response = await client.send(request, stream=True)
+                state.response = response
                 if not isinstance(response.stream, httpx.AsyncByteStream):
                     raise _error("nexus_invalid_response", "protocol", response.status_code)
                 response.stream = lifecycle.attach_stream(response.stream)
@@ -514,32 +557,88 @@ class NexusClient:
                     if exc.http_status is None:
                         exc.http_status = response.status_code
                     raise
+                return result
+            finally:
+                state.finish_total()
+
+        supervisor = asyncio.current_task()
+        entry_cancelling = supervisor.cancelling() if supervisor is not None else 0
+        caller_cancelled = False
+        worker_cancel_requested = False
+        worker = asyncio.create_task(http_phase(), name="hermes-nexus-http-phase")
+        state.worker = worker
+
+        while not worker.done():
+            try:
+                await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                current_cancelling = supervisor.cancelling() if supervisor is not None else 0
+                if current_cancelling > entry_cancelling or not worker.done():
+                    caller_cancelled = True
+                    lifecycle.begin_cleanup()
+                    if not worker_cancel_requested and not worker.done():
+                        worker_cancel_requested = True
+                        worker.cancel()
+            except Exception:
+                break
+
+        result: dict[str, Any] | None = None
+        worker_error: BaseException | None = None
+        try:
+            result = worker.result()
         except asyncio.CancelledError as exc:
-            cancelled = exc
-        except TimeoutError:
-            pending_error = _error("nexus_timeout", "transport", self._status(response))
-        except httpx.TimeoutException:
-            pending_error = _error("nexus_timeout", "transport", self._status(response))
-        except (httpx.ConnectError, httpx.NetworkError, httpx.RemoteProtocolError):
-            pending_error = _error("nexus_connection_failed", "transport", self._status(response))
-        except (httpx.DecodingError, httpx.StreamError):
-            pending_error = _error("nexus_invalid_response", "protocol", self._status(response))
-        except NexusClientError as exc:
-            pending_error = exc
-        except Exception:
-            pending_error = _error("nexus_client_failed", "protocol", self._status(response))
-        cleanup_ok, cleanup_cancellation = await lifecycle.close()
-        if cancelled is None:
-            cancelled = cleanup_cancellation
-        if cancelled is not None:
-            raise cancelled
-        if not cleanup_ok:
-            raise _error("nexus_cleanup_failed", "transport", self._status(response))
-        if pending_error is not None:
-            raise pending_error
+            worker_error = exc
+        except Exception as exc:
+            worker_error = exc
+
+        cleanup_task = asyncio.create_task(
+            lifecycle.close(),
+            name="hermes-nexus-final-cleanup",
+        )
+        while not cleanup_task.done():
+            try:
+                await asyncio.shield(cleanup_task)
+            except asyncio.CancelledError:
+                current_cancelling = supervisor.cancelling() if supervisor is not None else 0
+                if current_cancelling > entry_cancelling or not cleanup_task.done():
+                    caller_cancelled = True
+            except Exception:
+                break
+        cleanup_ok, cleanup_cancellation = cleanup_task.result()
+        if cleanup_cancellation is not None:
+            worker_error = worker_error or cleanup_cancellation
+
+        if supervisor is not None and supervisor.cancelling() > entry_cancelling:
+            caller_cancelled = True
+        if caller_cancelled:
+            raise asyncio.CancelledError()
+        if not cleanup_ok or lifecycle.failed:
+            raise _error("nexus_cleanup_failed", "transport", self._status(state.response))
+        if state.total_expired:
+            raise _error("nexus_timeout", "transport", self._status(state.response))
+        if worker_error is not None:
+            raise self._classify_operation_error(worker_error, state.response)
         if result is None:
-            raise _error("nexus_client_failed", "protocol")
+            raise _error("nexus_client_failed", "protocol", self._status(state.response))
         return result
+
+    @staticmethod
+    def _classify_operation_error(
+        error: BaseException,
+        response: httpx.Response | None,
+    ) -> NexusClientError:
+        status = NexusClient._status(response)
+        if isinstance(error, NexusClientError):
+            if error.http_status is None:
+                error.http_status = status
+            return error
+        if isinstance(error, (TimeoutError, httpx.TimeoutException)):
+            return _error("nexus_timeout", "transport", status)
+        if isinstance(error, (httpx.ConnectError, httpx.NetworkError, httpx.RemoteProtocolError)):
+            return _error("nexus_connection_failed", "transport", status)
+        if isinstance(error, (httpx.DecodingError, httpx.StreamError)):
+            return _error("nexus_invalid_response", "protocol", status)
+        return _error("nexus_client_failed", "protocol", status)
 
     @staticmethod
     def _status(response: httpx.Response | None) -> int | None:

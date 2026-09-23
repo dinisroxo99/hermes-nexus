@@ -5,9 +5,12 @@ import importlib.util
 import json
 import math
 import sys
+import time
 import unittest
 from pathlib import Path
+from typing import Any, cast
 
+import httpcore
 import httpx
 
 
@@ -152,6 +155,147 @@ class StreamingBytes(httpx.AsyncByteStream):
 
     async def aclose(self):
         self.closed = True
+
+
+class LoopbackServer:
+    """Finite stock-transport fixture bound only to ephemeral IPv4 loopback."""
+
+    def __init__(self, responder):
+        self.responder = responder
+        self.server = None
+        self.tasks = set()
+        self.writers = set()
+        self.requests = []
+
+    async def start(self):
+        self.server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
+        port = self.server.sockets[0].getsockname()[1]
+        return f"http://127.0.0.1:{port}"
+
+    async def _handle(self, reader, writer):
+        task = asyncio.current_task()
+        self.tasks.add(task)
+        self.writers.add(writer)
+        try:
+            head = await reader.readuntil(b"\r\n\r\n")
+            first, *header_lines = head.decode("ascii").split("\r\n")
+            headers = {}
+            for line in header_lines:
+                if ":" in line:
+                    key, value = line.split(":", 1)
+                    headers[key.lower()] = value.strip()
+            length = int(headers.get("content-length", "0"))
+            body = await reader.readexactly(length) if length else b""
+            self.requests.append((first, headers, body))
+            await self.responder(reader, writer)
+        except (asyncio.IncompleteReadError, ConnectionError):
+            pass
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except ConnectionError:
+                pass
+            self.writers.discard(writer)
+            self.tasks.discard(task)
+
+    async def close(self):
+        if self.server is not None:
+            self.server.close()
+            await self.server.wait_closed()
+        for writer in tuple(self.writers):
+            writer.close()
+        if self.writers:
+            await asyncio.gather(
+                *(writer.wait_closed() for writer in tuple(self.writers)),
+                return_exceptions=True,
+            )
+        if self.tasks:
+            await asyncio.gather(*tuple(self.tasks), return_exceptions=True)
+
+
+def http_response(status, body, *, content_type="application/json", declared=None):
+    reason = {200: "OK", 302: "Found", 409: "Conflict"}.get(status, "Result")
+    length = len(body) if declared is None else declared
+    return (
+        f"HTTP/1.1 {status} {reason}\r\n"
+        f"Content-Type: {content_type}\r\n"
+        f"Content-Length: {length}\r\n"
+        "Connection: close\r\n\r\n"
+    ).encode("ascii") + body
+
+
+class CoreNetwork(httpcore.AsyncNetworkStream):
+    """Public direct-httpcore characterization seam; never a client transport."""
+
+    def __init__(self, mode):
+        self.mode = mode
+        if mode == "complete":
+            self.reads = [
+                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+            ]
+        else:
+            self.reads = [
+                b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nxx",
+                b"",
+            ]
+        self.close_entered = asyncio.Event()
+        self.release = asyncio.Event()
+        self.close_calls = 0
+        self.close_completed = False
+
+    async def read(self, max_bytes, timeout=None):
+        return self.reads.pop(0) if self.reads else b""
+
+    async def write(self, buffer, timeout=None):
+        return None
+
+    async def aclose(self):
+        self.close_calls += 1
+        self.close_entered.set()
+        if self.mode == "fail":
+            raise RuntimeError("TEST_ONLY_ORIGINAL_CLOSE_FAILURE")
+        if self.mode in {"delay", "cancel"}:
+            await self.release.wait()
+        self.close_completed = True
+
+
+class CoreBackend(httpcore.AsyncNetworkBackend):
+    def __init__(self, network):
+        self.network = network
+
+    async def connect_tcp(self, *args: Any, **kwargs: Any):
+        return self.network
+
+
+async def core_characterization(mode):
+    network = CoreNetwork(mode)
+    pool = httpcore.AsyncConnectionPool(
+        network_backend=CoreBackend(network),
+        max_connections=1,
+        max_keepalive_connections=0,
+        retries=0,
+    )
+    status = None
+
+    async def operation():
+        nonlocal status
+        response = await pool.handle_async_request(
+            httpcore.Request(
+                method=b"GET",
+                url=b"http://127.0.0.1:8770/",
+                headers=[(b"host", b"127.0.0.1")],
+                content=b"",
+            )
+        )
+        status = response.status
+        stream = cast(Any, response.stream)
+        async for _chunk in stream:
+            pass
+        await stream.aclose()
+
+    task = asyncio.create_task(operation(), name=f"core-characterization-{mode}")
+    return network, pool, task, lambda: status
 
 
 class ConfigurationAndParsingTests(unittest.TestCase):
@@ -524,6 +668,196 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         finally:
             client_module.TOTAL_TIMEOUT_SECONDS = original
 
+    async def test_total_expiry_survives_worker_exception_replacement(self):
+        original = client_module.TOTAL_TIMEOUT_SECONDS
+        client_module.TOTAL_TIMEOUT_SECONDS = 0.01
+        try:
+            async def handler(_request):
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    raise RuntimeError("TEST_ONLY_OPAQUE_REPLACEMENT")
+
+            with self.assertRaises(client_module.NexusClientError) as caught:
+                await self._call("project_task_context", arguments(), {}, handler)
+            self.assertEqual(caught.exception.code, "nexus_timeout")
+            self.assertEqual(caught.exception.category, "transport")
+            self.assertIsNone(caught.exception.http_status)
+        finally:
+            client_module.TOTAL_TIMEOUT_SECONDS = original
+
+    async def test_total_clock_covers_synchronous_request_construction(self):
+        original = client_module.TOTAL_TIMEOUT_SECONDS
+        setattr(client_module, "TOTAL_TIMEOUT_SECONDS", 0.01)
+        try:
+            class SlowBuildClient(httpx.AsyncClient):
+                def build_request(self, *args, **kwargs):
+                    time.sleep(0.02)
+                    return super().build_request(*args, **kwargs)
+
+            async def handler(_request):
+                return response(context_data(), "Task context constructed.")
+
+            nexus = client_module.NexusClient(
+                "http://127.0.0.1:8770",
+                transport=httpx.MockTransport(handler),
+                client_factory=SlowBuildClient,
+            )
+            with self.assertRaises(client_module.NexusClientError) as caught:
+                await nexus.request("project_task_context", arguments(), {})
+            self.assertEqual(caught.exception.code, "nexus_timeout")
+        finally:
+            setattr(client_module, "TOTAL_TIMEOUT_SECONDS", original)
+
+    async def test_observed_caller_cancellation_wins_over_worker_exception(self):
+        for replacement in (
+            httpx.RemoteProtocolError("TEST_ONLY_PROTOCOL_REPLACEMENT"),
+            RuntimeError("TEST_ONLY_OPAQUE_REPLACEMENT"),
+        ):
+            entered = asyncio.Event()
+
+            async def handler(_request, current=replacement):
+                entered.set()
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    raise current
+
+            task = asyncio.create_task(
+                self._call("project_task_context", arguments(), {}, handler)
+            )
+            await asyncio.wait_for(entered.wait(), 1)
+            task.cancel()
+            with self.subTest(replacement=type(replacement).__name__):
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+
+    async def test_total_then_observed_caller_cancellation_still_wins(self):
+        original = client_module.TOTAL_TIMEOUT_SECONDS
+        setattr(client_module, "TOTAL_TIMEOUT_SECONDS", 0.01)
+        total_cancel_seen = asyncio.Event()
+        release = asyncio.Event()
+        try:
+            async def handler(_request):
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    total_cancel_seen.set()
+                    await release.wait()
+                    raise RuntimeError("TEST_ONLY_POST_TOTAL_REPLACEMENT")
+
+            task = asyncio.create_task(
+                self._call("project_task_context", arguments(), {}, handler)
+            )
+            await asyncio.wait_for(total_cancel_seen.wait(), 1)
+            task.cancel()
+            release.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 1)
+        finally:
+            release.set()
+            setattr(client_module, "TOTAL_TIMEOUT_SECONDS", original)
+
+    async def test_worker_origin_cancellation_without_caller_or_timeout_is_client_failure(self):
+        async def handler(_request):
+            raise asyncio.CancelledError()
+
+        with self.assertRaises(client_module.NexusClientError) as caught:
+            await self._call("project_task_context", arguments(), {}, handler)
+        self.assertEqual(caught.exception.code, "nexus_client_failed")
+        self.assertEqual(caught.exception.category, "protocol")
+
+    async def test_s5_public_core_original_unwind_characterization(self):
+        network, pool, task, status = await core_characterization("complete")
+        await task
+        self.assertEqual(status(), 200)
+        self.assertEqual(network.close_calls, 1)
+        self.assertTrue(network.close_completed)
+        await pool.aclose()
+
+        network, pool, task, status = await core_characterization("fail")
+        with self.assertRaises(RuntimeError):
+            await task
+        self.assertEqual(status(), 200)
+        self.assertEqual(network.close_calls, 1)
+        self.assertFalse(network.close_completed)
+        await pool.aclose()
+        self.assertEqual(network.close_calls, 1)
+        self.assertFalse(network.close_completed)
+
+        network, pool, task, status = await core_characterization("delay")
+        await asyncio.wait_for(network.close_entered.wait(), 1)
+        await asyncio.sleep(2.05)
+        self.assertFalse(task.done())
+        self.assertEqual(status(), 200)
+        self.assertEqual(network.close_calls, 1)
+        network.release.set()
+        with self.assertRaises(httpcore.RemoteProtocolError):
+            await task
+        self.assertTrue(network.close_completed)
+        await pool.aclose()
+
+        network, pool, task, status = await core_characterization("cancel")
+        await asyncio.wait_for(network.close_entered.wait(), 1)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        state_before_fixture_repair = (
+            status(), network.close_calls, network.close_completed
+        )
+        self.assertEqual(state_before_fixture_repair, (200, 1, False))
+        network.release.set()
+        await network.aclose()
+        self.assertEqual(network.close_calls, 2)
+        self.assertTrue(network.close_completed)
+        await pool.aclose()
+
+    async def test_s5_candidate_maps_opaque_post_header_unwind_by_public_outcome(self):
+        class OpaqueStream(StreamingBytes):
+            async def __aiter__(self):
+                raise RuntimeError("TEST_ONLY_OPAQUE_INTERNAL_UNWIND")
+                yield b""
+
+        async def handler(_request):
+            return httpx.Response(
+                200,
+                stream=OpaqueStream(),
+                headers={"content-type": "application/json"},
+            )
+
+        with self.assertRaises(client_module.NexusClientError) as caught:
+            await self._call("project_task_context", arguments(), {}, handler)
+        self.assertEqual(caught.exception.code, "nexus_client_failed")
+        self.assertEqual(caught.exception.category, "protocol")
+        self.assertEqual(caught.exception.http_status, 200)
+        self.assertNotIn("OPAQUE", str(caught.exception))
+
+    async def test_s5_total_provenance_survives_post_header_opaque_replacement(self):
+        original = client_module.TOTAL_TIMEOUT_SECONDS
+        setattr(client_module, "TOTAL_TIMEOUT_SECONDS", 0.01)
+        try:
+            class ReplacingStream(StreamingBytes):
+                async def __aiter__(self):
+                    try:
+                        await asyncio.Event().wait()
+                    except asyncio.CancelledError:
+                        raise RuntimeError("TEST_ONLY_OPAQUE_REPLACEMENT")
+                    yield b""
+
+            async def handler(_request):
+                return httpx.Response(
+                    200,
+                    stream=ReplacingStream(),
+                    headers={"content-type": "application/json"},
+                )
+
+            with self.assertRaises(client_module.NexusClientError) as caught:
+                await self._call("project_task_context", arguments(), {}, handler)
+            self.assertEqual(caught.exception.code, "nexus_timeout")
+            self.assertEqual(caught.exception.http_status, 200)
+        finally:
+            setattr(client_module, "TOTAL_TIMEOUT_SECONDS", original)
+
     async def test_transport_timeout_matrix_and_post_header_status(self):
         for timeout_type in (
             httpx.ConnectTimeout,
@@ -679,6 +1013,102 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(caught.exception.http_status, 200)
         self.assertEqual(set(calls), {"response", "client"})
 
+    async def test_both_cleanup_failures_are_consumed_and_remain_sanitized(self):
+        calls = []
+
+        class BadStream(StreamingBytes):
+            async def aclose(self):
+                calls.append("response")
+                raise RuntimeError("TEST_ONLY_RESPONSE_SECRET")
+
+        class BadClient(httpx.AsyncClient):
+            async def aclose(self):
+                calls.append("client")
+                try:
+                    await super().aclose()
+                finally:
+                    raise RuntimeError("TEST_ONLY_CLIENT_SECRET")
+
+        async def handler(_request):
+            return httpx.Response(
+                200,
+                stream=BadStream(b"{}"),
+                headers={"content-type": "text/plain"},
+            )
+
+        nexus = client_module.NexusClient(
+            "http://127.0.0.1:8770",
+            transport=httpx.MockTransport(handler),
+            client_factory=BadClient,
+        )
+        with self.assertRaises(client_module.NexusClientError) as caught:
+            await nexus.request("project_task_context", arguments(), {})
+        self.assertEqual(caught.exception.code, "nexus_cleanup_failed")
+        self.assertEqual(caught.exception.http_status, 200)
+        self.assertEqual(set(calls), {"response", "client"})
+        self.assertNotIn("SECRET", str(caught.exception))
+        self.assertFalse([
+            task for task in asyncio.all_tasks()
+            if task is not asyncio.current_task()
+            and not task.done()
+            and task.get_name().startswith("hermes-nexus-")
+        ])
+
+    async def test_caller_cancellation_wins_over_later_cleanup_failure(self):
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        class GatedFailingClient(httpx.AsyncClient):
+            async def aclose(self):
+                entered.set()
+                await release.wait()
+                try:
+                    await super().aclose()
+                finally:
+                    raise RuntimeError("TEST_ONLY_LATE_CLEANUP_FAILURE")
+
+        async def handler(_request):
+            return response(context_data(), "Task context constructed.")
+
+        nexus = client_module.NexusClient(
+            "http://127.0.0.1:8770",
+            transport=httpx.MockTransport(handler),
+            client_factory=GatedFailingClient,
+        )
+        task = asyncio.create_task(
+            nexus.request("project_task_context", arguments(), {})
+        )
+        await asyncio.wait_for(entered.wait(), 1)
+        task.cancel()
+        release.set()
+        with self.assertRaises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 1)
+
+    async def test_public_operation_error_table_retains_status_and_withholds_data(self):
+        cases = (
+            (TimeoutError("TEST_ONLY"), "nexus_timeout", "transport"),
+            (httpx.DecodingError("TEST_ONLY"), "nexus_invalid_response", "protocol"),
+            (httpx.StreamError("TEST_ONLY"), "nexus_invalid_response", "protocol"),
+            (RuntimeError("TEST_ONLY"), "nexus_client_failed", "protocol"),
+        )
+        for failure, code, category in cases:
+            async def handler(_request, current=failure):
+                return httpx.Response(
+                    503,
+                    stream=StreamingBytes(failure=current),
+                    headers={"content-type": "application/json"},
+                )
+
+            with self.subTest(failure=type(failure).__name__):
+                with self.assertRaises(client_module.NexusClientError) as caught:
+                    await self._call("project_task_context", arguments(), {}, handler)
+                self.assertEqual(caught.exception.code, code)
+                self.assertEqual(caught.exception.category, category)
+                self.assertEqual(caught.exception.http_status, 503)
+                result = caught.exception.as_result("project_task_context")
+                self.assertNotIn("data", result)
+                self.assertNotIn("TEST_ONLY", json.dumps(result))
+
     async def test_cleanup_deadline_cancels_then_joins_resistant_closer(self):
         original = client_module.CLEANUP_TIMEOUT_SECONDS
         client_module.CLEANUP_TIMEOUT_SECONDS = 0.01
@@ -723,6 +1153,138 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         finally:
             release.set()
             client_module.CLEANUP_TIMEOUT_SECONDS = original
+
+    async def test_unchanged_cleanup_deadline_settles_only_after_two_seconds(self):
+        self.assertEqual(client_module.CLEANUP_TIMEOUT_SECONDS, 2.0)
+        cancellation_seen = asyncio.Event()
+        release = asyncio.Event()
+
+        class ResistantClient(httpx.AsyncClient):
+            async def aclose(self):
+                try:
+                    await release.wait()
+                except asyncio.CancelledError:
+                    cancellation_seen.set()
+                    await release.wait()
+                await super().aclose()
+
+        async def handler(_request):
+            return response(context_data(), "Task context constructed.")
+
+        nexus = client_module.NexusClient(
+            "http://127.0.0.1:8770",
+            transport=httpx.MockTransport(handler),
+            client_factory=ResistantClient,
+        )
+        started = asyncio.get_running_loop().time()
+        task = asyncio.create_task(
+            nexus.request("project_task_context", arguments(), {})
+        )
+        try:
+            await asyncio.wait_for(cancellation_seen.wait(), 3)
+            elapsed_at_cancel = asyncio.get_running_loop().time() - started
+            self.assertGreaterEqual(elapsed_at_cancel, 1.9)
+            self.assertFalse(task.done())
+            release.set()
+            with self.assertRaises(client_module.NexusClientError) as caught:
+                await asyncio.wait_for(task, 1)
+            self.assertEqual(caught.exception.code, "nexus_cleanup_failed")
+            self.assertGreaterEqual(asyncio.get_running_loop().time() - started, 2.0)
+        finally:
+            release.set()
+
+    async def test_fixed_60_second_eof_overlap_preserves_caller_cancellation(self):
+        self.assertEqual(client_module.TOTAL_TIMEOUT_SECONDS, 60.0)
+        self.assertEqual(client_module.CLEANUP_TIMEOUT_SECONDS, 2.0)
+        raw = encoded_envelope(context_data(), "Task context constructed.")
+        close_entered = asyncio.Event()
+        release = asyncio.Event()
+        closed = asyncio.Event()
+
+        class NearDeadlineStream(StreamingBytes):
+            async def __aiter__(self):
+                await asyncio.sleep(59.75)
+                yield raw
+
+            async def aclose(self):
+                close_entered.set()
+                await release.wait()
+                closed.set()
+
+        async def handler(_request):
+            return httpx.Response(
+                200,
+                stream=NearDeadlineStream(),
+                headers={"content-type": "application/json"},
+            )
+
+        task = asyncio.create_task(
+            self._call("project_task_context", arguments(), {}, handler)
+        )
+        release_handle = None
+        try:
+            await asyncio.wait_for(close_entered.wait(), 61)
+            task.cancel()
+            release_handle = asyncio.get_running_loop().call_later(0.65, release.set)
+            with self.assertRaises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 3)
+            self.assertTrue(closed.is_set())
+            self.assertFalse([
+                owned for owned in asyncio.all_tasks()
+                if owned is not asyncio.current_task()
+                and not owned.done()
+                and owned.get_name().startswith("hermes-nexus-")
+            ])
+        finally:
+            release.set()
+            if release_handle is not None:
+                release_handle.cancel()
+
+    async def test_late_available_closers_are_invoked_after_shared_deadline(self):
+        original_total = client_module.TOTAL_TIMEOUT_SECONDS
+        original_cleanup = client_module.CLEANUP_TIMEOUT_SECONDS
+        setattr(client_module, "TOTAL_TIMEOUT_SECONDS", 0.01)
+        setattr(client_module, "CLEANUP_TIMEOUT_SECONDS", 0.01)
+        response_close_started = asyncio.Event()
+        client_close_started = asyncio.Event()
+        raw = encoded_envelope(context_data(), "Task context constructed.")
+        try:
+            class LateStream(StreamingBytes):
+                async def aclose(self):
+                    response_close_started.set()
+                    await super().aclose()
+
+            class LateClient(httpx.AsyncClient):
+                async def aclose(self):
+                    client_close_started.set()
+                    await super().aclose()
+
+            async def handler(_request):
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    await asyncio.sleep(0.02)
+                    return httpx.Response(
+                        200,
+                        stream=LateStream(raw),
+                        headers={"content-type": "application/json"},
+                    )
+                raise AssertionError("unreachable finite test seam")
+
+            nexus = client_module.NexusClient(
+                "http://127.0.0.1:8770",
+                transport=httpx.MockTransport(handler),
+                client_factory=LateClient,
+            )
+            with self.assertRaises(client_module.NexusClientError) as caught:
+                await nexus.request("project_task_context", arguments(), {})
+            self.assertEqual(caught.exception.code, "nexus_cleanup_failed")
+            self.assertEqual(caught.exception.http_status, 200)
+            self.assertTrue(response_close_started.is_set())
+            self.assertTrue(client_close_started.is_set())
+        finally:
+            setattr(client_module, "TOTAL_TIMEOUT_SECONDS", original_total)
+            setattr(client_module, "CLEANUP_TIMEOUT_SECONDS", original_cleanup)
 
     async def test_actual_httpx_eof_close_failure_is_cleanup_failure(self):
         raw = encoded_envelope(context_data(), "Task context constructed.")
@@ -789,6 +1351,74 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             item for item in asyncio.all_tasks()
             if not item.done() and item.get_name().startswith("hermes-nexus-close-")
         ])
+
+    async def test_owned_task_identities_and_total_timer_are_terminal(self):
+        raw = encoded_envelope(context_data(), "Task context constructed.")
+        response_entered = asyncio.Event()
+        client_entered = asyncio.Event()
+        release = asyncio.Event()
+        timer_handles = []
+
+        class GatedStream(StreamingBytes):
+            async def aclose(self):
+                response_entered.set()
+                await release.wait()
+
+        class GatedClient(httpx.AsyncClient):
+            async def aclose(self):
+                client_entered.set()
+                await release.wait()
+                await super().aclose()
+
+        async def handler(_request):
+            return httpx.Response(
+                200,
+                stream=GatedStream(raw),
+                headers={"content-type": "application/json"},
+            )
+
+        loop = asyncio.get_running_loop()
+        original_call_at = loop.call_at
+
+        def recording_call_at(when, callback, *args, **kwargs):
+            handle = original_call_at(when, callback, *args, **kwargs)
+            if getattr(callback, "__name__", "") == "_expire_total":
+                timer_handles.append(handle)
+            return handle
+
+        setattr(loop, "call_at", recording_call_at)
+        nexus = client_module.NexusClient(
+            "http://127.0.0.1:8770",
+            transport=httpx.MockTransport(handler),
+            client_factory=GatedClient,
+        )
+        task = asyncio.create_task(
+            nexus.request("project_task_context", arguments(), {})
+        )
+        try:
+            await asyncio.wait_for(response_entered.wait(), 1)
+            await asyncio.wait_for(client_entered.wait(), 1)
+            retained = [
+                owned for owned in asyncio.all_tasks()
+                if owned.get_name() in {
+                    "hermes-nexus-http-phase",
+                    "hermes-nexus-close-response",
+                    "hermes-nexus-close-client",
+                }
+            ]
+            self.assertEqual(len(retained), 3)
+            self.assertEqual(len({id(owned) for owned in retained}), 3)
+            release.set()
+            result = await asyncio.wait_for(task, 1)
+            self.assertTrue(result["ok"])
+            self.assertTrue(all(owned.done() for owned in retained))
+            for owned in retained:
+                owned.exception()
+            self.assertEqual(len(timer_handles), 1)
+            self.assertTrue(timer_handles[0].cancelled())
+        finally:
+            setattr(loop, "call_at", original_call_at)
+            release.set()
 
     async def test_actual_httpx_eof_uses_cleanup_deadline_and_completes_owned_tasks(self):
         original = client_module.CLEANUP_TIMEOUT_SECONDS
@@ -896,6 +1526,221 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             item for item in asyncio.all_tasks()
             if not item.done() and "aclose" in getattr(item.get_coro(), "__qualname__", "")
         ])
+
+
+class StockLoopbackLifecycleTests(unittest.IsolatedAsyncioTestCase):
+    def assert_no_plugin_work(self):
+        self.assertFalse([
+            task for task in asyncio.all_tasks()
+            if task is not asyncio.current_task()
+            and not task.done()
+            and task.get_name().startswith("hermes-nexus-")
+        ])
+
+    async def test_a1_both_tools_succeed_once_over_default_transport(self):
+        cases = (
+            (
+                "project_task_context", arguments(), {}, context_data(),
+                "Task context constructed.", "/task-context",
+            ),
+            (
+                "project_impact", arguments(impact=True), {}, impact_data(),
+                "Project impact constructed.", "/impact",
+            ),
+        )
+        for tool, args, body, data, message, suffix in cases:
+            raw = encoded_envelope(data, message)
+
+            async def responder(_reader, writer, current=raw):
+                writer.write(http_response(200, current))
+                await writer.drain()
+
+            fixture = LoopbackServer(responder)
+            base_url = await fixture.start()
+            try:
+                result = await client_module.NexusClient(base_url).request(tool, args, body)
+                self.assertTrue(result["ok"])
+                self.assertEqual(len(fixture.requests), 1)
+                self.assertIn(suffix, fixture.requests[0][0])
+                self.assert_no_plugin_work()
+            finally:
+                await fixture.close()
+            self.assertFalse(fixture.tasks)
+            self.assertFalse(fixture.writers)
+
+    async def test_a1_early_rejection_and_pre_header_failure_are_fail_closed(self):
+        async def reject(_reader, writer):
+            writer.write(http_response(302, b"", content_type="text/plain"))
+            await writer.drain()
+
+        fixture = LoopbackServer(reject)
+        base_url = await fixture.start()
+        try:
+            with self.assertRaises(client_module.NexusClientError) as caught:
+                await client_module.NexusClient(base_url).request(
+                    "project_task_context", arguments(), {}
+                )
+            self.assertEqual(caught.exception.code, "nexus_redirect_rejected")
+            self.assertEqual(caught.exception.http_status, 302)
+            self.assertEqual(len(fixture.requests), 1)
+        finally:
+            await fixture.close()
+
+        async def unused(_reader, _writer):
+            raise AssertionError("closed server cannot accept a request")
+
+        closed_fixture = LoopbackServer(unused)
+        closed_url = await closed_fixture.start()
+        await closed_fixture.close()
+        with self.assertRaises(client_module.NexusClientError) as caught:
+            await client_module.NexusClient(closed_url).request(
+                "project_task_context", arguments(), {}
+            )
+        self.assertEqual(caught.exception.code, "nexus_connection_failed")
+        self.assertIsNone(caught.exception.http_status)
+        self.assert_no_plugin_work()
+
+    async def test_a2_truncated_stock_body_maps_public_protocol_outcome(self):
+        async def responder(_reader, writer):
+            writer.write(http_response(200, b"{}", declared=5))
+            await writer.drain()
+
+        fixture = LoopbackServer(responder)
+        base_url = await fixture.start()
+        try:
+            with self.assertRaises(client_module.NexusClientError) as caught:
+                await client_module.NexusClient(base_url).request(
+                    "project_task_context", arguments(), {}
+                )
+            self.assertEqual(caught.exception.code, "nexus_connection_failed")
+            self.assertEqual(caught.exception.category, "transport")
+            self.assertEqual(caught.exception.http_status, 200)
+            self.assertEqual(len(fixture.requests), 1)
+            self.assertNotIn("data", caught.exception.as_result("project_task_context"))
+            self.assert_no_plugin_work()
+        finally:
+            await fixture.close()
+
+    async def test_a3_repeated_caller_cancellation_before_headers_wins(self):
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def responder(_reader, _writer):
+            entered.set()
+            await release.wait()
+
+        fixture = LoopbackServer(responder)
+        base_url = await fixture.start()
+        task = asyncio.create_task(
+            client_module.NexusClient(base_url).request(
+                "project_task_context", arguments(), {}
+            )
+        )
+        try:
+            await asyncio.wait_for(entered.wait(), 1)
+            task.cancel()
+            await asyncio.sleep(0)
+            task.cancel()
+            release.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 1)
+            self.assertEqual(len(fixture.requests), 1)
+            self.assert_no_plugin_work()
+        finally:
+            release.set()
+            await fixture.close()
+
+    async def test_a3_caller_only_cancellation_during_stock_body_read_wins(self):
+        body_pending = asyncio.Event()
+        release = asyncio.Event()
+
+        async def responder(_reader, writer):
+            writer.write(http_response(200, b"", declared=5))
+            await writer.drain()
+            body_pending.set()
+            await release.wait()
+
+        fixture = LoopbackServer(responder)
+        base_url = await fixture.start()
+        task = asyncio.create_task(
+            client_module.NexusClient(base_url).request(
+                "project_task_context", arguments(), {}
+            )
+        )
+        try:
+            await asyncio.wait_for(body_pending.wait(), 1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 1)
+            self.assertEqual(len(fixture.requests), 1)
+            self.assert_no_plugin_work()
+        finally:
+            release.set()
+            await fixture.close()
+
+    async def test_a4_total_only_before_headers_and_during_partial_body(self):
+        original = client_module.TOTAL_TIMEOUT_SECONDS
+        setattr(client_module, "TOTAL_TIMEOUT_SECONDS", 0.02)
+        try:
+            for after_headers in (False, True):
+                entered = asyncio.Event()
+                release = asyncio.Event()
+
+                async def responder(_reader, writer, current=after_headers):
+                    if current:
+                        writer.write(http_response(200, b"{", declared=100))
+                        await writer.drain()
+                    entered.set()
+                    await release.wait()
+
+                fixture = LoopbackServer(responder)
+                base_url = await fixture.start()
+                try:
+                    with self.assertRaises(client_module.NexusClientError) as caught:
+                        await client_module.NexusClient(base_url).request(
+                            "project_task_context", arguments(), {}
+                        )
+                    self.assertEqual(caught.exception.code, "nexus_timeout")
+                    self.assertEqual(
+                        caught.exception.http_status,
+                        200 if after_headers else None,
+                    )
+                    self.assertEqual(len(fixture.requests), 1)
+                    self.assert_no_plugin_work()
+                finally:
+                    release.set()
+                    await fixture.close()
+        finally:
+            setattr(client_module, "TOTAL_TIMEOUT_SECONDS", original)
+
+    async def test_a5_observed_caller_cancellation_wins_during_truncated_unwind(self):
+        body_started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def responder(_reader, writer):
+            writer.write(http_response(200, b"{}", declared=5))
+            await writer.drain()
+            body_started.set()
+            await release.wait()
+
+        fixture = LoopbackServer(responder)
+        base_url = await fixture.start()
+        task = asyncio.create_task(
+            client_module.NexusClient(base_url).request(
+                "project_task_context", arguments(), {}
+            )
+        )
+        try:
+            await asyncio.wait_for(body_started.wait(), 1)
+            task.cancel()
+            release.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 1)
+            self.assertEqual(len(fixture.requests), 1)
+            self.assert_no_plugin_work()
+        finally:
+            release.set()
+            await fixture.close()
 
 
 if __name__ == "__main__":

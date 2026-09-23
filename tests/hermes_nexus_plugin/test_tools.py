@@ -172,6 +172,102 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):
             await self.context_handler(context_args())
 
+    async def test_both_real_handlers_propagate_corrected_client_cancellation(self):
+        for tool_name, args_factory in (
+            ("project_task_context", context_args),
+            ("project_impact", impact_args),
+        ):
+            entered = asyncio.Event()
+
+            async def transport_handler(_request):
+                entered.set()
+                await asyncio.Event().wait()
+                raise AssertionError("unreachable finite test seam")
+
+            transport = httpx.MockTransport(transport_handler)
+            setattr(
+                self.tools,
+                "NexusClient",
+                lambda base_url, current=transport: self.client.NexusClient(
+                    base_url, transport=current
+                ),
+            )
+            context_handler, impact_handler = self.tools.create_handlers(
+                "http://127.0.0.1:8770"
+            )
+            handler = context_handler if tool_name == "project_task_context" else impact_handler
+            task = asyncio.create_task(handler(args_factory()))
+            await asyncio.wait_for(entered.wait(), 1)
+            task.cancel()
+            with self.subTest(tool=tool_name), self.assertRaises(asyncio.CancelledError):
+                await task
+
+    async def test_both_real_handlers_return_sanitized_timeout(self):
+        original = self.client.TOTAL_TIMEOUT_SECONDS
+        setattr(self.client, "TOTAL_TIMEOUT_SECONDS", 0.01)
+        try:
+            async def transport_handler(_request):
+                await asyncio.Event().wait()
+                raise AssertionError("unreachable finite test seam")
+
+            transport = httpx.MockTransport(transport_handler)
+            setattr(
+                self.tools,
+                "NexusClient",
+                lambda base_url: self.client.NexusClient(base_url, transport=transport),
+            )
+            handlers = self.tools.create_handlers("http://127.0.0.1:8770")
+            for handler, args_factory, tool_name in (
+                (handlers[0], context_args, "project_task_context"),
+                (handlers[1], impact_args, "project_impact"),
+            ):
+                result = json.loads(await handler(args_factory()))
+                self.assertEqual(result["tool"], tool_name)
+                self.assertEqual(result["error"], "nexus_timeout")
+                self.assertEqual(result["category"], "transport")
+                self.assertIsNone(result["httpStatus"])
+                self.assertNotIn("data", result)
+        finally:
+            setattr(self.client, "TOTAL_TIMEOUT_SECONDS", original)
+
+    async def test_both_real_handlers_return_sanitized_cleanup_failure(self):
+        class FailingCloseClient(httpx.AsyncClient):
+            async def aclose(self):
+                try:
+                    await super().aclose()
+                finally:
+                    raise RuntimeError("TEST_ONLY_CLEANUP_SECRET")
+
+        async def transport_handler(_request):
+            return httpx.Response(
+                200,
+                content=b"{}",
+                headers={"content-type": "text/plain"},
+            )
+
+        transport = httpx.MockTransport(transport_handler)
+        setattr(
+            self.tools,
+            "NexusClient",
+            lambda base_url: self.client.NexusClient(
+                base_url,
+                transport=transport,
+                client_factory=FailingCloseClient,
+            ),
+        )
+        handlers = self.tools.create_handlers("http://127.0.0.1:8770")
+        for handler, args_factory, tool_name in (
+            (handlers[0], context_args, "project_task_context"),
+            (handlers[1], impact_args, "project_impact"),
+        ):
+            result = json.loads(await handler(args_factory()))
+            self.assertEqual(result["tool"], tool_name)
+            self.assertEqual(result["error"], "nexus_cleanup_failed")
+            self.assertEqual(result["category"], "transport")
+            self.assertEqual(result["httpStatus"], 200)
+            self.assertNotIn("SECRET", json.dumps(result))
+            self.assertNotIn("data", result)
+
     async def test_numeric_overflow_is_returned_as_protocol_error_with_received_status(self):
         async def handler(_request):
             return httpx.Response(
