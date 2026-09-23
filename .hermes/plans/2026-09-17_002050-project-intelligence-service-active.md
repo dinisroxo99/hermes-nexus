@@ -18,7 +18,7 @@ the existing trusted single-provider policy, and reobserves sources, revision,
 project identity and exclusions before returning success. Domain compact-result
 bytes remain 64 KiB default / 128 KiB maximum; the complete compact HTTP success
 body has a separate fixed 160 KiB ceiling. This checkpoint is implemented and
-locally verified. The full suite reports 501 tests: 487 passed, 0 failed and 14
+locally verified. The full suite reports 502 tests: 488 passed, 0 failed and 14
 skipped opt-in real Docker/Serena cases. It is not yet an independent acceptance
 record.
 
