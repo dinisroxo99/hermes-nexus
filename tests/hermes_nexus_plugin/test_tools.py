@@ -9,6 +9,8 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
+
 
 PLUGIN_DIR = Path(__file__).parents[2] / "integrations" / "hermes-nexus"
 
@@ -166,6 +168,27 @@ class HandlerTests(unittest.IsolatedAsyncioTestCase):
         RecordingClient.error = asyncio.CancelledError()
         with self.assertRaises(asyncio.CancelledError):
             await self.context_handler(context_args())
+
+    async def test_numeric_overflow_is_returned_as_protocol_error_with_received_status(self):
+        async def handler(_request):
+            return httpx.Response(
+                409,
+                content=b'{"ok":false,"error":"impact_revision_changed","nested":[1e999]}',
+                headers={"content-type": "application/json"},
+            )
+
+        transport = httpx.MockTransport(handler)
+        setattr(
+            self.tools,
+            "NexusClient",
+            lambda base_url: self.client.NexusClient(base_url, transport=transport),
+        )
+        _context_handler, impact_handler = self.tools.create_handlers("http://127.0.0.1:8770")
+        result = json.loads(await impact_handler(impact_args()))
+        self.assertEqual(result["error"], "nexus_invalid_response")
+        self.assertEqual(result["category"], "protocol")
+        self.assertEqual(result["httpStatus"], 409)
+        self.assertNotIn("data", result)
 
 
 class Handle:
