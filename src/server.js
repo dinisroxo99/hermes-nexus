@@ -8,7 +8,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { createRouter } from "./utils/router.js";
 import { sendJson, sendError } from "./utils/response.js";
@@ -36,7 +36,6 @@ import { registerIntelligenceRoutes } from "./routes/intelligence.routes.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = Number(process.env.PORT || 8770);
 const PUBLIC_DIR = path.join(__dirname, "public");
 
 // --- Router setup ---
@@ -105,7 +104,7 @@ function serveStatic(req, res) {
 }
 
 // --- Request handler ---
-const server = http.createServer(async (req, res) => {
+export const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   // API routes
@@ -128,6 +127,25 @@ const server = http.createServer(async (req, res) => {
   serveStatic(req, res);
 });
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Hermes Nexus ativo em http://localhost:${PORT}`);
-});
+export function resolveBindAddress(env = process.env) {
+  if (env.HOST === undefined) return "0.0.0.0";
+  if (env.HOST.trim() === "") {
+    throw new TypeError("HOST must contain a bind address when set.");
+  }
+  return env.HOST;
+}
+
+export function startServer({ env = process.env, listener = server, log = console.log } = {}) {
+  const port = Number(env.PORT || 8770);
+  const host = resolveBindAddress(env);
+
+  return listener.listen(port, host, () => {
+    const address = listener.address();
+    const effectiveHost = address.address.includes(":") ? `[${address.address}]` : address.address;
+    log(`Hermes Nexus ativo em http://${effectiveHost}:${address.port}`);
+  });
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  startServer();
+}
