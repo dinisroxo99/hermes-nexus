@@ -5,7 +5,8 @@
 Operational and API details moved from the original README. This reference
 covers the service at base commit `be0cb2c`; it is not a specification of the
 full target coordination system. See [Current status](CURRENT_STATUS.md) for
-implementation boundaries: Steps 1, 2 and 2.5 are complete; Impact v2 is not started.
+implementation boundaries. Steps 1, 2 and 2.5 are complete; bounded Impact v2
+Step 3 is implemented on `feat/impact-v2` and pending independent MC10 acceptance.
 
 Use the [canonical Context Pack contract](project-intelligence/04_ICM_AND_CONTEXT_PACK.md)
 for task-context inputs, limits and limitations, and the
@@ -142,9 +143,10 @@ GET  /api/intelligence/discover
 POST /api/intelligence/discover/register
 GET  /api/intelligence/projects/:name/overview
 POST /api/intelligence/projects/:projectId/task-context
+POST /api/intelligence/projects/:projectId/impact
 ```
 
-Implemented ICM support is on-demand and bounded: a canonical `AGENT.md` parser, Workspace Index, contextual ICM Document Index, combined Project ICM Index, compact overview ICM summary, and revision-aware Task Context Pack. Not implemented yet: task routing, impact v2, Hermes high-level `project_*` tools, and Hermes guard integration.
+Implemented ICM support is on-demand and bounded: a canonical `AGENT.md` parser, Workspace Index, contextual ICM Document Index, combined Project ICM Index, compact overview ICM summary, and revision-aware Task Context Pack. Impact v2 is separately implemented as bounded evidence. Not implemented yet: task routing, Git-diff impact, Effective Scope/conflicts, Hermes high-level `project_*` tools, and Hermes guard integration.
 
 ### Task Context Pack
 
@@ -161,6 +163,32 @@ verification and fails closed elsewhere. Dirty/unavailable revisions remain
 explicit, and observed changes during construction reject the pack. See the
 [implemented contract](./project-intelligence/04_ICM_AND_CONTEXT_PACK.md)
 for input/output limits, trust labels, HTTP errors and remaining limitations.
+
+### Project Impact v2
+
+`POST /api/intelligence/projects/:projectId/impact` accepts JSON with required
+`paths` (1–32 raw relative paths), optional `worktree`, optional `includeTests`,
+and optional existing Impact limits. It requires an exact persisted ID; it does
+not fall back to a project name or accept body-controlled providers, graphs,
+snapshots, sources, commands, credentials, caches or execution policy.
+
+The live service uses configured-root/registry isolation, validates linked
+worktree parentage, excludes nested Git/registered project boundaries, collects a
+bounded source snapshot, and uses the existing trusted native-first provider
+policy. After composing once, it rechecks source digest/truncation/diagnostics,
+safe revision, resolved project/worktree identity and nested exclusions before
+returning success. Results are evidence only and use `generatedAt: null` and
+`cacheReuse: "disabled"`; no persistent Impact cache or registry write occurs.
+
+Request bodies are limited to 65,536 observed bytes. Impact compact-result JSON
+retains its independent 65,536-byte default and 131,072-byte maximum. The complete
+compact success envelope has a separate fixed 163,840-byte UTF-8 ceiling and is
+serialized/measured once; overflow is sanitized HTTP 500 /
+`impact_response_too_large`, never HTTP 413 and never domain retrimming. Source,
+revision or project/exclusion races return 409. See the
+[canonical Impact contract](./project-intelligence/06_SCOPE_IMPACT_CONFLICTS.md)
+for statuses, findings, provenance, per-origin witnesses, affected-test candidate
+limits and non-goals.
 
 ### Analyzer providers
 
@@ -180,7 +208,8 @@ remain unchanged. There is no new public provider-execution endpoint.
 Optional Serena/Python transport is now implemented separately from the data
 validator. Build the pinned image and set trusted `SERENA_PYTHON_IMAGE` to its
 immutable local image ID to enable it for task context. No runtime installation,
-network or live-repository mount is used. No new endpoint/body controls are added.
+network or live-repository mount is used. Task Context Pack and Impact v2 share
+this trusted server policy; neither adds endpoint/body provider controls.
 See the [runtime guide](../docker/serena-python/README.md) and
 [exact provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md).
 
@@ -243,7 +272,7 @@ Explicit enrollment assigns `prj_<UUID>` to requested new/ID-less discovered rec
 
 The schemaVersion remains 1. `project.projectId` is the persisted opaque ID, or null for an unassigned legacy record. The additive `revision` block contains `status` (available/unborn/not_git/unavailable), `commitSha`, `branch`, `dirty`, `repositoryIdentity`, `worktreeId`, `isLinkedWorktree` and `capturedAt`. Unknown evidence is null; detached HEAD has no branch. Local repository/worktree evidence can change after relocation and is not a durable projectId. No raw Git metadata paths or remote URLs are returned.
 
-Ambiguous name/identity lookup returns 409 in the existing error envelope. Internal by-ID/worktree resolution is available. There is no standalone public project-by-ID lookup or worktree-resolution endpoint; the task-context POST above accepts a persisted ID and optional verified worktree locator.
+Ambiguous name/identity lookup returns 409 in the existing error envelope. Internal by-ID/worktree resolution is available. There is no standalone public project-by-ID lookup or worktree-resolution endpoint; the task-context and Impact POST operations above accept a persisted ID and optional verified worktree locator.
 
 Returned categories:
 
@@ -363,6 +392,10 @@ GET /api/explore/:project/insights?limit=20
 
 The impact, context, and insights endpoints return bounded graph intelligence for Hermes agents and UI workflows.
 TypeScript analysis now resolves default imports, named re-exports/barrel files, and simple `tsconfig.paths` aliases.
+
+The exploration `GET .../impact?nodeId=...` route above is the legacy node-based
+graph operation. It is distinct from the project-ID Impact v2 POST operation and
+does not provide the latter's live observation, per-origin evidence or DTO.
 
 ### Indexing and cache
 

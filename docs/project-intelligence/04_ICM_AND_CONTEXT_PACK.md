@@ -164,7 +164,9 @@ explicit partial coverage; unsupported languages have file/document evidence onl
 Expansion means resubmitting narrower paths/symbols or opting into bounded
 excerpts. There is no expansion endpoint, persistent Context Pack cache, stage
 resolver, LLM/provider routing, agent selection, scheduler or Hermes runtime.
-**Impact v2, Effective Scope, conflicts and later phases are not implemented.**
+Impact v2 is implemented through its own bounded live service and HTTP operation;
+it does not alter this Context Pack contract or budget. Effective Scope, conflicts,
+Hermes enforcement and later phases remain unimplemented.
 
 The remaining proposed APIs, richer tiers and output sketches in this document
 describe the longer-term architecture, not the shipped Step 2 interface.

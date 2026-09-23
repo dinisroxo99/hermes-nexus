@@ -4,23 +4,21 @@
 
 Branch:
 
-`feat/serena-external-provider`
+`feat/impact-v2`
 
-Latest implementation/test checkpoint:
+Latest implementation checkpoint (pending independent MC10 validation/acceptance):
 
-`adc92f5 fix: route Node.js projects to native JavaScript analyzer`
+`f238349 feat: expose bounded project impact HTTP endpoint`
 
-Node.js routing through the existing native TypeScript/JavaScript analyzer is
-complete. Node.js projects remain classified as `projectType: "nodejs"`, overview
-reports `supported: true`, and graph/search/context/expand use the existing
-JavaScript-capable analyzer. No separate Node.js analyzer/provider was introduced.
-Native .NET, TypeScript and optional Serena/Python behavior remains unchanged.
-Architecture review, testing and code review passed for this checkpoint.
-Node.js project classification is distinct from analyzer identity: `nodejs`
-projects resolve to the existing TypeScript/JavaScript analyzer, not a separate
-Node.js provider. Native analysis remains structural; CommonJS `require()`
-relationships are not fully modeled, and `.mjs`/`.cjs` coverage remains limited
-or unsupported where applicable.
+Impact v2 Step 3 now has the accepted pure single/multi-target composer, optional
+affected-test candidates, an observation-bound live project service, and a
+read-only `POST /api/intelligence/projects/:projectId/impact` operation. The live
+boundary resolves persisted identity/worktrees, excludes nested projects, uses
+the existing trusted single-provider policy, and reobserves sources, revision,
+project identity and exclusions before returning success. Domain compact-result
+bytes remain 64 KiB default / 128 KiB maximum; the complete compact HTTP success
+body has a separate fixed 160 KiB ceiling. This checkpoint is implemented and
+locally verified, but is not yet an independent acceptance record.
 
 Previous Serena/Python implementation/test checkpoint:
 
@@ -28,7 +26,8 @@ Previous Serena/Python implementation/test checkpoint:
 
 Optional Serena/Python integration: **COMPLETE**, disabled by default until a
 trusted immutable local image is configured. This checkpoint's documentation
-update records its canonical contract. Step 3 / Impact v2 remains **NOT STARTED**.
+update records its canonical contract. It is historical context for the later
+Impact v2 work above.
 
 Previous Serena/Python final verification:
 
@@ -172,6 +171,10 @@ Step 1 final verification (at `f8adc7c`):
   for Python, through a fixed offline snapshot-only Docker worker
 - observed mounted-source binding, explicit transport failure/fallback reasons,
   real sandbox conformance and default-off trusted image configuration
+- Impact v2 pure bounded single/multi-target reverse-impact evidence
+- optional affected-test candidates with retained per-origin witnesses
+- live persisted-project/worktree Impact observation and fail-closed reobservation
+- read-only project-ID Impact HTTP endpoint with independent domain/transport caps
 
 ## Architecture boundary
 
@@ -353,12 +356,13 @@ Build/enablement guide: `docker/serena-python/README.md`.
 
 ## Current development frontier
 
-### Step 3 — Impact v2
+### Step 3 — Impact v2: IMPLEMENTED, PENDING INDEPENDENT MC10 ACCEPTANCE
 
-Next implementation frontier. **FOUNDATION AUTHORIZED IN SLICES; TRAVERSAL,
-COMPOSER AND API NOT STARTED.** Impact v2 remains separate from legacy impact.
-Impact results are revision/worktree-bound evidence only, never authorization or
-effective scope. The foundation contract is documented in
+The bounded file/multi-file traversal, project composer, optional affected-test
+candidates, live service and HTTP operation are implemented on `feat/impact-v2`.
+Impact v2 remains separate from legacy exploration impact. Results are
+revision/worktree-bound evidence only, never authorization or effective scope.
+The canonical contract is documented in
 `docs/project-intelligence/06_SCOPE_IMPACT_CONFLICTS.md`.
 
 Approved foundation constraints:
@@ -373,17 +377,19 @@ Approved foundation constraints:
 - optional Serena/Python references can be conservative evidence, but definitions
   are not dependency edges and `<module>` reference owners are not proven callers;
 - traversal depth default `2`, maximum `5`; depth `0` does not expand neighbors;
-- future multi-target results require a witness for every retained origin;
+- multi-target results require a witness for every retained origin;
 - affected tests are candidates, not coverage guarantees;
 - no LLM, persistent Impact cache, telemetry, Project Expert, Git-diff impact,
   Effective Scope, Conflict Engine or Guard in this foundation slice.
 
-Implement incrementally:
+Implemented incrementally:
 
 1. file impact
 2. multi-file impact
 3. affected tests
-4. git diff impact later
+4. live project service and bounded HTTP operation
+
+Git-diff impact remains deferred. Step 4 is not authorized by this checkpoint.
 
 ### Step 4 — Effective Task Scope
 

@@ -14,13 +14,12 @@ Do not convert every impacted/referencing file into an exclusive hard lock.
 
 That would destroy useful parallelism.
 
-## Impact v2 evidence contract — planned Step 3 foundation
+## Impact v2 evidence contract — implemented Step 3 boundary
 
-Impact v2 is the next planned Project Intelligence impact engine. It is
-separate from the existing legacy graph impact used by current overview and
-analyzer-service callers. Until an Impact v2 implementation lands, legacy impact
-responses keep their compatibility behavior and must not be treated as satisfying
-this contract.
+Impact v2 is implemented as a bounded pure composer, a live project service and a
+read-only project-ID HTTP operation. It remains separate from the existing legacy
+graph impact used by exploration and analyzer-service callers; legacy responses
+keep their compatibility behavior and do not satisfy this contract.
 
 Impact v2 output is evidence, never authorization. It does not grant WRITE,
 RESERVED, WATCH or IMPACT scope; it does not enforce conflicts; it does not
@@ -113,7 +112,7 @@ The default traversal depth is `2`; the maximum accepted depth is `5`. Depth `0`
 means only the requested origin/target is reported with its direct evidence and
 identity binding; no neighbor expansion is performed.
 
-Future multi-target Impact v2 results require a witness for every retained
+Multi-target Impact v2 results require a witness for every retained
 origin. If an output item is retained because multiple origins reached it, each
 origin must have its own retained witness path or relation. Output trimming must
 not leave an item whose origin cannot be explained.
@@ -121,6 +120,52 @@ not leave an item whose origin cannot be explained.
 Existing source, provider, Docker transport and JSON output budgets continue to
 apply. Provider item limits are unchanged. Affected tests are candidates derived
 from evidence and heuristics; they are not guaranteed sufficient coverage.
+
+### Live service and HTTP boundary
+
+`buildProjectImpact(projectId, input, options)` resolves an existing persisted
+project or verified linked worktree through configured roots and registries. It
+collects one bounded source observation with registered/nested project exclusions,
+binds a safe revision and immutable provider snapshot, invokes the existing
+native-first single-provider facade (including configured Serena/Python), and
+passes only that trusted observation to the pure composer. Request callers cannot
+supply graphs, snapshots, sources, provider configuration, commands, credentials,
+cache policy or execution policy.
+
+After successful composition, the service recollects sources and compares digest,
+truncation and deterministic diagnostics; rereads the safe revision; then
+reresolves project/worktree identity and nested exclusions. Conflicts fail closed
+in source → revision → project order. Composition errors stop before reobservation.
+There is no retry, recompose, registry write, persistent cache or replay.
+
+The public operation is:
+
+```text
+POST /api/intelligence/projects/:projectId/impact
+```
+
+The body accepts only `paths` (1–32 raw entries), optional verified `worktree`,
+optional `includeTests`, and existing Impact `limits`. The route ID is authoritative;
+a body `projectId` and unknown provider/evidence/execution controls are rejected.
+The route counts at most 65,536 actual incoming bytes, decodes strict UTF-8 only
+after the complete bounded body is collected, and maps request overflow to HTTP
+413. Successful data is the unchanged accepted `ImpactResult` in a compact
+`{ok:true,data,message}` envelope with no-store headers.
+
+Domain and transport budgets are independent. `ImpactResult` compact JSON remains
+65,536 bytes by default and 131,072 maximum. The complete compact HTTP success body
+is serialized once, measured as UTF-8, and capped at 163,840 bytes. The exact bytes
+measured are the bytes emitted. Overflow is HTTP 500 /
+`impact_response_too_large`; it never retrims or relabels a valid result. With the
+fixed 59-byte wrapper, a current valid maximum domain result is at most 131,131
+wire bytes, so overflow coverage is a defensive adapter-boundary test rather than
+a fabricated live-domain case.
+
+Dirty, unborn, non-Git and unavailable revisions remain working-tree evidence.
+`generatedAt` is null and `observation.cacheReuse` is `disabled`. The before/after
+checks are bounded observations, not an atomic filesystem snapshot, a whole dirty
+content fingerprint, a complete DLP guarantee or protection from mutation after
+the final check.
 
 ### Explicit non-goals for this contract
 

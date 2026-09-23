@@ -1,6 +1,6 @@
 # Polyglot Analyzer Provider Layer — Step 2.5
 
-Status: Step 2.5 abstraction complete; **optional sandboxed Serena/Python integration implemented and exercised with real Docker/Pyright**. Disabled unless a trusted immutable local image is configured. Step 3 / Impact v2 is **NOT STARTED**.
+Status: Step 2.5 abstraction complete; **optional sandboxed Serena/Python integration implemented and exercised with real Docker/Pyright**. Disabled unless a trusted immutable local image is configured. The later Impact v2 live service now consumes this same trusted provider path without changing it.
 
 ## Historical Step 2.5 verification checkpoint
 
@@ -14,7 +14,7 @@ proof of Python/Go/Rust/Java/Bash/PowerShell semantic analysis.
 ## Ownership and compatibility
 
 ```text
-Project Intelligence / Task Context Pack / future Impact v2
+Project Intelligence / Task Context Pack / Impact v2
                          |
                 AnalyzerProvider contract
                          |
@@ -212,8 +212,10 @@ local semantic subprocess boundary, not Hermes task/runtime orchestration.
 Remaining limitations: no third-party project dependency installation, no `.pyi`
 collection expansion, no dynamic-runtime Python accuracy guarantee, no persistent
 index/database/cache, no complete DLP or atomic worktree snapshot, and no cleanup
-guarantee during daemon outage/host termination. Additional languages and Step 3
-require separate work; **Impact v2 is NOT STARTED**.
+guarantee during daemon outage/host termination. Additional languages require
+separate work. Impact v2 now consumes the same native-first, single-provider,
+snapshot-bound facade; it does not add provider federation or request-controlled
+execution.
 
 ## Historical Serena/LSP proposal — superseded by the checkpoint above
 
