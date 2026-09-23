@@ -682,3 +682,65 @@ test("multi-target traversal bounds raw graph cardinality before depth and work 
     limits: { depth: 0, traversalVisitedStates: 1, traversalEdgeExaminations: 1 }
   }), { code: "invalid_impact_traversal", message: "Invalid Impact v2 traversal input." });
 });
+
+test("multi-target eligibility is target-local and canonical across missing and uncovered targets", () => {
+  const boundGraph = graph({
+    provider: nativeProvider,
+    sourcePaths: ["eligible.js", "uncovered.py", "consumer.js"],
+    uncovered: ["python"],
+    nodes: [node("eligible", "eligible.js"), node("consumer", "consumer.js")],
+    edges: [edge("consumer", "eligible")]
+  });
+  const run = (originPaths) => analyzeMultiFileReverseImpact({ originPaths, graph: boundGraph });
+  const expected = run(["eligible.js", "missing.js", "uncovered.py"]);
+  assert.deepEqual(run(["uncovered.py", "eligible.js", "missing.js"]), expected);
+  assert.deepEqual(expected.targets.map(({ originPath, status, findingState, completeness }) => ({ originPath, status, findingState, completeness })), [
+    { originPath: "eligible.js", status: "partial", findingState: "evidence_found", completeness: { source: [], provider: ["uncovered_language"], traversal: [], output: [] } },
+    { originPath: "missing.js", status: "partial", findingState: "not_evaluated", completeness: { source: ["source_unavailable"], provider: ["uncovered_language"], traversal: [], output: [] } },
+    { originPath: "uncovered.py", status: "partial", findingState: "not_evaluated", completeness: { source: [], provider: ["uncovered_language"], traversal: [], output: [] } }
+  ]);
+  assert.equal(expected.status, "partial");
+  assert.equal(expected.findingState, "evidence_found");
+  assert.deepEqual(expected.completeness, { source: ["source_unavailable"], provider: ["uncovered_language"], traversal: [], output: [] });
+
+  const allIneligible = analyzeMultiFileReverseImpact({
+    originPaths: ["missing.js", "uncovered.py"],
+    graph: { ...boundGraph, nodes: [{ malformed: true }], edges: [{ malformed: true }] }
+  });
+  assert.equal(allIneligible.findingState, "not_evaluated");
+  assert.deepEqual(allIneligible.affectedFiles, []);
+});
+
+test("multi-target terminal and no-capability providers return fixed unevaluated results before graph preparation", () => {
+  const symbolsOnly = normalizeProviderDescriptor({ ...nativeProvider, capabilities: capabilities({ dependencies: "unsupported", references: "unsupported" }) });
+  for (const selected of [
+    graph({ status: "unsupported", sourcePaths: ["a.js", "b.js"] }),
+    graph({ status: "unavailable", sourcePaths: ["a.js", "b.js"] }),
+    graph({ provider: symbolsOnly, sourcePaths: ["a.js", "b.js"], nodes: [{ malformed: true }], edges: [{ malformed: true }] })
+  ]) {
+    const result = analyzeMultiFileReverseImpact({ originPaths: ["b.js", "a.js"], graph: selected });
+    assert.equal(result.findingState, "not_evaluated");
+    assert.deepEqual(result.affectedFiles, []);
+    assert(result.targets.every((target) => target.findingState === "not_evaluated"));
+    assert(result.completeness.provider.length > 0);
+  }
+});
+
+test("multi-target traversal validates original disconnected evidence before depth and work shortcuts", () => {
+  const base = graph({
+    sourcePaths: ["a.js", "b.js", "consumer.js", "other.js"],
+    nodes: [node("a", "a.js"), node("b", "b.js"), node("consumer", "consumer.js"), node("other", "other.js")],
+    edges: [edge("consumer", "a")]
+  });
+  for (const patch of [
+    { nodes: [...base.nodes, node("disconnected", "other.js/")] },
+    { edges: [...base.edges, edge("other", "consumer", "references", { path: "other.js/", line: 1, column: 1 })] },
+    { edges: [...base.edges, edge("absent", "consumer")] }
+  ]) {
+    assert.throws(() => analyzeMultiFileReverseImpact({
+      originPaths: ["a.js", "b.js"],
+      graph: { ...base, ...patch },
+      limits: { depth: 0, traversalVisitedStates: 1, traversalEdgeExaminations: 1 }
+    }), { code: "invalid_impact_traversal", message: "Invalid Impact v2 traversal input." });
+  }
+});

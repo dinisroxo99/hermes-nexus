@@ -608,3 +608,66 @@ test("M5 preserves evaluated, missing and zero-source target semantics", () => {
   assert.deepEqual(emptyResult.completeness.source, ["source_limit", "source_unavailable"]);
   assert.deepEqual(emptyResult.completeness.provider, ["provider_unsupported"]);
 });
+
+test("M6 preserves exact mixed eligibility and terminal provider semantics in canonical target order", () => {
+  const mixedObservation = fixture({
+    files: [source("eligible.js"), source("uncovered.py"), source("consumer.js")],
+    nodes: [node("eligible", "eligible.js"), node("consumer", "consumer.js")],
+    edges: [edge("consumer", "eligible")],
+    uncovered: ["python"]
+  });
+  const run = (paths) => composeProjectImpact({ paths }, mixedObservation);
+  const mixed = run(["uncovered.py", "missing.js", "eligible.js"]);
+  assert.equal(JSON.stringify(mixed), JSON.stringify(run(["eligible.js", "uncovered.py", "missing.js"])));
+  assert.deepEqual(mixed.targets.map(({ originPath, status, findingState, completeness }) => ({ originPath, status, findingState, completeness })), [
+    { originPath: "eligible.js", status: "partial", findingState: "evidence_found", completeness: { source: [], provider: ["uncovered_language"], traversal: [], output: [] } },
+    { originPath: "missing.js", status: "partial", findingState: "not_evaluated", completeness: { source: ["source_unavailable"], provider: ["uncovered_language"], traversal: [], output: [] } },
+    { originPath: "uncovered.py", status: "partial", findingState: "not_evaluated", completeness: { source: [], provider: ["uncovered_language"], traversal: [], output: [] } }
+  ]);
+  assert.equal(mixed.status, "partial");
+  assert.equal(mixed.findingState, "evidence_found");
+  assert.deepEqual(mixed.completeness, { source: ["source_unavailable"], provider: ["uncovered_language"], traversal: [], output: [] });
+
+  const symbolsOnly = normalizeProviderDescriptor({ ...nativeProvider, capabilities: capabilities({ dependencies: "unsupported", references: "unsupported" }) });
+  for (const observation of [
+    fixture({ files: [source("a.js"), source("b.js")], nodes: [], edges: [], status: "unsupported", provider: null }),
+    fixture({ files: [source("a.js"), source("b.js")], nodes: [], edges: [], status: "unavailable", provider: null }),
+    fixture({ files: [source("a.js"), source("b.js")], nodes: [], edges: [], provider: symbolsOnly })
+  ]) {
+    const result = composeProjectImpact({ paths: ["b.js", "a.js"] }, observation);
+    assert.equal(result.findingState, "not_evaluated");
+    assert.deepEqual(result.affectedFiles, []);
+    assert(result.targets.every((target) => target.findingState === "not_evaluated"));
+    assert(result.completeness.provider.length > 0);
+  }
+});
+
+test("M7 validates disconnected evidence and stale bindings before multi-target shortcuts", () => {
+  const observation = fixture({
+    files: [source("a.js"), source("b.js"), source("consumer.js"), source("other.js")],
+    nodes: [node("a", "a.js"), node("b", "b.js"), node("consumer", "consumer.js"), node("other", "other.js")],
+    edges: [edge("consumer", "a")]
+  });
+  for (const patch of [
+    { nodes: [...observation.graph.nodes, node("disconnected", "other.js/")] },
+    { edges: [...observation.graph.edges, edge("other", "consumer", "references", { path: "other.js/", line: 1, column: 1 })] },
+    { edges: [...observation.graph.edges, edge("absent", "consumer")] }
+  ]) throwsCode("invalid_impact_traversal", () => composeProjectImpact({
+    paths: ["a.js", "b.js"],
+    limits: { depth: 0, traversalVisitedStates: 1, traversalEdgeExaminations: 1 }
+  }, { ...observation, graph: { ...observation.graph, ...patch } }));
+
+  const empty = fixture({ files: [], nodes: [], edges: [], status: "unsupported", provider: null });
+  const terminal = fixture({ files: [source("a.js"), source("b.js")], nodes: [], edges: [], status: "unsupported", provider: null });
+  for (const selected of [empty, terminal]) {
+    for (const graphPatch of [
+      { snapshotToken: "stale" },
+      { projectId: "Other_Project" },
+      { revision: { ...selected.snapshot.revision, branch: "stale" } },
+      { worktree: { worktreeId: "stale" } }
+    ]) throwsInvalidObservation(() => composeProjectImpact({ paths: ["a.js", "b.js"] }, {
+      ...selected,
+      graph: { ...selected.graph, ...graphPatch, diagnostics: [{ message: "must not leak" }] }
+    }));
+  }
+});
