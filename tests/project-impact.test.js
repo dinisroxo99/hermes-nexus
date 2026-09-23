@@ -894,7 +894,18 @@ test("T1/T2 activates affected tests without changing false mode and recognizes 
   const omitted = composeProjectImpact(request, observation);
   const explicitFalse = composeProjectImpact({ ...request, includeTests: false }, observation);
   assert.equal(JSON.stringify(omitted), JSON.stringify(explicitFalse));
-  const tightFalseRequest = { ...request, limits: { originWitnessRecords: 1, compactBytes: bytes(omitted) } };
+  const tightFalse = findBudgetResult(
+    { ...request, limits: { originWitnessRecords: 1 } },
+    observation,
+    (candidate) => candidate.affectedFiles.length === 0
+      && candidate.completeness.output.includes("output_byte_limit")
+      && candidate.completeness.output.includes("witness_budget")
+  );
+  const tightFalseRequest = {
+    ...request,
+    limits: { originWitnessRecords: 1, compactBytes: tightFalse.limits.compactBytes }
+  };
+  assert.deepEqual(tightFalse.completeness.output, ["output_byte_limit", "witness_budget"]);
   assert.equal(
     JSON.stringify(composeProjectImpact(tightFalseRequest, observation)),
     JSON.stringify(composeProjectImpact({ ...tightFalseRequest, includeTests: false }, observation))
@@ -1050,7 +1061,7 @@ test("T7 trims candidate suffixes before affected files and honors requested-env
   assert.equal(exact.affectedTests.candidates.length, 2);
   const candidateTrimmed = composeProjectImpact({ ...request, limits: { compactBytes: exactBudget - 1 } }, observation);
   assert.deepEqual(candidateTrimmed.affectedFiles, exact.affectedFiles);
-  assert(candidateTrimmed.affectedTests.candidates.length < exact.affectedTests.candidates.length);
+  assert.deepEqual(candidateTrimmed.affectedTests.candidates, [exact.affectedTests.candidates[0]]);
   assert(candidateTrimmed.completeness.output.includes("output_byte_limit"));
 
   const zero = findBudgetResult(request, observation, (result) => result.affectedFiles.length === 0 && result.affectedTests.candidates.length === 0);
@@ -1283,17 +1294,21 @@ test("T5 covers requested-section empty, terminal, unavailable, no-capability an
       targetSource: true,
       incomplete: true
     },
-    {
-      name: "provider limited and source limited/unavailable",
-      observation: fixture({ nodes: [], edges: [], limited: true, sourceLimited: true, sourceUnavailable: true }),
+    ...[
+      ["provider limited", { limited: true }, { source: [], provider: ["provider_partial"], traversal: [], output: [] }],
+      ["source limited", { sourceLimited: true }, { source: ["source_limit"], provider: [], traversal: [], output: [] }],
+      ["source unavailable", { sourceUnavailable: true }, { source: ["source_unavailable"], provider: [], traversal: [], output: [] }]
+    ].map(([name, flags, completeness]) => ({
+      name,
+      observation: fixture({ nodes: [], edges: [], ...flags }),
       path: "origin.js",
       status: "partial",
       findingState: "not_evaluated",
       topFindingState: "no_evidence_found",
-      completeness: { source: ["source_limit", "source_unavailable"], provider: ["provider_partial"], traversal: [], output: [] },
+      completeness,
       targetSource: true,
       incomplete: true
-    },
+    })),
     {
       name: "no dependency/reference capability",
       observation: fixture({ nodes: [{ malformed: true }], edges: [{ malformed: true }], provider: symbolsOnly }),
@@ -1341,9 +1356,141 @@ test("T5 covers requested-section empty, terminal, unavailable, no-capability an
     assert.equal(result.status, selected.status, selected.name);
     assert.equal(result.findingState, selected.topFindingState ?? selected.findingState, selected.name);
     assert.deepEqual(result.completeness, selected.completeness, selected.name);
-    assert.equal(result.observation.targetSource !== null, selected.targetSource, selected.name);
+    const sourceRecord = selected.observation.snapshot.files.find((file) => file.path === selected.path);
+    assert.deepEqual(result.observation.targetSource, selected.targetSource
+      ? { path: selected.path, hash: sourceRecord.sha256 }
+      : null, selected.name);
     assert.equal(result.observation.incomplete, selected.incomplete, selected.name);
   }
+});
+
+test("T5 preserves the full requested status matrix for normalized multi targets", () => {
+  const symbolsOnly = normalizeProviderDescriptor({
+    ...nativeProvider,
+    capabilities: capabilities({ dependencies: "unsupported", references: "unsupported" })
+  });
+  const cases = [
+    {
+      name: "clean",
+      observation: fixture({ nodes: [], edges: [] }),
+      status: "available",
+      topFindingState: "no_evidence_found",
+      targetFindingState: "no_evidence_found",
+      testsFindingState: "no_evidence_found",
+      completeness: complete,
+      incomplete: false
+    },
+    {
+      name: "provider partial",
+      observation: fixture({ nodes: [], edges: [], status: "partial" }),
+      status: "partial",
+      topFindingState: "no_evidence_found",
+      targetFindingState: "no_evidence_found",
+      testsFindingState: "not_evaluated",
+      completeness: { source: [], provider: ["provider_partial"], traversal: [], output: [] },
+      incomplete: true
+    },
+    {
+      name: "provider limited",
+      observation: fixture({ nodes: [], edges: [], limited: true }),
+      status: "partial",
+      topFindingState: "no_evidence_found",
+      targetFindingState: "no_evidence_found",
+      testsFindingState: "not_evaluated",
+      completeness: { source: [], provider: ["provider_partial"], traversal: [], output: [] },
+      incomplete: true
+    },
+    {
+      name: "source limited",
+      observation: fixture({ nodes: [], edges: [], sourceLimited: true }),
+      status: "partial",
+      topFindingState: "no_evidence_found",
+      targetFindingState: "no_evidence_found",
+      testsFindingState: "not_evaluated",
+      completeness: { source: ["source_limit"], provider: [], traversal: [], output: [] },
+      incomplete: true
+    },
+    {
+      name: "source unavailable",
+      observation: fixture({ nodes: [], edges: [], sourceUnavailable: true }),
+      status: "partial",
+      topFindingState: "no_evidence_found",
+      targetFindingState: "no_evidence_found",
+      testsFindingState: "not_evaluated",
+      completeness: { source: ["source_unavailable"], provider: [], traversal: [], output: [] },
+      incomplete: true
+    },
+    {
+      name: "no relationship capability",
+      observation: fixture({ nodes: [{ malformed: true }], edges: [{ malformed: true }], provider: symbolsOnly }),
+      status: "partial",
+      topFindingState: "not_evaluated",
+      targetFindingState: "not_evaluated",
+      testsFindingState: "not_evaluated",
+      completeness: { source: [], provider: ["provider_unsupported"], traversal: [], output: [] },
+      incomplete: true
+    },
+    ...["unsupported", "unavailable"].map((status) => ({
+      name: `terminal ${status}`,
+      observation: fixture({ status, nodes: [], edges: [] }),
+      status,
+      topFindingState: "not_evaluated",
+      targetFindingState: "not_evaluated",
+      testsFindingState: "not_evaluated",
+      completeness: {
+        source: [],
+        provider: [status === "unsupported" ? "provider_unsupported" : "provider_partial"],
+        traversal: [],
+        output: []
+      },
+      incomplete: true
+    }))
+  ];
+
+  for (const selected of cases) {
+    const paths = ["consumer.js", "origin.js"];
+    const result = composeProjectImpact({ paths: [...paths].reverse(), includeTests: true }, selected.observation);
+    assert.deepEqual(result.affectedTests, {
+      status: selected.status,
+      findingState: selected.testsFindingState,
+      candidates: [],
+      completeness: selected.completeness
+    }, selected.name);
+    assert.equal(result.status, selected.status, selected.name);
+    assert.equal(result.findingState, selected.topFindingState, selected.name);
+    assert.deepEqual(result.completeness, selected.completeness, selected.name);
+    assert.equal(result.observation.incomplete, selected.incomplete, selected.name);
+    assert.deepEqual(result.targets, paths.map((originPath) => {
+      const sourceRecord = selected.observation.snapshot.files.find((file) => file.path === originPath);
+      return {
+        originPath,
+        targetSource: { path: originPath, hash: sourceRecord.sha256 },
+        status: selected.status,
+        findingState: selected.targetFindingState,
+        completeness: selected.completeness
+      };
+    }), selected.name);
+  }
+
+  const empty = fixture({ files: [], nodes: [], edges: [], status: "unsupported", provider: null, sourceLimited: true });
+  const zeroSources = composeProjectImpact({ paths: ["missing-b.js", "missing-a.js"], includeTests: true }, empty);
+  const zeroCompleteness = {
+    source: ["source_limit", "source_unavailable"], provider: ["provider_unsupported"], traversal: [], output: []
+  };
+  assert.deepEqual(zeroSources.affectedTests, {
+    status: "unavailable", findingState: "not_evaluated", candidates: [], completeness: zeroCompleteness
+  });
+  assert.equal(zeroSources.status, "unavailable");
+  assert.equal(zeroSources.findingState, "not_evaluated");
+  assert.deepEqual(zeroSources.completeness, zeroCompleteness);
+  assert.equal(zeroSources.observation.incomplete, true);
+  assert.deepEqual(zeroSources.targets, ["missing-a.js", "missing-b.js"].map((originPath) => ({
+    originPath,
+    targetSource: null,
+    status: "unavailable",
+    findingState: "not_evaluated",
+    completeness: zeroCompleteness
+  })));
 });
 
 test("T5 covers multi missing/uncovered/mixed evidence, target metadata and deliberate all-ineligible bypass", () => {
@@ -1357,6 +1504,9 @@ test("T5 covers multi missing/uncovered/mixed evidence, target metadata and deli
   assert.equal(result.status, "partial");
   assert.equal(result.findingState, "evidence_found");
   assert.equal(result.observation.incomplete, true);
+  assert.deepEqual(result.completeness, {
+    source: ["source_unavailable"], provider: ["uncovered_language"], traversal: [], output: []
+  });
   assert.deepEqual(result.affectedTests, {
     status: "partial",
     findingState: "evidence_found",
@@ -1364,11 +1514,12 @@ test("T5 covers multi missing/uncovered/mixed evidence, target metadata and deli
     completeness: { source: ["source_unavailable"], provider: ["uncovered_language"], traversal: [], output: [] }
   });
   assert.equal(result.affectedTests.candidates.length, 1);
-  assert.deepEqual(result.targets.map(({ originPath, targetSource, status, findingState, completeness }) => ({
-    originPath, targetSource: targetSource?.path ?? null, status, findingState, completeness
-  })), [
+  const sourceByPath = new Map(observation.snapshot.files.map((file) => [file.path, file]));
+  assert.deepEqual(result.targets, [
     {
-      originPath: "eligible.js", targetSource: "eligible.js", status: "partial", findingState: "evidence_found",
+      originPath: "eligible.js",
+      targetSource: { path: "eligible.js", hash: sourceByPath.get("eligible.js").sha256 },
+      status: "partial", findingState: "evidence_found",
       completeness: { source: [], provider: ["uncovered_language"], traversal: [], output: [] }
     },
     {
@@ -1376,7 +1527,9 @@ test("T5 covers multi missing/uncovered/mixed evidence, target metadata and deli
       completeness: { source: ["source_unavailable"], provider: ["uncovered_language"], traversal: [], output: [] }
     },
     {
-      originPath: "uncovered.py", targetSource: "uncovered.py", status: "partial", findingState: "not_evaluated",
+      originPath: "uncovered.py",
+      targetSource: { path: "uncovered.py", hash: sourceByPath.get("uncovered.py").sha256 },
+      status: "partial", findingState: "not_evaluated",
       completeness: { source: [], provider: ["uncovered_language"], traversal: [], output: [] }
     }
   ]);
@@ -1389,8 +1542,24 @@ test("T5 covers multi missing/uncovered/mixed evidence, target metadata and deli
     status: "partial", findingState: "not_evaluated", candidates: [],
     completeness: { source: ["source_unavailable"], provider: ["uncovered_language"], traversal: [], output: [] }
   });
+  assert.equal(bypass.status, "partial");
+  assert.equal(bypass.findingState, "not_evaluated");
+  assert.deepEqual(bypass.completeness, {
+    source: ["source_unavailable"], provider: ["uncovered_language"], traversal: [], output: []
+  });
   assert.equal(bypass.observation.incomplete, true);
-  assert(bypass.targets.every((target) => target.status === "partial" && target.findingState === "not_evaluated"));
+  const uncoveredSource = bypassObservation.snapshot.files.find((file) => file.path === "uncovered.py");
+  assert.deepEqual(bypass.targets, [
+    {
+      originPath: "missing.py", targetSource: null, status: "partial", findingState: "not_evaluated",
+      completeness: { source: ["source_unavailable"], provider: ["uncovered_language"], traversal: [], output: [] }
+    },
+    {
+      originPath: "uncovered.py", targetSource: { path: "uncovered.py", hash: uncoveredSource.sha256 },
+      status: "partial", findingState: "not_evaluated",
+      completeness: { source: [], provider: ["uncovered_language"], traversal: [], output: [] }
+    }
+  ]);
 });
 
 test("T5 projects depth/work limits and every accepted revision variant without promoting empty partial evidence", () => {
@@ -1429,6 +1598,26 @@ test("T5 projects depth/work limits and every accepted revision variant without 
     assert.equal(result.observation.incomplete, expectedIncomplete);
     assert.equal(result.revision.status, status);
     assert.equal(result.revision.dirty, dirty);
+
+    const multiObservation = fixture({ selectedRevision, nodes: [], edges: [] });
+    const multi = composeProjectImpact({ paths: ["origin.js", "consumer.js"], includeTests: true }, multiObservation);
+    assert.deepEqual(multi.affectedTests, {
+      status: "available", findingState: "no_evidence_found", candidates: [], completeness: complete
+    });
+    assert.equal(multi.status, "available");
+    assert.equal(multi.findingState, "no_evidence_found");
+    assert.deepEqual(multi.completeness, complete);
+    assert.equal(multi.observation.incomplete, expectedIncomplete);
+    assert.deepEqual(multi.targets, ["consumer.js", "origin.js"].map((originPath) => {
+      const sourceRecord = multiObservation.snapshot.files.find((file) => file.path === originPath);
+      return {
+        originPath,
+        targetSource: { path: originPath, hash: sourceRecord.sha256 },
+        status: "available",
+        findingState: "no_evidence_found",
+        completeness: complete
+      };
+    }));
   }
 });
 
@@ -1680,7 +1869,9 @@ test("T7 accepts the exact requested zero-evidence envelope and rejects one byte
 
 test("T7 composes per-origin, file, candidate-count, witness and byte omissions without later reattribution", () => {
   const origins = ["a.js", "b.js", "c.js"];
-  const tests = ["tests/aa.test.js", "tests/bb.test.js", "tests/cc.test.js", "tests/dd.test.js"];
+  const tests = [
+    "tests/aa.test.js", "tests/bb.test.js", "tests/cc.test.js", "tests/dd.test.js", "tests/ee.test.js"
+  ];
   const observation = fixture({
     files: [...origins, ...tests].map((path) => source(path)),
     nodes: [...origins, ...tests].map((path) => node(path, path)),
@@ -1688,33 +1879,68 @@ test("T7 composes per-origin, file, candidate-count, witness and byte omissions 
   });
   const request = {
     paths: [...origins].reverse(), includeTests: true,
-    limits: { originWitnessesPerItem: 2, affectedFiles: 3, affectedTests: 2, originWitnessRecords: 8 }
+    limits: { originWitnessesPerItem: 2, affectedFiles: 4, affectedTests: 3, originWitnessRecords: 12 }
   };
   const beforeBytes = composeProjectImpact(request, observation);
-  assert.deepEqual(beforeBytes.affectedFiles.map((item) => item.path), tests.slice(0, 3));
-  assert.deepEqual(beforeBytes.affectedTests.candidates.map((item) => item.path), tests.slice(0, 1));
+  assert.deepEqual(beforeBytes.affectedFiles.map((item) => item.path), tests.slice(0, 4));
+  assert.deepEqual(beforeBytes.affectedTests.candidates.map((item) => item.path), tests.slice(0, 2));
   assert.deepEqual(beforeBytes.completeness.output, ["origin_limit", "witness_budget"]);
-  assert.deepEqual(beforeBytes.affectedTests.candidates[0].originSummary, {
-    discoveredOriginCount: 3, retainedOriginWitnessCount: 2, attributionTruncated: true, reasons: ["origin_limit"]
-  });
+  for (const candidate of beforeBytes.affectedTests.candidates) {
+    assert.deepEqual(candidate.originSummary, {
+      discoveredOriginCount: 3, retainedOriginWitnessCount: 2, attributionTruncated: true, reasons: ["origin_limit"]
+    });
+  }
 
-  const trimmed = findBudgetResult(request, observation, (result) =>
-    result.affectedTests.candidates.length === 0 && result.affectedFiles.length === 2);
-  assert.deepEqual(trimmed.affectedFiles, beforeBytes.affectedFiles.slice(0, 2));
-  assert.deepEqual(trimmed.completeness.output, ["origin_limit", "output_byte_limit", "witness_budget"]);
-  assert.deepEqual(trimmed.affectedTests.completeness, trimmed.completeness);
-  assert.equal(trimmed.affectedTests.findingState, "not_evaluated");
-  assert.equal(trimmed.findingState, "evidence_found");
-  assert(bytes(trimmed) <= trimmed.limits.compactBytes);
-  const targetA = trimmed.targets.find((target) => target.originPath === "a.js");
-  const targetB = trimmed.targets.find((target) => target.originPath === "b.js");
-  const targetC = trimmed.targets.find((target) => target.originPath === "c.js");
+  const survivor = findBudgetResult(request, observation, (result) =>
+    result.affectedTests.candidates.length === 1 && result.affectedFiles.length === 4);
+  assert.deepEqual(survivor.affectedFiles, beforeBytes.affectedFiles);
+  assert.deepEqual(survivor.affectedTests.candidates, [beforeBytes.affectedTests.candidates[0]]);
+  assert.deepEqual(survivor.completeness.output, ["origin_limit", "output_byte_limit", "witness_budget"]);
+  assert.deepEqual(survivor.affectedTests.completeness, survivor.completeness);
+  assert.equal(survivor.affectedTests.findingState, "evidence_found");
+  assert.equal(survivor.findingState, "evidence_found");
+  assert(bytes(survivor) <= survivor.limits.compactBytes);
+  const targetA = survivor.targets.find((target) => target.originPath === "a.js");
+  const targetB = survivor.targets.find((target) => target.originPath === "b.js");
+  const targetC = survivor.targets.find((target) => target.originPath === "c.js");
   assert.deepEqual(targetA.completeness.output, ["origin_limit", "output_byte_limit", "witness_budget"]);
   assert.deepEqual(targetB.completeness.output, ["origin_limit", "output_byte_limit", "witness_budget"]);
   assert.deepEqual(targetC.completeness.output, ["origin_limit"]);
   assert.equal(targetA.findingState, "evidence_found");
   assert.equal(targetB.findingState, "evidence_found");
   assert.equal(targetC.findingState, "not_evaluated");
+
+  const fileOnly = findBudgetResult(request, observation, (result) =>
+    result.affectedTests.candidates.length === 0 && result.affectedFiles.length === 3);
+  assert.deepEqual(fileOnly.affectedFiles, beforeBytes.affectedFiles.slice(0, 3));
+  assert.deepEqual(fileOnly.affectedTests.candidates, []);
+  assert.deepEqual(fileOnly.completeness.output, ["origin_limit", "output_byte_limit", "witness_budget"]);
+  assert.equal(fileOnly.affectedTests.findingState, "not_evaluated");
+  assert.equal(fileOnly.findingState, "evidence_found");
+  assert(bytes(fileOnly) <= fileOnly.limits.compactBytes);
+
+  const permuted = deepFreeze({
+    ...observation,
+    snapshot: {
+      ...observation.snapshot,
+      files: [...observation.snapshot.files].reverse(),
+      languages: [...observation.snapshot.languages].reverse()
+    },
+    graph: {
+      ...observation.graph,
+      nodes: [...observation.graph.nodes].reverse(),
+      edges: [...observation.graph.edges].reverse(),
+      coverage: Object.fromEntries(Object.entries(observation.graph.coverage).map(([key, values]) => [key, [...values].reverse()]))
+    }
+  });
+  for (const expected of [survivor, fileOnly]) {
+    const permutedRequest = {
+      ...request,
+      paths: [...request.paths].reverse(),
+      limits: { ...request.limits, compactBytes: expected.limits.compactBytes }
+    };
+    assert.equal(JSON.stringify(composeProjectImpact(permutedRequest, permuted)), JSON.stringify(expected));
+  }
 });
 
 test("T8 validates stale bindings, raw cardinality and malformed disconnected evidence before every requested-mode shortcut", () => {
@@ -1730,6 +1956,24 @@ test("T8 validates stale bindings, raw cardinality and malformed disconnected ev
   for (const invalid of [
     { ...observation, snapshot: { ...observation.snapshot, token: "stale" } },
     { ...observation, snapshot: { ...observation.snapshot, projectId: "Other_Project" } },
+    {
+      ...observation,
+      snapshot: {
+        ...observation.snapshot,
+        files: observation.snapshot.files.map((file) => file.path === "other.js" ? { ...file, path: "other.js/" } : file)
+      }
+    },
+    {
+      ...observation,
+      snapshot: { ...observation.snapshot, revision: { ...observation.snapshot.revision, branch: "stale" } }
+    },
+    {
+      ...observation,
+      snapshot: {
+        ...observation.snapshot,
+        revision: { ...observation.snapshot.revision, worktreeId: "wt_stale", isLinkedWorktree: true }
+      }
+    },
     {
       ...observation,
       snapshot: {
@@ -1768,6 +2012,26 @@ test("T8 validates stale bindings, raw cardinality and malformed disconnected ev
     ...terminal,
     graph: { ...terminal.graph, nodes: [node("private", "origin.js")], diagnostics: [{ message: "must not leak" }] }
   }));
+
+  const zeroSources = fixture({ files: [], nodes: [], edges: [], status: "unsupported", provider: null });
+  for (const terminalObservation of [terminal, zeroSources]) {
+    const matchingGraph = {
+      ...terminalObservation.graph,
+      projectId: terminalObservation.snapshot.projectId,
+      revision: terminalObservation.snapshot.revision,
+      worktree: null
+    };
+    for (const [name, value] of [
+      ["projectId", "Other_Project"],
+      ["revision", { ...terminalObservation.snapshot.revision, branch: "stale" }],
+      ["worktree", { worktreeId: "wt_stale" }]
+    ]) {
+      throwsInvalidObservation(() => composeProjectImpact(request, {
+        ...terminalObservation,
+        graph: { ...matchingGraph, [name]: value, diagnostics: [{ message: "must not leak" }] }
+      }));
+    }
+  }
   throwsExact(
     "impact_budget_exceeded",
     "Impact v2 result cannot fit the requested compact byte budget.",
