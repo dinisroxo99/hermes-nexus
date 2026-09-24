@@ -7,12 +7,45 @@ Kanban cards remain the workflow authority; repository summaries do not close th
 
 [Documentation index](README.md)
 
+## DEV-ADOPTION-1 — current risk disposition
+
+Operator decisions `t_779e8e9f` comment **149** and `t_87a4d9ae` comment **148**,
+recorded additively in `t_5e427bb2` comment **150**, supersede the architect-only
+priority restriction below for the approved development baseline
+`feat/nexus-profile-integration@10d1f348fd4c6ddbb5319d972c71b426e51e574a`.
+The baseline is the two-tool plugin (`project_task_context`, `project_impact`)
+in exactly orchestrator, architect, implementer, tester, reviewer and documenter,
+including normal concurrent development workers. Default and workspace-manager
+remain excluded. Publication/adoption are authorized but still pending execution
+and independent verification; see [DEV-ADOPTION-1](hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption).
+
+**G1 remains technically/historically REJECTED. OPTION-L-R1 and OPTION-L-R2 remain
+OPEN / KNOWN ISSUES — DEFERRED.** Current operator disposition is **HIGH severity,
+LOW priority/non-blocking** for this exact development adoption and publication.
+Original findings remain **R1 HIGH** and **R2 MEDIUM**. No lifecycle correction,
+hard cleanup/isolation, absence of leaks, or production-readiness claim follows
+from this waiver. Green tests, accepted bind/docs changes and partial manual
+results do not close either finding or turn G1 into PASS.
+
+The previously recorded triggers remain alternatives: a **subsequent material
+change** to complexity, runtime, trust or scope, **or practical manifestation**.
+The exact fleet/concurrent-development adoption just approved is the operational
+reference and does not retrigger its own waiver by being implemented. Unattended
+24/7 service, new gateway/cron surfaces, remote/less-trusted operation or further
+material changes still require reassessment. Concrete lifecycle symptoms require
+stopping affected calls and coordinator/operator adjudication; reopening does not
+authorize an automatic fix, custom transport, process isolation or service restart.
+INFRA-1 is [approved, implementation pending](hermes-plugin-installation.md#infra-1--approved-implementation-pending)
+after candidate verification/publication, not an installed persistent service
+or a condition for publishing the two tools.
+
 ## OPTION-L-R1 — HTTPX lifecycle cleanup timing
 
 - **Status:** KNOWN ISSUE — DEFERRED
 - **Severity:** HIGH
-- **Current priority:** LOW / non-blocking only for the separately gated, bounded,
-  manually supervised architect pilot.
+- **Current priority:** LOW / non-blocking for DEV-ADOPTION-1 above. The former
+  architect-only restriction is retained below as historical policy, not the
+  controlling scope of the current waiver.
 - **Affected revision:** `7f8d8d35eb2e18d6eb97d589550dac6e2affd423`,
   tree `1ff2934d96f974d0f8f5f329ebc89a8cdd0e8a76`.
 - **Ownership:** architect owns technical assessment and backlog `t_87a4d9ae`;
@@ -50,8 +83,9 @@ it; narrow pilot acceptance is not a fix.
 
 ### Reprioritization and pilot treatment
 
-The canonical rule from backlog `t_87a4d9ae`, priority amendment comment **90**,
-is to reprioritize and reopen the hard-lifecycle architecture decision when
+The historical rule from backlog `t_87a4d9ae`, priority amendment comment **90**,
+is retained here with the baseline qualification in DEV-ADOPTION-1 above:
+reprioritize and reopen the hard-lifecycle architecture decision when
 **either condition alone** occurs:
 
 1. **The system becomes substantially more complex.** Examples include unattended
@@ -72,11 +106,12 @@ under `PILOT_ACCEPTANCE_STOP_LIFECYCLE`. The pilot contract's stricter stop and
 containment rules still apply. Reopening architecture does not automatically
 authorize custom transport, process isolation, or another lifecycle correction.
 
-The low/non-blocking priority applies only to the separately adjudicated,
-localhost-only, bounded, manually supervised architect pilot, not unattended
-operation or claims of hard lifecycle isolation. The
+At comment 90, low/non-blocking priority applied only to the separately
+adjudicated localhost-only, bounded, manually supervised architect pilot.
+DEV-ADOPTION-1 now controls the approved development fleet; neither disposition
+establishes hard lifecycle isolation. The historical
 [pilot runbook](hermes-nexus-architect-pilot.md#architect-only-option-l-lifecycle-disclosure)
-retains its operational gates; this register authorizes no activation or execution.
+retains its old gates for audit, not as a new pilot requirement for this adoption.
 
 ### Closure
 
@@ -100,3 +135,25 @@ by task, comment, and run; they are not a duplicated audit log or public web URL
   bind artifact and supervised operations requirements, not pilot acceptance.
 - `t_f2483d47`: Option L contract comments **78–81**.
 - `t_bec2982c` and `t_78748ff1`: historical lifecycle and Option T reviews.
+
+## OPTION-L-R2 — incomplete lifecycle and resource evidence
+
+- **Status:** OPEN / KNOWN ISSUE — DEFERRED.
+- **Historical finding severity:** MEDIUM (`t_c750024c`, run **118**).
+- **Current operator severity/priority:** HIGH / LOW, non-blocking for
+  DEV-ADOPTION-1 as scoped above; not evidence that the missing proof exists.
+- **Affected baseline:** the same `7f8d8d35eb2e18d6eb97d589550dac6e2affd423`
+  reviewed for R1. Client/Python tests remain unchanged at the adoption source
+  baseline `10d1f348fd4c6ddbb5319d972c71b426e51e574a`.
+
+The retained lifecycle/resource test matrix is incomplete: pending-unwind,
+EOF total-only paths/orderings, repeated cancellation/baseline checks,
+task/timer/outcome accounting and loop-error/socket oracles lack the required
+retained evidence. Existing passing tests are not a complete resource-release
+proof. This is distinct from the concrete pending-worker deadline defect in R1.
+
+Technical assessment remains architect-owned; coordinator/operator owns scope,
+reprioritization and closure. The same subsequent-material-change **or** practical-
+manifestation triggers apply. Closure requires separately scoped implementation/
+evidence work, exact-revision independent verification/review and explicit
+adjudication, not merely stable development use or broader installation.

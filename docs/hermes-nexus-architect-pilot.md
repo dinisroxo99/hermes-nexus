@@ -1,8 +1,44 @@
 # Architect-only Hermes Nexus pilot gates
 
-Status: implementation and verification runbook. This document does not claim that
-the plugin is installed, enabled, exposed in a worker, connected to a running Nexus
-service, or proven by a live pilot.
+## Current disposition — historical runbook, not a new pilot gate
+
+The sections below preserve the architect-only implementation/verification
+contract and its pinned examples. They are not the current six-profile rollout
+procedure. Operator decisions `t_779e8e9f` comment 149 / `t_87a4d9ae` comment 148
+and `t_5e427bb2` comment 150 approve
+[DEV-ADOPTION-1](hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption)
+for normal development, including concurrent workers, in exactly orchestrator,
+architect, implementer, tester, reviewer and documenter. Default and
+workspace-manager remain excluded. Do not repeat this pilot or use its old
+architect-only selectors/rollback as the adoption procedure.
+
+G1 remains **REJECTED**; R1/R2 remain **OPEN / KNOWN ISSUES — DEFERRED**.
+Current HIGH severity / LOW non-blocking priority is risk acceptance, not a fix;
+historical R1 HIGH and R2 MEDIUM remain distinct. See the
+[current risk disposition](KNOWN_ISSUES.md#dev-adoption-1--current-risk-disposition)
+for subsequent-material-change or practical-manifestation triggers. This exact
+approved adoption does not retrigger its own waiver. No hard cleanup/isolation,
+no-leaks or production-readiness guarantee is established.
+
+Historical operational record: `t_5942ae35`, run 143 recorded architect
+installation/enablement and fresh-session exposure; the operator's browser/manual
+results were partial/not_evaluated evidence, not closure of G1/R1/R2. Preserve the
+architect's real installed prestate during future delta rollback. This is not
+proof of current service liveness or six-profile acceptance.
+
+The PMW expired at **2026-09-24T11:16:43+01:00**; no extension, shutdown or
+live-state check is demonstrated here. [INFRA-1](hermes-plugin-installation.md#infra-1--approved-implementation-pending)
+is approved, implementation pending after candidate verification/publication,
+not an installed service. Publication and fleet adoption
+remain pending. Step 3's historical accepted SHA is
+`4d8d23e564e355d84916b93d890762ac0c7498ee`; Step 4 is not initiated. Later verified
+operational results need a final documentation update/publication before Step 4.
+
+## Historical pilot contract
+
+The retained gates below describe their original scope, not fresh authorization.
+For current schemas, per-role use and bounded fallback, use the
+[two-tool contract](hermes-tool-integration.md#dev-adoption-1--two-tool-usage-contract).
 
 ## Boundary
 
@@ -20,7 +56,8 @@ selection, Impact computation, reobservation, and domain/transport byte budgets.
 The plugin validates its strict tool inputs, sends one bounded request, sanitizes
 transport failures, and verifies the returned identity and provenance before it
 exposes data. It does not discover projects, inspect Git, retry, cache, trim domain
-results, or infer safety. Existing `project_map_*` tools are unchanged.
+results, or infer safety. It registers no `project_map_*` tools; their historical
+examples remain LEGACY/DEFERRED, not a delivered adapter in this repository.
 
 ### Architect-only Option L lifecycle disclosure
 

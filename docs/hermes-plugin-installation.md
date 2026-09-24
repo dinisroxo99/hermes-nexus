@@ -4,9 +4,210 @@
 
 [Documentation index](README.md) · [Public architecture](ARCHITECTURE.md) · [Current status](CURRENT_STATUS.md)
 
-This is a setup example for a separately configured low-level HTTP client, not
-a bundled plugin or an automatic task/scope guard. For current Hermes runtime
-commands, consult the [official documentation](https://hermes-agent.nousresearch.com/docs/).
+## DEV-ADOPTION-1 — approved development adoption
+
+As of 2026-09-24, the delivered repository plugin is
+[`integrations/hermes-nexus/`](../integrations/hermes-nexus/), plugin key
+`hermes-nexus`, toolset `project_intelligence`, with exactly
+`project_task_context` and `project_impact`. Delivery in Git is not installation
+or operational acceptance. Publication and six-profile adoption are still
+pending; this documentation change performs neither. Step 3 was accepted at
+`4d8d23e564e355d84916b93d890762ac0c7498ee`; Step 4 has **not been initiated**.
+
+DEV-ADOPTION-1 authorizes normal development use, including concurrent workers,
+in exactly **orchestrator, architect, implementer, tester, reviewer, documenter**.
+`default` and `workspace-manager` are excluded from installation, configuration
+and instruction changes. The source baseline is
+`feat/nexus-profile-integration@10d1f348fd4c6ddbb5319d972c71b426e51e574a`;
+installation must use the subsequently published, independently accepted revision,
+not assume that baseline has already been published. No new adapter implementation
+is required for this two-tool path.
+
+Authority: operator decisions on Kanban `t_779e8e9f` comment 149 and
+`t_87a4d9ae` comment 148; additive contract `t_5e427bb2` comment 150.
+These supersede the old architect-only restriction for this exact adoption,
+not the historical technical findings. **G1 remains REJECTED**;
+**OPTION-L-R1/R2 remain OPEN / KNOWN ISSUES — DEFERRED**, currently HIGH severity
+and LOW priority/non-blocking for this development adoption. Original finding
+severities remain R1 HIGH and R2 MEDIUM. This is risk acceptance, not a fix,
+hard cleanup/isolation, absence-of-leaks evidence or production readiness.
+See [known issues and subsequent-change triggers](KNOWN_ISSUES.md#dev-adoption-1--current-risk-disposition).
+
+For provenance, schemas, per-role examples and bounded fallback, use the
+[current usage contract](hermes-tool-integration.md#dev-adoption-1--two-tool-usage-contract).
+The [architect pilot runbook](hermes-nexus-architect-pilot.md) is retained as
+historical evidence, not a requirement to repeat the pilot. Hermes owns profiles,
+models/providers, dispatch, worktrees and execution; Nexus owns project evidence.
+
+## Revision-pinned installation and configuration
+
+This is the procedure for the later authorized adoption executor, **not a record
+of commands executed by this documentation task**. Suggested order: architect
+(preserve its existing installation), tester, reviewer, implementer, documenter,
+orchestrator. For current CLI details consult the
+[official Hermes reference](https://hermes-agent.nousresearch.com/docs/reference/cli-commands)
+and the installed runtime's help; the command forms below were checked against
+local help on 2026-09-24.
+
+1. Confirm the published accepted full SHA, actual target profile home and clean
+   source identity. Inventory only affected non-secret files, hashes, instruction
+   paragraphs, and persisted configuration keys **including presence as well as
+   value**. A resolved `config get` value cannot prove that a key was absent on disk.
+   Do not dump configuration or read secrets. Architect already has a pilot
+   installation: capture that real prestate, not an assumed empty directory.
+2. Copy only these five files from that immutable revision into the flat directory
+   `/home/dinis/.hermes/profiles/<profile>/plugins/hermes-nexus/`:
+   `plugin.yaml`, `__init__.py`, `schemas.py`, `client.py`, `tools.py`.
+   Verify source and installed hashes individually against the accepted commit.
+   Do not use the old nested `project-map/project-map` layout or a symlink to the
+   moving writer. Inventory collisions before replacing any existing file.
+3. Check the manifest and existing interpreter/dependencies before enabling.
+   The retained Option L baseline uses HTTPX 0.28.1; record HTTPX/httpcore/AnyIO
+   and interpreter versions and assess drift. Missing dependencies are not
+   permission to install/update them or substitute a transport.
+4. Use profile-pinned CLI operations, never YAML hand edits, a global profile
+   switch, provider/model changes, or an override grant. `<profile>` below is a
+   placeholder for exactly one approved fleet member, not a literal argument:
+
+   ```text
+   hermes -p <profile> config get plugins.entries.hermes-nexus.settings.base_url --json
+   hermes -p <profile> config get platform_toolsets.cli --json
+   hermes -p <profile> config get known_plugin_toolsets --json
+   hermes -p <profile> config get agent.disabled_toolsets --json
+   hermes -p <profile> config set plugins.entries.hermes-nexus.settings.base_url http://127.0.0.1:8770
+   hermes -p <profile> plugins enable hermes-nexus --no-allow-tool-override
+   hermes -p <profile> config set platform_toolsets.cli '<complete preserved list plus project_intelligence once>'
+   ```
+
+   The final argument must be replaced with the actual serialized list; it is not
+   a fixed fleet-wide default. Preserve all unrelated selectors and restrictions.
+   Capture/read back changes to `plugins.enabled`, `plugins.disabled`, the plugin
+   entry (including override state), and affected toolset keys. Resolve any
+   pre-existing override permission explicitly rather than assuming enable removed
+   it. Do not copy the historical architect selector list to other profiles.
+5. **Omission is not reliable exclusion.** The verified runtime automatically
+   includes unknown plugin toolsets unless default-off or already recorded as
+   known for that platform and omitted from its saved list. Preserve/reconcile
+   `known_plugin_toolsets` and `agent.disabled_toolsets` where affected; the latter
+   is a final veto. CLI tool selection is by toolset, not arbitrary individual
+   Python tool name. Verify effective catalogues and exclusions on the relevant
+   CLI/worker surfaces; do not silently expose new gateway/cron surfaces.
+6. Add only the approved role-specific usage paragraph at the existing instruction
+   location. Verify installed hashes, exact non-secret configuration deltas and
+   both strict schemas in **new sessions/workers**. Do not reload this conversation
+   or restart gateways. Installation, exposure and successful domain requests are
+   distinct evidence. With no legitimately available service, record unavailable
+   and use bounded fallback; do not start one automatically.
+
+## Delta rollback and update
+
+Updates use a newly published accepted SHA, the same five-file hash check and a
+fresh prestate inventory. Rollback restores exact persisted presence **and**
+values, file contents/hashes, and only the changed instruction paragraphs:
+
+```text
+hermes -p <profile> config set <previously-present-allowlisted-key> '<exact previous serialized value>'
+hermes -p <profile> config unset <previously-absent-allowlisted-key>
+```
+
+These are templates, not executable keys. Restore whole affected lists exactly,
+preserving unrelated state and prior restrictions; remove only newly introduced,
+inventoried artifacts. Restore the architect's existing pilot files/settings,
+never delete them as a new installation. `hermes -p <profile> plugins remove
+hermes-nexus` removes the plugin **directory** and does not clear tool selectors;
+it is not an exact-delta rollback by itself and is unsuitable for restoring an
+existing installation. Read back the restored allowlist and file hashes. Never
+signal unowned processes or terminate other sessions. Disk restoration takes
+effect in new sessions, not in already loaded workers.
+
+## INFRA-1 — approved, implementation pending
+
+Persistent automatic startup is **APPROVED / IMPLEMENTATION PENDING**, after
+candidate verification/publication. The operator approved the comment 152 proposal
+on `t_5e427bb2`; coordinator steering on `t_214311ed` records that approval, not
+deployment. Implementation and independent verification belong to separate future
+tasks; this task changes documentation only. The approved design is a `dinis` user
+systemd unit `~/.config/systemd/user/hermes-nexus.service`, wanted by
+`default.target`, using the already observed lingering configuration. It starts
+when the WSL distribution/user manager starts, **not at Windows boot**, and is
+not a 24/7 guarantee: systemd services alone do not keep WSL alive. No root unit,
+Windows task, timer or lingering change is implied. See
+[Microsoft's WSL systemd documentation](https://learn.microsoft.com/en-us/windows/wsl/systemd)
+and [WSL lifetime limitations](https://devblogs.microsoft.com/commandline/systemd-support-is-now-available-in-wsl/).
+
+Approved service checkout/working-directory design (not yet provisioned here):
+`/home/dinis/projects/hermes-nexus-service`, pinned to a published accepted SHA,
+separate from the writer and human checkout; no startup pull/automatic update.
+The supported command is `HOST=127.0.0.1 PORT=8770 npm start` (do not execute
+without service authority). The server otherwise defaults to wildcard bind.
+The approved unit design uses `/home/dinis/.local/bin/npm start`, explicit minimal PATH,
+`Restart=on-failure`, a 5-second delay, and a 3-start/60-second limit; logs remain
+in the local user journal with no new retention guarantee. Process supervision
+does not fix plugin HTTPX lifecycle findings.
+
+Before startup, the separately assigned executor must identify and preserve the
+approved non-secret `DATA_DIR` and root mappings through bounded inspection and
+resolve any ambiguity so the new checkout cannot silently create an empty
+registry or broaden roots. Those actual paths remain unverified here. Do not copy
+secrets, migrate IDs or install dependencies implicitly. The operator stops their
+own tmux service (or specifically authorizes a future executor to stop it) before
+the unit assumes `127.0.0.1:8770`; unknown port ownership stops the transition, never
+justifies killing a process. Update/rollback preserves data/roots and the prior
+SHA/unit configuration, operating only on the explicitly owned unit. Live bind,
+startup and rollback results require later independent verification.
+
+The previous persistent manual window (PMW) expired at
+**2026-09-24T11:16:43+01:00**. No extension, shutdown or live-state check is
+demonstrated here. Expired authorization does **not** establish whether a process
+is still running. No domain or health request was made for this documentation.
+
+## Legacy catalogue and bounded provenance
+
+All nine earlier names remain **LEGACY/DEFERRED**, not delivered by the tracked
+`hermes-nexus` plugin:
+
+| Historical query tools | Historical mutators |
+|---|---|
+| `project_map_health`, `project_map_projects`, `project_map_structure`, `project_map_search`, `project_map_expand`, `project_map_full_graph`, `project_map_cache_stats` | `project_map_index`, `project_map_clear_cache` |
+
+The bounded local search at `10d1f348fd4c6ddbb5319d972c71b426e51e574a`
+(`t_5e427bb2`, comment 151) inspected tracked `integrations/`, `plugins/`, `tools/`,
+`scripts/`, `src/` excluding vendor, `tests/`, these two Hermes guides, README and
+package.json; history queries were capped at 160 over 157 locally reachable
+commits, with a Python/plugin-manifest/legacy-name inventory. No fetch, external
+installations, unreachable objects or backups were searched. It found documentary
+examples, **no eligible standalone legacy adapter in that scope**:
+
+- `47cb65d618cf6224e88ec04625282f8f87318b05:docs/hermes-plugin-installation.md`,
+  blob `aef1271be7282489632dcd91fa96d94ad50b99d5`; at the inspected baseline the
+  guide blob was `9f24ff0e59bf5c10e7e5c38ec802167fd872d64b`.
+- `32b2999d763e452286bbcf14dcbbb5ffa9b38079:docs/hermes-tool-integration.md`,
+  proposal blob `afe77d3dc7657a4ce0505b19b62be5e896ba923b`.
+
+The corresponding API routes/browser capabilities still exist; missing adapter
+delivery is not missing server functionality. The examples allow arbitrary
+URL/environment configuration, default urllib proxy/redirect behavior, unbounded
+reads, raw errors, mixed mutators and no equivalent revision/worktree binding.
+Do not promote or reconstruct them without new approval. Legacy deferral does
+**not block two-tool publication/adoption**.
+
+`project_map_admin` is **conditional future separation only**, if an eligible
+adapter is later recovered: retain tool names and expose mutators only to
+implementer/tester, with task-specific operation/project/environment authority.
+Indexing may copy sources, run restore/indexer and write an index; cache clearing
+may affect every project. Global purge requires specific permission. Installation,
+empty results and failed queries never authorize mutations. No administrative
+toolset is installed or executed by this contract.
+
+## Historical setup example — not the current installation procedure
+
+The original low-level example below is preserved for provenance, not endorsed
+for execution. Its profile names, nested paths, environment/YAML instructions,
+startup, indexing, reset and removal advice do not govern DEV-ADOPTION-1.
+Use the revision-pinned procedure above instead.
+
+<details>
+<summary>Archived project-map example (LEGACY/DEFERRED; do not install)</summary>
 
 ## Purpose
 
@@ -1206,3 +1407,5 @@ A profile is correctly configured when all of this is true:
 [ ] a new Hermes session can call project_map_health.
 [ ] project_map_projects returns the expected project list.
 ```
+
+</details>
