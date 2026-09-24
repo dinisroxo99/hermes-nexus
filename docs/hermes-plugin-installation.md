@@ -127,9 +127,20 @@ effect in new sessions, not in already loaded workers.
 
 ### Accepted evidence — 2026-09-24
 
-The coordinator accepted **current operation**, not full INFRA-1 completion,
+The coordinator initially accepted **current operation**, not full INFRA-1 completion,
 in `t_72ac65df` comment 170. This record uses the historical handoffs below;
 it is not a fresh service probe or a continuous availability claim.
+
+**Operator acceptance addendum — 2026-09-24 (decision date, not a live observation):**
+The operator subsequently accepted **INFRA-1 with the WSL restart test waived as
+an acceptance condition in this phase**: “eu aceito na mesma porque não quero
+estar a reiniciar o wsl” (`t_72ac65df` comment 172; `t_92665219` comment 173 and
+the reviewer's post-run172 addendum). Startup after a WSL restart remains
+**NOT DEMONSTRATED**; its missing proof no longer blocks acceptance. This waiver
+is not a technical boot PASS or full technical validation. Do not restart WSL,
+schedule that test or require renewed consent for the same waiver. The earlier
+plan and review conclusions remain historical evidence, not a gate overriding
+this subsequent decision; all other limitations below remain unchanged.
 
 | Stage | Evidence and bounded result |
 |---|---|
@@ -183,8 +194,9 @@ bounded preservation evidence, **not an audit of all storage**.
 
 - `Linger=yes` already existed and was not changed. Enabled state plus lingering
   support the startup configuration but **do not prove startup after a WSL
-  distribution restart**. That boot has not been exercised; a disruptive test
-  requires separate operator authorization. Windows startup and 24/7 availability
+  distribution restart**. That boot has not been exercised; its test is waived
+  as an acceptance condition in this phase, not scheduled or authorized by this
+  record. Windows startup and 24/7 availability
   were neither authorized nor demonstrated. Systemd alone does not keep WSL alive.
 - **Rollback was not exercised and its availability was not proved.** Run167
   reported compound commands containing stop refused before execution; a separate
@@ -202,11 +214,14 @@ bounded preservation evidence, **not an audit of all storage**.
   **G1 remains REJECTED**; R1/R2 remain **KNOWN ISSUES — DEFERRED**, HIGH severity,
   LOW priority/non-blocking in this phase. **Step 4 has not been initiated**.
 
-This documentation update (`t_e24df21e`) performs no health/domain requests,
-Context/Impact evaluation, registry inspection or operational changes. Its checks
-are offline and document-focused, not global impact analysis. The coordinator
-will route the new documentation revision through the separate docs-review gate;
-this record does not declare full INFRA-1 completion.
+The original documentation update (`t_e24df21e`) and this acceptance addendum
+(`t_bf703f68`) perform no health/domain requests, Context/Impact evaluation,
+registry inspection or operational changes. Their checks are offline and
+document-focused, not global impact analysis. The original snapshot received
+`PASS_INFRA1_DOCS_REVIEW` in `t_92665219/run172`; the coordinator accepted that
+baseline in comment 175 and will route this addendum for focused documentation
+verification. INFRA-1 is accepted by operator waiver as recorded above, without
+claiming full technical validation or authorizing publication or Step 4.
 
 ### Historical approval and pre-execution plan
 
