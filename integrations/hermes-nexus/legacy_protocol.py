@@ -15,6 +15,18 @@ _MAX_STRING = 1024
 _NODE_ID_MAX = 500
 _WINDOWS_ABSOLUTE = re.compile(r"^[A-Za-z]:[/\\]")
 
+
+def _is_absolute_identity_spelling(value: str) -> bool:
+    """Detect spelling of absolute POSIX /..., Windows C:\\ / C:/ or UNC \\... (LM-REVIEW-1 option A: fail-closed; path never in error)."""
+    if not isinstance(value, str) or not value:
+        return False
+    if value.startswith(("/", "\\")):
+        return True
+    if _WINDOWS_ABSOLUTE.match(value):
+        return True
+    return False
+
+
 _MESSAGES = {
     "project_map_health": "Legacy service health was read.",
     "project_map_projects": "Legacy canonical-project summaries were read.",
@@ -194,7 +206,9 @@ def _structure_projects(value: Any) -> list[dict[str, Any]]:
             "name": _text(_require(item, "name")),
             "layer": _text(_require(item, "layer")),
             "path": _relative_path(_require(item, "path")),
-            "directory": _relative_path(_require(item, "directory"), allow_dot=True),
+            # LM-REVIEW-2: accept "" ONLY for structure.projects[].directory (from .NET root csproj);
+            # project to "." . Reject "" in every other path field. Never generalize "empty=root".
+            "directory": "." if _require(item, "directory") == "" else _relative_path(_require(item, "directory"), allow_dot=True),
             "featureCount": _number(_require(item, "featureCount"), integer=True),
         }
         count_keys = [key for key in ("csFileCount", "sourceFileCount") if key in item]
@@ -261,8 +275,11 @@ def _project_structure(data: dict[str, Any], arguments: dict[str, Any]) -> dict[
 def _graph_node(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise _invalid()
+    node_id = _require(value, "id")
+    if _is_absolute_identity_spelling(node_id):
+        raise _invalid()
     output = {
-        "id": _text(_require(value, "id"), maximum=_NODE_ID_MAX),
+        "id": _text(node_id, maximum=_NODE_ID_MAX),
         "label": _text(_require(value, "label")),
     }
     for key in _NODE_FIELDS[2:]:
@@ -278,6 +295,10 @@ def _graph_node(value: Any) -> dict[str, Any]:
 def _graph_edge(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise _invalid()
+    for key in ("id", "from", "to"):
+        val = _require(value, key)
+        if _is_absolute_identity_spelling(val):
+            raise _invalid()
     output = {
         key: _text(_require(value, key), maximum=_NODE_ID_MAX if key in {"from", "to"} else _MAX_STRING)
         for key in ("id", "from", "to", "relation")
@@ -321,13 +342,23 @@ def _project_graph(data: dict[str, Any], arguments: dict[str, Any], *, full: boo
     if full:
         original_nodes = output.get("originalNodeCount")
         original_edges = output.get("originalEdgeCount")
+        # LM-REVIEW-4: when limited=false, check each *present* originalCount independently vs returned len.
+        # Absence of the counterpart does NOT infer 0 or unlimited. limited=false + one mismatch (other absent) rejects.
+        # limited=true: do not infer missing dimension or synthesize counts.
+        # Scope limited to this full-graph block (no extension to search/expand).
         if original_nodes is not None and original_nodes < len(nodes):
             raise _invalid()
         if original_edges is not None and original_edges < len(edges):
             raise _invalid()
-        if "limited" in output and original_nodes is not None and original_edges is not None:
+        limited = output.get("limited")
+        if limited is False:
+            if original_nodes is not None and original_nodes != len(nodes):
+                raise _invalid()
+            if original_edges is not None and original_edges != len(edges):
+                raise _invalid()
+        if limited is not None and original_nodes is not None and original_edges is not None:
             expected_limited = original_nodes > len(nodes) or original_edges > len(edges)
-            if output["limited"] is not expected_limited:
+            if limited is not expected_limited:
                 raise _invalid()
     return output
 

@@ -185,6 +185,45 @@ class LegacyValidationTests(unittest.TestCase):
             {"scope": "project", "project": "p"},
         )
 
+    def test_json_schema_draft2020_and_runtime_reject_reviewer_counters_and_1a_abs_nodeid(self):
+        # LM-REVIEW-3 + 1A: Draft202012Validator MUST reject the five contra-examples
+        # (traversal, ASCII ws-only, control, CSV/comma) + abs nodeId spelling.
+        # Runtime validate also rejects. Runtime MAY be stricter only for Unicode ws-only
+        # (str.strip() vs regex in schema); this slack is documented, never relax Python.
+        try:
+            from jsonschema import Draft202012Validator
+        except ImportError:
+            self.skipTest("jsonschema not installed in this env; parity asserted via runtime only")
+        contra_examples = [
+            # project: traversal / ws / control
+            ("project_map_structure", {"project": "../other"}),
+            ("project_map_structure", {"project": "   "}),
+            ("project_map_search", {"project": "hermes-project-map", "query": "a\nb"}),
+            # nodeId abs (1A option A, also in schema)
+            ("project_map_expand", {"project": "p", "nodeId": "/abs/path#sym"}),
+            ("project_map_expand", {"project": "p", "nodeId": r"C:\foo#bar"}),
+            ("project_map_expand", {"project": "p", "nodeId": r"\\unc\share#f"}),
+            # layers/features: comma / ws / control
+            ("project_map_full_graph", {"project": "p", "layers": ["a,b"]}),
+            ("project_map_full_graph", {"project": "p", "layers": ["   "]}),
+            ("project_map_full_graph", {"project": "p", "features": ["a\x00b"]}),
+        ]
+        for tool, val in contra_examples:
+            with self.subTest(tool=tool, val=val):
+                schema = legacy.LEGACY_SCHEMAS[tool]["parameters"]
+                v = Draft202012Validator(schema)
+                errs = list(v.iter_errors(val))
+                self.assertGreater(len(errs), 0, "Draft2020 must reject")
+                self.assert_rejected(tool, val)
+        # positives still accepted by both
+        for tool in ALL_TOOLS:
+            val = valid_arguments(tool)
+            schema = legacy.LEGACY_SCHEMAS[tool]["parameters"]
+            Draft202012Validator(schema).validate(val)
+            legacy.validate_legacy_arguments(tool, val)  # no raise
+        # note on slack (unicode ws): e.g. non-ascii ws-only caught by runtime strip but may pass regex
+        # this is the only documented difference; schema is not relaxed.
+
 
 if __name__ == "__main__":
     unittest.main()

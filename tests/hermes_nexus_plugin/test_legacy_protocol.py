@@ -246,6 +246,60 @@ class LegacyProtocolFailureTests(unittest.TestCase):
             {"project": "demo", "nodeLimit": 20, "edgeLimit": 40, "layers": [], "features": []},
         )
 
+    def test_lm_review_2_directory_empty_only_for_structure_projects_mapped_to_dot(self):
+        # "" accepted ONLY in structure.projects[].directory -> "."
+        # other path fields with "" remain invalid
+        struct_ok = {
+            "project": "demo",
+            "solution": {"name": "demo", "path": None, "count": 0},
+            "projects": [{"name": "demo", "layer": "root", "path": "demo.csproj", "directory": "", "sourceFileCount": 1, "featureCount": 0}],
+            "layers": [], "features": [], "canSubdivide": False, "suggestedModes": [],
+        }
+        res = protocol.validate_legacy_success("project_map_structure", envelope(struct_ok), {"project": "demo"})
+        self.assertEqual(res["data"]["projects"][0]["directory"], ".")
+        # "" in other (e.g. relativePath in projects) still rejects
+        bad_projects = {"projects": [{"name": "d", "relativePath": ""}]}
+        self.assert_error("project_map_projects", bad_projects, {})
+
+    def test_lm_review_1_abs_identity_ids_fail_closed_no_path_in_error(self):
+        # .NET graph ids with abs path spelling -> nexus_invalid_response (no path leaked)
+        # TS ts-* style continue to succeed
+        dotnet_graph = {
+            "nodes": [{"id": "/abs/root/src/Foo.cs:Bar", "label": "Bar"}],
+            "edges": [{"id": "e1", "from": "/abs/root/src/Foo.cs:Bar", "to": "/abs/root/src/Foo.cs:Bar", "relation": "self"}],
+        }
+        err = self.assert_error("project_map_search", dotnet_graph, {"project": "demo", "query": "x"})
+        self.assertEqual(err.code, "nexus_invalid_response")
+        self.assertNotIn("/abs", str(err))
+        self.assertNotIn("root", str(err))
+        # ts- style ok
+        ts_graph = {"nodes": [{"id": "ts-abc123", "label": "X"}], "edges": []}
+        res = protocol.validate_legacy_success("project_map_expand", envelope(ts_graph), {"project": "demo", "nodeId": "ts-abc123"})
+        self.assertEqual(res["data"]["nodes"][0]["id"], "ts-abc123")
+
+    def test_lm_review_4_limited_false_checks_present_counts_independently_no_infer(self):
+        # limited=false + present count mismatch (even if counterpart absent) rejects
+        # limited=true + missing count: no infer/synth
+        # use 1 node but origNodeCount=2
+        mismatch = {
+            "nodes": [{"id": "n1", "label": "One"}],
+            "edges": [],
+            "limited": False,
+            "originalNodeCount": 2,
+        }
+        self.assert_error(
+            "project_map_full_graph",
+            mismatch,
+            {"project": "demo", "nodeLimit": 20, "edgeLimit": 40, "layers": [], "features": []},
+        )
+        # limited true, only one count: passes (no infer)
+        limited_true = graph_data(limited=True, originalNodeCount=5)
+        res = protocol.validate_legacy_success(
+            "project_map_full_graph", envelope(limited_true),
+            {"project": "demo", "nodeLimit": 20, "edgeLimit": 40, "layers": [], "features": []},
+        )
+        self.assertTrue(res["data"]["limited"])
+
     def test_compact_adapter_envelope_overflow_fails_without_truncation(self):
         original = protocol.LEGACY_ENVELOPE_MAX_BYTES
         protocol.LEGACY_ENVELOPE_MAX_BYTES = 300

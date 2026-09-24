@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from typing import Any, Callable, NoReturn
 
@@ -11,8 +12,32 @@ TEXT_MAX_LENGTH = 500
 FILTER_MAX_LENGTH = 200
 FILTER_MAX_ITEMS = 32
 
+# JSON Schema Draft 2020-12 patterns (LM-REVIEW-3 + 1A option A).
+# These make Draft202012Validator reject reviewer's counter-examples:
+# traversal, ASCII whitespace-only, controls, CSV/comma in layers.
+# nodeId also rejects absolute path spellings (1A).
+# Runtime (validate_legacy_arguments) stays fail-closed; MAY be stricter
+# ONLY for Unicode whitespace-only (str.strip() vs this regex).
+# Documented slack here; do not relax Python side. See tests.
+_ABS_START = r"(?:/|\\\\|[A-Za-z]:[/\\])"
+_PROJECT_PATTERN = r"^(?!\s*$)(?!.*\.\.)[^\x00-\x1F\x7F/\\]*$"
+_QUERY_PATTERN = r"^(?!\s*$)[^\x00-\x1F\x7F]*$"
+_NODE_ID_PATTERN = r"^(?!\s*$)(?!" + _ABS_START + r")[^\x00-\x1F\x7F]*$"
+_FILTER_ITEM_PATTERN = r"^(?!\s*$)[^,\x00-\x1F\x7F]+$"
 
-def _string(*, minimum: int = 1, maximum: int, enum: list[str] | None = None) -> dict[str, Any]:
+
+def _is_absolute_identity_spelling(value: str) -> bool:
+    """Detect POSIX /..., Windows C: / \, UNC \\... spelling for LM-REVIEW-1 option A (fail-closed)."""
+    if not isinstance(value, str) or not value:
+        return False
+    if value[0] in ("/", "\\"):
+        return True
+    if re.match(r"^[A-Za-z]:[/\\]", value):
+        return True
+    return False
+
+
+def _string(*, minimum: int = 1, maximum: int, enum: list[str] | None = None, pattern: str | None = None) -> dict[str, Any]:
     schema: dict[str, Any] = {
         "type": "string",
         "minLength": minimum,
@@ -20,6 +45,8 @@ def _string(*, minimum: int = 1, maximum: int, enum: list[str] | None = None) ->
     }
     if enum is not None:
         schema["enum"] = enum
+    if pattern is not None:
+        schema["pattern"] = pattern
     return schema
 
 
@@ -32,14 +59,14 @@ def _object(properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
     }
 
 
-_PROJECT_SCHEMA = _string(maximum=PROJECT_MAX_LENGTH)
-_QUERY_SCHEMA = _string(maximum=TEXT_MAX_LENGTH)
-_NODE_ID_SCHEMA = _string(maximum=TEXT_MAX_LENGTH)
+_PROJECT_SCHEMA = _string(maximum=PROJECT_MAX_LENGTH, pattern=_PROJECT_PATTERN)
+_QUERY_SCHEMA = _string(maximum=TEXT_MAX_LENGTH, pattern=_QUERY_PATTERN)
+_NODE_ID_SCHEMA = _string(maximum=TEXT_MAX_LENGTH, pattern=_NODE_ID_PATTERN)
 _DIRECTION_SCHEMA = {**_string(maximum=4, enum=["both", "in", "out"]), "default": "both"}
 _FILTER_SCHEMA = {
     "type": "array",
     "maxItems": FILTER_MAX_ITEMS,
-    "items": _string(maximum=FILTER_MAX_LENGTH),
+    "items": _string(maximum=FILTER_MAX_LENGTH, pattern=_FILTER_ITEM_PATTERN),
     "default": [],
 }
 
@@ -209,9 +236,12 @@ def _validate_expand(value: Any) -> dict[str, Any]:
     direction = item.get("direction", "both")
     if not isinstance(direction, str) or direction not in {"both", "in", "out"}:
         _fail()
+    nid = _text(item["nodeId"], maximum=TEXT_MAX_LENGTH)
+    if _is_absolute_identity_spelling(nid):
+        _fail()
     return {
         "project": _project(item["project"]),
-        "nodeId": _text(item["nodeId"], maximum=TEXT_MAX_LENGTH),
+        "nodeId": nid,
         "direction": direction,
     }
 
