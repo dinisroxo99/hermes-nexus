@@ -10,8 +10,9 @@ As of 2026-09-24, the delivered repository plugin is
 [`integrations/hermes-nexus/`](../integrations/hermes-nexus/), plugin key
 `hermes-nexus`, toolset `project_intelligence`, with exactly
 `project_task_context` and `project_impact`. Delivery in Git is not installation
-or operational acceptance. Publication and six-profile adoption are still
-pending; this documentation change performs neither. Step 3 was accepted at
+or operational acceptance. The original documentation checkpoint preceded
+publication and six-profile adoption; the dated INFRA-1 record below distinguishes
+their subsequent acceptance from service operation. Step 3 was accepted at
 `4d8d23e564e355d84916b93d890762ac0c7498ee`; Step 4 has **not been initiated**.
 
 DEV-ADOPTION-1 authorizes normal development use, including concurrent workers,
@@ -41,7 +42,7 @@ models/providers, dispatch, worktrees and execution; Nexus owns project evidence
 
 ## Revision-pinned installation and configuration
 
-This is the procedure for the later authorized adoption executor, **not a record
+This is the retained revision-pinned adoption procedure, **not a record
 of commands executed by this documentation task**. Suggested order: architect
 (preserve its existing installation), tester, reviewer, implementer, documenter,
 orchestrator. For current CLI details consult the
@@ -120,7 +121,101 @@ existing installation. Read back the restored allowlist and file hashes. Never
 signal unowned processes or terminate other sessions. Disk restoration takes
 effect in new sessions, not in already loaded workers.
 
-## INFRA-1 — approved, implementation pending
+<a id="infra-1--approved-implementation-pending"></a>
+
+## INFRA-1 — current operation accepted; boot unverified
+
+### Accepted evidence — 2026-09-24
+
+The coordinator accepted **current operation**, not full INFRA-1 completion,
+in `t_72ac65df` comment 170. This record uses the historical handoffs below;
+it is not a fresh service probe or a continuous availability claim.
+
+| Stage | Evidence and bounded result |
+|---|---|
+| Dedicated workspace | `t_62b08244`: worktree/dependencies prepared in run159; run162 independently confirmed `WORKSPACE_READY`, accepted by the coordinator. This alone did not prove service operation. |
+| Staged unit | `t_1c2fcead/run164`, `t_c76f7479/run165`, `t_269e536e/run166` and coordinator comment 169: installed and verified, `loaded/inactive/dead/disabled`, without an enable link. |
+| Authorized cutover | `t_50ae9921/run167`: `CUTOVER_SMOKE_PASS`; graceful termination of only the specifically authorized, revalidated old instance, port free before start, health passed before enable. |
+| Independent operation checks | `t_884f610c/run168`: `PASS_OPERATIONAL_VERIFICATION`; `t_72ac65df/run169`: `PASS_CURRENT_OPERATION_REVIEW`, without new material technical findings in that scope. |
+
+The operation checks observed `loaded/active/running/enabled`, one listener on
+`127.0.0.1:8770` attributed to the unit's cgroup, and `GET /api/health` returning
+HTTP 200 with `ok=true` and `data.status=ok`. `NRestarts=0` held in the point-in-time
+observations, not as an ongoing guarantee. The tester's snapshots were at
+2026-09-24T15:08:27–15:08:31Z; the reviewer's health snapshots were at
+2026-09-24T15:16:13Z. Recorded PIDs are snapshots, not identities required to persist
+forever. No new attached-human, observer, resource-sampling or continuous-monitoring
+requirement is introduced.
+
+### Pinned runtime and verified configuration
+
+The dedicated checkout exists at `/home/dinis/projects/hermes-nexus-service`,
+linked/detached at **`85e511e7f65061cda861c98cd1acfbe9d79526b1`**, tree
+`6f96db4a43043764f266920872a844825bb59482`. This runtime pin is independent of
+subsequent documentation commits; those commits neither update the service nor
+invalidate the observations at the pinned revision. No startup pull or automatic
+source update is implied.
+
+The handoffs verified the operator-supplied configuration, not the old listener's
+unread environment:
+
+| Setting | Verified value |
+|---|---|
+| User unit | `/home/dinis/.config/systemd/user/hermes-nexus.service` |
+| Enable link | `/home/dinis/.config/systemd/user/default.target.wants/hermes-nexus.service` → `/home/dinis/.config/systemd/user/hermes-nexus.service` |
+| `WorkingDirectory` | `/home/dinis/projects/hermes-nexus-service` |
+| `ExecStart` | `/home/dinis/.local/bin/npm start` |
+| `PATH` | `/home/dinis/.local/bin:/usr/bin:/bin` |
+| `HOST` / `PORT` | `127.0.0.1` / `8770` |
+| `DATA_DIR` | `/home/dinis/projects/hermes-project-map/data` |
+| `PROJECTS_ROOTS` | `[{"id":"local","path":"/home/dinis/projects","writableRegistry":false}]` |
+| `UnsetEnvironment` | `PROJECTS_ROOT PROJECTS_ROOT_CONTAINER` — both variables absent, not literal placeholder values |
+
+Before/after checks preserved the hashes of the unit, `projects.json` and
+`discovered-projects.json`, the enumerated project IDs/root mappings/real paths,
+and the writer/runtime/verifier worktree identities. The two discovered projects
+`ACE-Step-1.5` and `hermes-project-map` and the `local` root were retained;
+`projects.json` remained an empty array. Exact hashes and IDs remain in the
+referenced Kanban metadata, without reproducing registry payloads here. This is
+bounded preservation evidence, **not an audit of all storage**.
+
+### Boot, recovery and acceptance limits
+
+- `Linger=yes` already existed and was not changed. Enabled state plus lingering
+  support the startup configuration but **do not prove startup after a WSL
+  distribution restart**. That boot has not been exercised; a disruptive test
+  requires separate operator authorization. Windows startup and 24/7 availability
+  were neither authorized nor demonstrated. Systemd alone does not keep WSL alive.
+- **Rollback was not exercised and its availability was not proved.** Run167
+  reported compound commands containing stop refused before execution; a separate
+  start passed, and no rollback condition arose. Successful smoke checks do not
+  guarantee recovery. This limitation adds no mandatory rollback test or permission
+  to repeat refused commands, bypass guards or change the service.
+- **INFRA1-EVIDENCE-1 — MEDIUM** remains a historical procedural caveat: run165's
+  full registry read exceeded minimization. Later sanitized selection does not
+  undo that exposure or establish absence of exposure/unrestricted compliance.
+  No additional exposure audit or reproduction of excess fields is included here.
+- Earlier publication was reconciled and six-profile **H-only offline** adoption
+  accepted (provenance retained in `t_62b08244`, including `t_ae493120/run152` and
+  `t_dcb1a620/run158` / coordinator comment 162). These are not new runtime or
+  domain validations. `default` and `workspace-manager` remain excluded.
+  **G1 remains REJECTED**; R1/R2 remain **KNOWN ISSUES — DEFERRED**, HIGH severity,
+  LOW priority/non-blocking in this phase. **Step 4 has not been initiated**.
+
+This documentation update (`t_e24df21e`) performs no health/domain requests,
+Context/Impact evaluation, registry inspection or operational changes. Its checks
+are offline and document-focused, not global impact analysis. The coordinator
+will route the new documentation revision through the separate docs-review gate;
+this record does not declare full INFRA-1 completion.
+
+### Historical approval and pre-execution plan
+
+The following checkpoint is retained for provenance. Its pending implementation,
+unverified paths and later-verification statements describe the pre-execution
+plan, superseded only by the bounded evidence above; they are not current status.
+
+<details>
+<summary>Original INFRA-1 approval / implementation-pending checkpoint</summary>
 
 Persistent automatic startup is **APPROVED / IMPLEMENTATION PENDING**, after
 candidate verification/publication. The operator approved the comment 152 proposal
@@ -160,6 +255,8 @@ The previous persistent manual window (PMW) expired at
 **2026-09-24T11:16:43+01:00**. No extension, shutdown or live-state check is
 demonstrated here. Expired authorization does **not** establish whether a process
 is still running. No domain or health request was made for this documentation.
+
+</details>
 
 ## Legacy catalogue and bounded provenance
 
