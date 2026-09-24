@@ -8,7 +8,7 @@ import math
 import re
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import httpx
 
@@ -521,17 +521,74 @@ class NexusClient:
         payload = serialize_request(body)
         route = _SUCCESS[tool][0]
         url = f"{self.base_url}/api/intelligence/projects/{quote(arguments['projectId'], safe='')}/{route}"
+        return await self._execute_request(
+            method="POST",
+            url=url,
+            payload=payload,
+            validate=lambda envelope: validate_success(tool, envelope, arguments),
+            classify=lambda status, envelope: classify_http_error(tool, status, envelope),
+        )
+
+    async def request_legacy(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Execute one of the seven fixed legacy GET operations without a body."""
+        from .legacy_protocol import validate_legacy_success
+
+        project = quote(arguments.get("project", ""), safe="")
+        if tool == "project_map_health":
+            path, query = "/api/health", []
+        elif tool == "project_map_projects":
+            path, query = "/api/projects", []
+        elif tool == "project_map_structure":
+            path, query = f"/api/projects/{project}/structure", []
+        elif tool == "project_map_search":
+            path, query = f"/api/explore/{project}/search", [("q", arguments["query"])]
+        elif tool == "project_map_expand":
+            path = f"/api/explore/{project}/expand"
+            query = [("nodeId", arguments["nodeId"]), ("direction", arguments["direction"])]
+        elif tool == "project_map_full_graph":
+            path = f"/api/explore/{project}/full"
+            query = [
+                ("nodeLimit", str(arguments["nodeLimit"])),
+                ("edgeLimit", str(arguments["edgeLimit"])),
+                ("layers", ",".join(arguments["layers"])),
+                ("features", ",".join(arguments["features"])),
+            ]
+        elif tool == "project_map_cache_stats":
+            path, query = "/api/cache/symbols", []
+        else:
+            raise _error("nexus_client_failed", "protocol")
+        suffix = f"?{urlencode(query)}" if query else ""
+        return await self._execute_request(
+            method="GET",
+            url=f"{self.base_url}{path}{suffix}",
+            payload=None,
+            validate=lambda envelope: validate_legacy_success(tool, envelope, arguments),
+            classify=lambda status, _envelope: _error("nexus_http_error", "http", status),
+        )
+
+    async def _execute_request(
+        self,
+        *,
+        method: str,
+        url: str,
+        payload: bytes | None,
+        validate: Callable[[dict[str, Any]], dict[str, Any]],
+        classify: Callable[[int, dict[str, Any]], NexusClientError],
+    ) -> dict[str, Any]:
+        """Run the shared bounded transport/lifecycle for an internally fixed operation."""
+        headers = {
+            "Accept": "application/json",
+            "Accept-Encoding": "identity",
+        }
+        if payload is not None:
+            headers["Content-Type"] = "application/json; charset=utf-8"
         client = self._client_factory(
             trust_env=False,
             follow_redirects=False,
             timeout=httpx.Timeout(connect=5.0, write=5.0, pool=5.0, read=55.0),
             limits=httpx.Limits(max_connections=1, max_keepalive_connections=0),
             transport=self._transport,
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json; charset=utf-8",
-                "Accept-Encoding": "identity",
-            },
+            headers=headers,
         )
         lifecycle = _CloseLifecycle(client.aclose)
         state = _InvocationState(lifecycle)
@@ -539,7 +596,11 @@ class NexusClient:
         async def http_phase() -> dict[str, Any]:
             state.arm_total()
             try:
-                request = client.build_request("POST", url, content=payload)
+                request = (
+                    client.build_request(method, url, content=payload)
+                    if payload is not None
+                    else client.build_request(method, url)
+                )
                 response = await client.send(request, stream=True)
                 state.response = response
                 if not isinstance(response.stream, httpx.AsyncByteStream):
@@ -551,8 +612,8 @@ class NexusClient:
                 try:
                     envelope = parse_response(raw)
                     if response.status_code != 200:
-                        raise classify_http_error(tool, response.status_code, envelope)
-                    result = validate_success(tool, envelope, arguments)
+                        raise classify(response.status_code, envelope)
+                    result = validate(envelope)
                 except NexusClientError as exc:
                     if exc.http_status is None:
                         exc.http_status = response.status_code

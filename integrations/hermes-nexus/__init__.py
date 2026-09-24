@@ -5,11 +5,14 @@ from __future__ import annotations
 import importlib
 
 from .client import NexusClientError, validate_base_url
+from .legacy_schemas import ADMIN_TOOL_NAMES, READ_TOOL_NAMES
+from .legacy_tools import legacy_registrations
 from .schemas import PROJECT_IMPACT_SCHEMA, PROJECT_TASK_CONTEXT_SCHEMA
 from .tools import create_handlers
 
 
-_TOOL_NAMES = ("project_task_context", "project_impact")
+_CORE_TOOL_NAMES = ("project_task_context", "project_impact")
+_LEGACY_TOOL_NAMES = (*READ_TOOL_NAMES, *ADMIN_TOOL_NAMES)
 
 
 def _tool_exists(ctx, name: str) -> bool:
@@ -25,9 +28,13 @@ def _tool_exists(ctx, name: str) -> bool:
 
 
 def register(ctx) -> None:
-    """Register exactly two async, read-only tools without contacting Nexus."""
+    """Register the core catalog and optional bounded legacy catalog without I/O."""
     base_url = ctx.get_config("base_url")
-    if any(_tool_exists(ctx, name) for name in _TOOL_NAMES):
+    legacy_enabled = ctx.get_config("legacy_enabled", False)
+    if type(legacy_enabled) is not bool:
+        raise RuntimeError("Hermes Nexus legacy_enabled must be a boolean.")
+    names = (*_CORE_TOOL_NAMES, *_LEGACY_TOOL_NAMES) if legacy_enabled else _CORE_TOOL_NAMES
+    if any(_tool_exists(ctx, name) for name in names):
         raise RuntimeError("Hermes Nexus tool registration was refused.")
     task_context, impact = create_handlers(base_url)
 
@@ -39,15 +46,17 @@ def register(ctx) -> None:
         return True
 
     handles = []
-    registrations = (
-        (_TOOL_NAMES[0], PROJECT_TASK_CONTEXT_SCHEMA, task_context),
-        (_TOOL_NAMES[1], PROJECT_IMPACT_SCHEMA, impact),
-    )
+    registrations = [
+        (_CORE_TOOL_NAMES[0], "project_intelligence", PROJECT_TASK_CONTEXT_SCHEMA, task_context),
+        (_CORE_TOOL_NAMES[1], "project_intelligence", PROJECT_IMPACT_SCHEMA, impact),
+    ]
+    if legacy_enabled:
+        registrations.extend(legacy_registrations(base_url))
     try:
-        for name, schema, handler in registrations:
+        for name, toolset, schema, handler in registrations:
             handle = ctx.register_tool(
                 name=name,
-                toolset="project_intelligence",
+                toolset=toolset,
                 schema=schema,
                 handler=handler,
                 check_fn=available,

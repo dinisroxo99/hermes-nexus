@@ -333,6 +333,9 @@ class Handle:
         self.owner.pop(self.name, None)
 
 
+_ABSENT = object()
+
+
 class FakeContext:
     def __init__(
         self,
@@ -342,19 +345,25 @@ class FakeContext:
         refuse=None,
         profile_name="architect",
         real_context=False,
+        legacy_enabled=_ABSENT,
     ):
         self.base_url = base_url
         self.registry = registry if registry is not None else {}
         self.global_registry = global_registry if global_registry is not None else {}
         self.refuse = refuse
         self.profile_name = profile_name
+        self.legacy_enabled = legacy_enabled
         self.calls = []
         if real_context:
             self._manager = object()
 
     def get_config(self, key, default=None):
         self.calls.append(("get_config", key))
-        return self.base_url if key == "base_url" else default
+        if key == "base_url":
+            return self.base_url
+        if key == "legacy_enabled" and self.legacy_enabled is not _ABSENT:
+            return self.legacy_enabled
+        return default
 
     def has_registered_tool(self, name):
         self.calls.append(("has_registered_tool", name))
@@ -388,6 +397,104 @@ class RegistrationTests(unittest.TestCase):
             self.assertTrue(registration["check_fn"]())
             self.assertTrue(callable(registration["handler"]))
         self.assertEqual(ctx.calls[0], ("get_config", "base_url"))
+
+    def test_explicit_false_preserves_exact_two_tool_surface(self):
+        ctx = FakeContext(legacy_enabled=False)
+        self.plugin.register(ctx)
+        self.assertEqual(set(ctx.registry), {"project_task_context", "project_impact"})
+
+    def test_true_registers_exact_eleven_tools_in_three_toolsets(self):
+        ctx = FakeContext(legacy_enabled=True)
+        self.plugin.register(ctx)
+        expected = {
+            "project_task_context": "project_intelligence",
+            "project_impact": "project_intelligence",
+            "project_map_health": "project_map",
+            "project_map_projects": "project_map",
+            "project_map_structure": "project_map",
+            "project_map_search": "project_map",
+            "project_map_expand": "project_map",
+            "project_map_full_graph": "project_map",
+            "project_map_cache_stats": "project_map",
+            "project_map_index": "project_map_admin",
+            "project_map_clear_cache": "project_map_admin",
+        }
+        self.assertEqual({name: item["toolset"] for name, item in ctx.registry.items()}, expected)
+        for name, registration in ctx.registry.items():
+            self.assertEqual(registration["schema"]["name"], name)
+            self.assertTrue(registration["is_async"])
+            self.assertFalse(registration["override"])
+            self.assertTrue(callable(registration["handler"]))
+
+    def test_invalid_legacy_enabled_is_refused_before_preflight_or_registration(self):
+        for invalid in (0, 1, "false", "true", None, [], {}):
+            ctx = FakeContext(legacy_enabled=invalid)
+            with self.subTest(invalid=repr(invalid)), self.assertRaisesRegex(
+                RuntimeError, "legacy_enabled"
+            ):
+                self.plugin.register(ctx)
+            self.assertEqual(ctx.registry, {})
+            self.assertNotIn("register_tool", [call[0] for call in ctx.calls])
+
+    def test_true_preflights_every_name_and_preserves_each_collision(self):
+        names = (
+            "project_task_context", "project_impact", "project_map_health",
+            "project_map_projects", "project_map_structure", "project_map_search",
+            "project_map_expand", "project_map_full_graph", "project_map_cache_stats",
+            "project_map_index", "project_map_clear_cache",
+        )
+        for collision_name in names:
+            for location in ("scoped", "global"):
+                sentinel = {"name": collision_name, "toolset": "foreign", "handler": object()}
+                scoped = {collision_name: sentinel} if location == "scoped" else {}
+                global_registry = {collision_name: sentinel} if location == "global" else {}
+                ctx = FakeContext(
+                    registry=scoped,
+                    global_registry=global_registry,
+                    legacy_enabled=True,
+                )
+                with self.subTest(name=collision_name, location=location):
+                    with self.assertRaisesRegex(RuntimeError, "registration was refused"):
+                        self.plugin.register(ctx)
+                    self.assertNotIn("register_tool", [call[0] for call in ctx.calls])
+                    owner = scoped if location == "scoped" else global_registry
+                    self.assertIs(owner[collision_name], sentinel)
+
+    def test_true_rolls_back_only_own_handles_for_refusal_at_every_position(self):
+        names = (
+            "project_task_context", "project_impact", "project_map_health",
+            "project_map_projects", "project_map_structure", "project_map_search",
+            "project_map_expand", "project_map_full_graph", "project_map_cache_stats",
+            "project_map_index", "project_map_clear_cache",
+        )
+        for refusal in names:
+            sentinel = {"name": "foreign_tool", "toolset": "foreign"}
+            registry = {"foreign_tool": sentinel}
+            ctx = FakeContext(
+                registry=registry,
+                refuse=refusal,
+                real_context=True,
+                legacy_enabled=True,
+            )
+            with self.subTest(refusal=refusal), self.assertRaisesRegex(
+                RuntimeError, "registration was refused"
+            ):
+                self.plugin.register(ctx)
+            self.assertEqual(ctx.registry, {"foreign_tool": sentinel})
+
+    def test_manifest_advertises_exact_eleven_tools_and_strict_opt_in(self):
+        text = (PLUGIN_DIR / "plugin.yaml").read_text(encoding="utf-8")
+        self.assertIn("version: 0.2.0", text)
+        provides = text.split("provides_tools:\n", 1)[1].split("config_schema:\n", 1)[0]
+        names = [line.removeprefix("  - ") for line in provides.splitlines() if line.startswith("  - ")]
+        self.assertEqual(names, [
+            "project_task_context", "project_impact", "project_map_health",
+            "project_map_projects", "project_map_structure", "project_map_search",
+            "project_map_expand", "project_map_full_graph", "project_map_cache_stats",
+            "project_map_index", "project_map_clear_cache",
+        ])
+        self.assertIn("legacy_enabled:", text)
+        self.assertIn("default: false", text)
 
     def test_invalid_local_configuration_makes_tools_unavailable_without_network(self):
         ctx = FakeContext(base_url="http://remote.example:8770")
@@ -441,28 +548,39 @@ class RegistrationTests(unittest.TestCase):
             class ActualRegistryContext:
                 _manager = SimpleNamespace(scope_key=scope)
 
-                def get_config(self, _key):
-                    return "http://127.0.0.1:8770"
+                def get_config(self, key, default=None):
+                    if key == "base_url":
+                        return "http://127.0.0.1:8770"
+                    if key == "legacy_enabled":
+                        return True
+                    return default
 
                 def register_tool(self, **_kwargs):
                     raise AssertionError("preflight must run before registration")
 
-            for location in ("scoped", "global"):
-                sentinel = lambda _args: "sentinel"
-                isolated_registry.register(
-                    name="project_task_context",
-                    toolset="project_intelligence",
-                    schema={},
-                    handler=sentinel,
-                    scope=scope if location == "scoped" else None,
-                )
-                with self.subTest(location=location):
-                    with self.assertRaisesRegex(RuntimeError, "registration was refused"):
-                        self.plugin.register(ActualRegistryContext())
-                    entry = isolated_registry.get_entry("project_task_context", scope=scope)
-                    self.assertIs(entry.handler, sentinel)
-                isolated_registry = registry_type()
-                setattr(registry_module, "registry", isolated_registry)
+            names = (
+                "project_task_context", "project_impact", "project_map_health",
+                "project_map_projects", "project_map_structure", "project_map_search",
+                "project_map_expand", "project_map_full_graph", "project_map_cache_stats",
+                "project_map_index", "project_map_clear_cache",
+            )
+            for name in names:
+                for location in ("scoped", "global"):
+                    sentinel = lambda _args: "sentinel"
+                    isolated_registry.register(
+                        name=name,
+                        toolset="foreign",
+                        schema={},
+                        handler=sentinel,
+                        scope=scope if location == "scoped" else None,
+                    )
+                    with self.subTest(name=name, location=location):
+                        with self.assertRaisesRegex(RuntimeError, "registration was refused"):
+                            self.plugin.register(ActualRegistryContext())
+                        entry = isolated_registry.get_entry(name, scope=scope)
+                        self.assertIs(entry.handler, sentinel)
+                    isolated_registry = registry_type()
+                    setattr(registry_module, "registry", isolated_registry)
         finally:
             if registry_module is not None:
                 setattr(registry_module, "registry", original_registry)
@@ -545,11 +663,16 @@ class RegistrationTests(unittest.TestCase):
                 register_tool = actual_register_tool
                 manifest = SimpleNamespace(name="hermes-nexus")
 
-                def __init__(self, scope):
+                def __init__(self, scope, legacy_enabled=False):
                     self._manager = Manager(scope)
+                    self.legacy_enabled = legacy_enabled
 
-                def get_config(self, _key):
-                    return "http://127.0.0.1:8770"
+                def get_config(self, key, default=None):
+                    if key == "base_url":
+                        return "http://127.0.0.1:8770"
+                    if key == "legacy_enabled":
+                        return self.legacy_enabled
+                    return default
 
             architect_scope = "/isolated/architect"
             sentinel = lambda _args: "legacy"
@@ -592,6 +715,35 @@ class RegistrationTests(unittest.TestCase):
             for name in names:
                 self.assertIsNone(
                     rollback_registry.get_entry(name, scope=architect_scope)
+                )
+
+            legacy_registry = registry_module.ToolRegistry()
+            setattr(registry_module, "registry", legacy_registry)
+            legacy_names = (
+                "project_task_context", "project_impact", "project_map_health",
+                "project_map_projects", "project_map_structure", "project_map_search",
+                "project_map_expand", "project_map_full_graph", "project_map_cache_stats",
+                "project_map_index", "project_map_clear_cache",
+            )
+            self.plugin.register(ActualRegistryContext(architect_scope, legacy_enabled=True))
+            for name in legacy_names:
+                self.assertIsNotNone(legacy_registry.get_entry(name, scope=architect_scope))
+                self.assertIsNone(legacy_registry.snapshot_registration(name, scope=None))
+
+            legacy_rollback_registry = registry_module.ToolRegistry()
+            setattr(registry_module, "registry", legacy_rollback_registry)
+
+            class RefuseLegacy(ActualRegistryContext):
+                def register_tool(self, **kwargs):
+                    if kwargs["name"] == "project_map_cache_stats":
+                        return None
+                    return super().register_tool(**kwargs)
+
+            with self.assertRaisesRegex(RuntimeError, "registration was refused"):
+                self.plugin.register(RefuseLegacy(architect_scope, legacy_enabled=True))
+            for name in legacy_names:
+                self.assertIsNone(
+                    legacy_rollback_registry.get_entry(name, scope=architect_scope)
                 )
         finally:
             if registry_module is not None:

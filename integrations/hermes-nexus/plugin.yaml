@@ -1,13 +1,27 @@
 name: hermes-nexus
-version: 0.1.0
-description: Read-only architect pilot tools for bounded Hermes Nexus task context and impact evidence.
+version: 0.2.0
+description: Bounded Hermes Nexus project intelligence plus opt-in legacy Project Map compatibility tools.
 author: hermes-nexus
 kind: standalone
 provides_tools:
   - project_task_context
   - project_impact
+  - project_map_health
+  - project_map_projects
+  - project_map_structure
+  - project_map_search
+  - project_map_expand
+  - project_map_full_graph
+  - project_map_cache_stats
+  - project_map_index
+  - project_map_clear_cache
 config_schema:
   base_url:
     type: str
     required: true
     description: Explicit local Nexus URL, for example http://127.0.0.1:8770.
+  legacy_enabled:
+    type: bool
+    required: false
+    default: false
+    description: Opt in to seven bounded legacy GET tools and two deny-only administrative tools.
