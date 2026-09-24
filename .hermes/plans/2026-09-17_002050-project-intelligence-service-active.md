@@ -2,6 +2,19 @@
 
 ## Current checkpoint
 
+2026-09-24: Step 3 is historically accepted at
+`4d8d23e564e355d84916b93d890762ac0c7498ee`. Current adoption source baseline is
+`feat/nexus-profile-integration@10d1f348fd4c6ddbb5319d972c71b426e51e574a`.
+[DEV-ADOPTION-1](../../docs/hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption)
+approves the tracked Context/Impact plugin for six development profiles, including
+concurrent workers. G1 remains REJECTED; R1/R2 remain open/deferred, HIGH severity
+and LOW/non-blocking development priority. Nine legacy tools remain deferred.
+Publication, fleet adoption and final verified operational docs remain pending;
+**Step 4 is not initiated**. INFRA-1 is approved, implementation pending after
+candidate verification/publication; no service deployment is claimed.
+
+### Historical pre-acceptance MC10 checkpoint
+
 Branch:
 
 `feat/impact-v2`
@@ -358,7 +371,12 @@ Build/enablement guide: `docker/serena-python/README.md`.
 
 ## Current development frontier
 
-### Step 3 — Impact v2: IMPLEMENTED, PENDING INDEPENDENT MC10 ACCEPTANCE
+<a id="step-3--impact-v2-implemented-pending-independent-mc10-acceptance"></a>
+
+### Step 3 — Impact v2: ACCEPTED
+
+Accepted historical revision: `4d8d23e564e355d84916b93d890762ac0c7498ee`.
+The former pending-MC10 status above is retained as historical evidence.
 
 The bounded file/multi-file traversal, project composer, optional affected-test
 candidates, live service and HTTP operation are implemented on `feat/impact-v2`.
@@ -394,6 +412,9 @@ Implemented incrementally:
 Git-diff impact remains deferred. Step 4 is not authorized by this checkpoint.
 
 ### Step 4 — Effective Task Scope
+
+**NOT INITIATED.** Complete publication, approved profile adoption and verified
+operational documentation first; the following remains target work.
 
 Derive:
 

@@ -43,9 +43,9 @@ Task + Project Identity / Git Revision + ICM
 ```
 
 This is deterministic evidence selection, not arbitrary LLM summarization.
-Packs carry provenance, limits and incomplete-coverage signals. Future impact,
-scope, conflict and validated-history layers will build on this foundation;
-they are not implemented by the current pack.
+Packs carry provenance, limits and incomplete-coverage signals. The separate
+Impact v2 operation adds bounded change-impact evidence; scope, conflict and
+validated-history layers remain planned, not implemented by the current pack.
 
 ## Hermes relationship
 
@@ -70,9 +70,9 @@ WRITE / RESERVED / WATCH / IMPACT · Conflict Intelligence · Project Expert.
 
 ## Current status
 
-Implementation checkpoint: [current verified status](docs/CURRENT_STATUS.md)
-on `integration/serena-main-baseline`, consolidating the verified mainline and
-Serena/Node.js inputs.
+Implementation checkpoint: [current verified status](docs/CURRENT_STATUS.md),
+with Step 3 historically accepted at `4d8d23e564e355d84916b93d890762ac0c7498ee`
+and the two-tool plugin delivered on `feat/nexus-profile-integration`.
 
 - **Complete:** project foundation; Step 1 Project Identity / Revision; Step 2
   Task Context Pack; Step 2.5 Analyzer Provider Layer.
@@ -81,8 +81,14 @@ Serena/Node.js inputs.
   Git/worktree evidence and revision-aware caches, read-only Context Packs,
   normalized provider selection/fallback, Node.js routing through the existing
   JavaScript-capable native analyzer and snapshot-bound external data validation.
-- **Next, not started:** Step 3 — Impact v2. Existing node-based graph impact is
-  an earlier capability, not completion of this step.
+- **Complete:** Step 3 — bounded file/multi-file Impact v2 and optional test
+  candidates, separate from earlier node-based graph impact.
+- **Approved, adoption pending:** [DEV-ADOPTION-1](docs/hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption),
+  `project_task_context` / `project_impact` for six development profiles. Nine
+  legacy tools remain deferred. G1 is rejected; R1/R2 remain open/deferred with
+  HIGH severity and LOW/non-blocking development priority, not fixed.
+- **Next, not initiated:** Step 4 — Effective Task Scope. Publication, profile
+  adoption and final verified operational documentation must precede it.
 - **Planned:** effective scope, conflicts, Hermes guard integration, project
   telemetry/validated history, Project Expert and learning/evaluation.
 - **Implemented, opt-in:** sandboxed Serena/Pyright semantic symbols, definitions
@@ -152,8 +158,9 @@ Development verification: `npm test` and `npm run check`.
 ```text
 COMPLETE: Project foundation → Project Identity / Revision
           → Task Context Pack → Analyzer Provider Layer
-NEXT / NOT STARTED: Impact v2
-PLANNED: Effective Task Scope → Conflict Engine → Hermes Guard integration
+          → Impact v2
+NEXT / NOT INITIATED: Effective Task Scope
+PLANNED: Conflict Engine → Hermes Guard integration
          → Telemetry / validated project history → Project Expert
          → Learning / evaluation
 ```

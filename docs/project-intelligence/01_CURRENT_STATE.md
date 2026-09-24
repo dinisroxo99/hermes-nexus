@@ -10,7 +10,23 @@ This document distinguishes repository-verified checkpoints from the original
 conversation-derived snapshot. Before editing production code, verify the
 repository again; the tracked active plan remains the implementation authority.
 
-## Repository-verified Impact v2 implementation checkpoint
+## Current adoption checkpoint — 2026-09-24
+
+Step 3 is historically accepted at `4d8d23e564e355d84916b93d890762ac0c7498ee`.
+The adoption source baseline is
+`feat/nexus-profile-integration@10d1f348fd4c6ddbb5319d972c71b426e51e574a`, with
+tracked `project_task_context` and `project_impact` tools. See
+[DEV-ADOPTION-1](../hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption)
+for the approved six-profile development scope, legacy deferral, configuration
+and rollback. G1 remains REJECTED and R1/R2 open/deferred; the current HIGH
+severity / LOW non-blocking disposition is not a lifecycle fix. Publication,
+fleet adoption and final verified operational docs remain pending. INFRA-1 is
+approved, implementation pending after candidate verification/publication, not
+deployed. **Step 4 is not initiated.**
+
+<a id="repository-verified-impact-v2-implementation-checkpoint"></a>
+
+## Historical pre-acceptance Impact v2 implementation checkpoint
 
 On branch `feat/impact-v2`, implementation checkpoint `f238349` adds the live
 read-only `POST /api/intelligence/projects/:projectId/impact` operation after the
@@ -24,9 +40,10 @@ The accepted domain budget remains 65,536 bytes by default and 131,072 bytes
 maximum for compact `ImpactResult`. The compact HTTP success envelope is measured
 separately and capped at 163,840 UTF-8 bytes; response overflow fails closed with
 HTTP 500 / `impact_response_too_large`, without retrimming the domain result.
-Request bodies remain capped at 65,536 observed bytes. This implementation is
-pending independent MC10 validation and acceptance; it does not claim Step 4,
-Git-diff impact, Effective Scope, conflicts or Hermes integration.
+Request bodies remain capped at 65,536 observed bytes. At that historical
+checkpoint, independent MC10 validation and acceptance were pending. It did not
+claim Step 4, Git-diff impact, Effective Scope, conflicts or Hermes integration;
+the later accepted/adoption status is recorded above.
 
 ## Historical repository-verified Step 2 checkpoint
 

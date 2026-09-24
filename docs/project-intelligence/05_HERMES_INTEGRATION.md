@@ -6,6 +6,12 @@
 
 ## Principle
 
+This page retains the target architecture. The delivered thin plugin currently
+contains only `project_task_context` and `project_impact`; see the
+[DEV-ADOPTION-1 usage contract](../hermes-tool-integration.md#dev-adoption-1--two-tool-usage-contract)
+for approved development scope and limitations. MCP, automatic Guard and the
+other candidate operations below remain planned, not installed functionality.
+
 Hermes remains the runtime.
 
 Project Map becomes a specialized intelligence/control dependency.

@@ -6,7 +6,11 @@ Operational and API details moved from the original README. This reference
 covers the service at base commit `be0cb2c`; it is not a specification of the
 full target coordination system. See [Current status](CURRENT_STATUS.md) for
 implementation boundaries. Steps 1, 2 and 2.5 are complete; bounded Impact v2
-Step 3 is implemented on `feat/impact-v2` and pending independent MC10 acceptance.
+Step 3 was accepted at `4d8d23e564e355d84916b93d890762ac0c7498ee`.
+For the tracked two-tool plugin and pending development adoption, use
+[DEV-ADOPTION-1](hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption).
+Its loopback-only service design [INFRA-1](hermes-plugin-installation.md#infra-1--approved-implementation-pending)
+is approved, implementation pending, not installed by these quick starts.
 
 Use the [canonical Context Pack contract](project-intelligence/04_ICM_AND_CONTEXT_PACK.md)
 for task-context inputs, limits and limitations, and the

@@ -14,9 +14,13 @@
 | How do I run it or call the API? | [Service reference](SERVICE_REFERENCE.md) |
 
 The [current checkpoint](CURRENT_STATUS.md) includes completed Project Identity /
-Revision, Task Context Pack and Analyzer Provider Layer, plus optional sandboxed
-Serena/Python semantic analysis. Impact v2 is **NOT STARTED**; scope/conflicts,
-runtime guard integration and project knowledge remain planned.
+Revision, Task Context Pack, Analyzer Provider Layer and accepted Step 3 Impact v2,
+plus optional sandboxed Serena/Python semantic analysis. Step 4 is **NOT INITIATED**;
+scope/conflicts, runtime guard integration and project knowledge remain planned.
+[DEV-ADOPTION-1](hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption)
+approves two-tool development adoption, with publication/six-profile installation
+still pending and G1/R1/R2 limitations retained. INFRA-1 is approved, implementation
+pending after candidate verification/publication; no deployed service is claimed.
 
 ## Setup and service guides
 
@@ -26,14 +30,14 @@ runtime guard integration and project knowledge remain planned.
 - [Analyzer implementation](analyzers-implementation.md) — analyzer internals.
 - [Analyzer execution and troubleshooting](analyzers-execution.md) — operation
   and troubleshooting.
-- [Hermes HTTP tool integration](hermes-tool-integration.md) — thin-client design
-  and separation between HTTP endpoints and candidate tool interfaces.
-- [Hermes plugin setup guide](hermes-plugin-installation.md) — low-level
-  `project_map_*` client example; not an automatic task/scope guard.
+- [Hermes HTTP tool integration](hermes-tool-integration.md) — delivered two-tool
+  schemas, per-role usage, provenance and fallback; historical proposals separated.
+- [Hermes plugin setup guide](hermes-plugin-installation.md) — DEV-ADOPTION-1,
+  revision-pinned configuration/rollback, legacy deferral and INFRA-1 status.
 - [Project ICM](project-icm.md) — canonical manifest and index contracts.
 
-The integration guides contain examples for a separately configured Hermes
-runtime, not a bundled or automatically installed plugin. For current Hermes
+The tracked plugin is delivered in source, not automatically installed into the
+approved fleet. Legacy examples are archived, not the current procedure. For Hermes
 commands and runtime capabilities, use the
 [official Hermes documentation](https://hermes-agent.nousresearch.com/docs/).
 
