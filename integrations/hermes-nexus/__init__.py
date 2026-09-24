@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 
 from .client import NexusClientError, validate_base_url
+from .effective_task_scope import compose_effective_task_scope
 from .schemas import PROJECT_IMPACT_SCHEMA, PROJECT_TASK_CONTEXT_SCHEMA
 from .tools import create_handlers
 

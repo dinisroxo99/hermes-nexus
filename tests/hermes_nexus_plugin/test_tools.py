@@ -8,6 +8,7 @@ import json
 import logging
 import sys
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable, cast
@@ -603,6 +604,200 @@ class RegistrationTests(unittest.TestCase):
         self.plugin.register(ctx)
         for registration in ctx.registry.values():
             self.assertFalse(registration["schema"]["parameters"]["additionalProperties"])
+
+
+# --- ETS-4 composer tests (added for t_2d8ff304; only plugin-side, no src/ change) ---
+
+HEX40 = "a" * 40
+HEX64 = "b" * 64
+WORKTREE_ID = "c" * 64
+
+
+def _base_pack(paths=None, incomplete=False):
+    if paths is None:
+        paths = ["AGENTS.md"]
+    return {
+        "schemaVersion": 1,
+        "analysisVersion": "task-context-v1",
+        "projectId": "prj_123",
+        "project": {"rootId": "local", "relativePath": "checkout"},
+        "revision": {
+            "status": "available",
+            "commitSha": HEX40,
+            "branch": "feat/test",
+            "dirty": False,
+            "isLinkedWorktree": True,
+            "repositoryIdentity": HEX64,
+            "worktreeId": WORKTREE_ID,
+        },
+        "contextPackId": "context_" + "d" * 64,
+        "observation": {"incomplete": incomplete},
+        "sections": {
+            "task": {
+                "items": [
+                    {
+                        "id": "t_test",
+                        "title": "test task",
+                        "paths": paths,
+                        "symbols": [],
+                    }
+                ],
+                "status": "available",
+            }
+        },
+    }
+
+
+def _base_impact(paths=None, finding_state="evidence_found", status="available", incomplete=False, include_tests=True, affected=None, cands=None, completeness=None, at_completeness=None, trunc=False):
+    if paths is None:
+        paths = ["AGENTS.md"]
+    if affected is None:
+        affected = []
+    if cands is None:
+        cands = []
+    if completeness is None:
+        completeness = {"source": [], "provider": [], "traversal": [], "output": []}
+    if at_completeness is None:
+        at_completeness = {"source": [], "provider": [], "traversal": [], "output": []}
+    targets = [{"originPath": p, "targetSource": {"path": p, "hash": "h"}, "status": "available", "findingState": finding_state, "completeness": completeness} for p in paths]
+    res = {
+        "schemaVersion": 1,
+        "analysisVersion": "impact-v2",
+        "projectId": "prj_123",
+        "project": {"rootId": "local", "relativePath": "checkout"},
+        "targets": targets,
+        "revision": {
+            "status": "available",
+            "commitSha": HEX40,
+            "branch": "feat/test",
+            "repositoryId": HEX64,
+            "worktreeId": WORKTREE_ID,
+            "dirty": False,
+            "isLinkedWorktree": True,
+        },
+        "snapshotToken": "snap_" + "e" * 64,
+        "observation": {"incomplete": incomplete},
+        "status": status,
+        "findingState": finding_state,
+        "affectedFiles": affected,
+        "affectedTests": {
+            "status": "not_requested" if not include_tests else "available",
+            "findingState": finding_state if include_tests else "not_evaluated",
+            "candidates": cands,
+            "completeness": at_completeness,
+        },
+        "completeness": completeness,
+    }
+    # mark trunc on first if requested
+    if trunc and res["affectedFiles"]:
+        res["affectedFiles"][0]["originSummary"] = {"attributionTruncated": True, "reasons": []}
+    return res
+
+
+class EffectiveTaskScopeComposerTests(unittest.TestCase):
+    def setUp(self):
+        self.plugin = _load_package()
+        # expose directly; import after load so submodule is populated
+        self.scope = importlib.import_module(self.plugin.__name__ + ".effective_task_scope")
+        self.compose = self.scope.compose_effective_task_scope
+
+    def test_valid_complete_available(self):
+        pack = _base_pack(["f.py"])
+        impact = _base_impact(["f.py"], finding_state="evidence_found", status="available", incomplete=False, include_tests=True,
+                              affected=[{"path": "g.py", "origins": [{"originPath": "f.py", "minimumDistance": 1, "witness": {"id": "w1", "relationshipKind": "imports", "trust": "derived", "basis": "static"}}], "originSummary": {"attributionTruncated": False, "reasons": []}}],
+                              cands=[])
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertEqual(res["analysisVersion"], "effective-task-scope-v1")
+        self.assertEqual(res["status"], "available")
+        self.assertTrue(res["writeExhaustive"])
+        self.assertTrue(res["watchExhaustive"])
+        self.assertEqual([w["path"] for w in res["write"]], ["f.py"])
+        self.assertEqual([w["path"] for w in res["watch"]], ["g.py"])
+        self.assertIn("affected_file", res["watch"][0]["roles"])
+        self.assertEqual(res["observation"]["incomplete"], False)
+        self.assertNotIn("data", res)  # no wrapper
+
+    def test_include_tests_false_makes_incomplete_watch_not_exhaustive(self):
+        pack = _base_pack(["f.py"])
+        impact = _base_impact(["f.py"], incomplete=False, include_tests=False)
+        res = self.compose(pack, impact, include_tests=False)
+        self.assertEqual(res["status"], "incomplete")
+        self.assertFalse(res["watchExhaustive"])
+        self.assertIn("tests_not_requested", res["observation"].get("reasons", []))
+
+    def test_not_evaluated_rejects_with_exact_code(self):
+        pack = _base_pack()
+        impact = _base_impact(finding_state="not_evaluated", status="partial")
+        res = self.compose(pack, impact)
+        self.assertFalse(res.get("ok", True))
+        self.assertEqual(res["error"], "scope_impact_not_evaluated")
+        self.assertEqual(res["status"], "rejected")
+        self.assertNotIn("write", res)
+
+    def test_identity_mismatch_rejects(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        impact["projectId"] = "prj_other"
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_identity_mismatch")
+
+    def test_revision_mismatch_rejects(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        impact["revision"]["commitSha"] = "b" * 40
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_revision_mismatch")
+
+    def test_task_mismatch_rejects(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        # corrupt echo
+        pack["sections"]["task"]["items"][0]["title"] = ""
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_task_mismatch")
+
+    def test_path_set_mismatch_rejects(self):
+        pack = _base_pack(["a.py"])
+        impact = _base_impact(["b.py"])
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_path_set_mismatch")
+
+    def test_insufficient_targets_rejects(self):
+        pack = _base_pack([])
+        impact = _base_impact([])
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_insufficient_targets")
+
+    def test_no_evidence_found_complete_yields_watch_empty_exhaustive_true(self):
+        pack = _base_pack(["f.py"])
+        impact = _base_impact(["f.py"], finding_state="no_evidence_found", status="available", incomplete=False, include_tests=True, affected=[], cands=[])
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertEqual(res["status"], "available")
+        self.assertTrue(res["watchExhaustive"])
+        self.assertEqual(res["watch"], [])
+
+    def test_dirty_or_unavailable_rejects(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        pack["revision"]["dirty"] = True
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_revision_mismatch")
+
+    def test_composer_does_not_mutate_inputs(self):
+        pack = _base_pack(["f.py"])
+        impact = _base_impact(["f.py"])
+        pcopy = deepcopy(pack)
+        icopy = deepcopy(impact)
+        self.compose(pack, impact)
+        self.assertEqual(pack, pcopy)
+        self.assertEqual(impact, icopy)
+
+    def test_composer_rejects_on_schema_mismatch(self):
+        pack = _base_pack()
+        pack["analysisVersion"] = "task-context-v0"
+        impact = _base_impact()
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_input_rejected")
 
 
 if __name__ == "__main__":
