@@ -34,6 +34,48 @@ test("provider snapshots bind identity, revision and content without leaking fil
   assert.ok(Object.isFrozen(first.files));
 });
 
+test("provider snapshots accept canonical repository identity and project it to wire revision", async () => {
+  const { createProviderSnapshot } = await api();
+  const project = { projectId: "PrJ_A" };
+  const files = [{ path: "one.py", text: "class One: pass\n" }];
+  const canonical = createProviderSnapshot(project, files, { status: "available", repositoryIdentity: "Repo_One", commitSha: "a".repeat(40) });
+  const alias = createProviderSnapshot(project, files, { status: "available", repositoryId: "Repo_One", commitSha: "a".repeat(40) });
+  const dual = createProviderSnapshot(project, files, { status: "available", repositoryIdentity: "Repo_One", repositoryId: "Repo_One", commitSha: "a".repeat(40) });
+  assert.deepEqual(canonical.revision, alias.revision);
+  assert.deepEqual(dual.revision, alias.revision);
+  assert.equal(canonical.revision.repositoryId, "Repo_One");
+  assert.equal(Object.hasOwn(canonical.revision, "repositoryIdentity"), false);
+});
+
+test("provider snapshots reject contradictory or malformed repository identity aliases", async () => {
+  const { createProviderSnapshot } = await api();
+  const project = { projectId: "PrJ_A" };
+  const files = [{ path: "one.py", text: "class One: pass\n" }];
+  for (const revision of [
+    { repositoryIdentity: "Repo_One", repositoryId: "Repo_Two" },
+    { repositoryIdentity: null, repositoryId: "Repo_One" },
+    { repositoryIdentity: "Repo_One", repositoryId: null },
+    { repositoryIdentity: "/private/.git" },
+    { repositoryIdentity: "../repo" },
+    { repositoryIdentity: "" },
+    { repositoryIdentity: " repo" }
+  ]) {
+    assert.throws(() => createProviderSnapshot(project, files, { status: "available", ...revision }), { code: "invalid_analyzer_snapshot" });
+  }
+});
+
+test("provider snapshot tokens change with canonical repository identity but not not_git null identity", async () => {
+  const { createProviderSnapshot } = await api();
+  const project = { projectId: "PrJ_A" };
+  const files = [{ path: "one.py", text: "class One: pass\n" }];
+  const repoOne = createProviderSnapshot(project, files, { status: "available", repositoryIdentity: "Repo_One", commitSha: "a".repeat(40) });
+  const repoTwo = createProviderSnapshot(project, files, { status: "available", repositoryIdentity: "Repo_Two", commitSha: "a".repeat(40) });
+  assert.notEqual(repoOne.token, repoTwo.token);
+  const notGit = createProviderSnapshot(project, files, { status: "not_git" });
+  assert.equal(notGit.revision.repositoryId, null);
+  assert.deepEqual(notGit.revision, createProviderSnapshot(project, files, { status: "not_git", repositoryIdentity: undefined }).revision);
+});
+
 test("provider revision projection rejects internal metadata paths", async () => {
   const { createProviderSnapshot } = await api();
   for (const revision of [{ repositoryId: "/private/.git" }, { worktreeId: "C:\\private\\.git" }, { branch: "/private/.git/refs" }]) {

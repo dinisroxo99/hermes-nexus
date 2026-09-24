@@ -2,25 +2,38 @@
 
 ## Current checkpoint
 
+2026-09-24: Step 3 is historically accepted at
+`4d8d23e564e355d84916b93d890762ac0c7498ee`. Current adoption source baseline is
+`feat/nexus-profile-integration@10d1f348fd4c6ddbb5319d972c71b426e51e574a`.
+[DEV-ADOPTION-1](../../docs/hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption)
+approves the tracked Context/Impact plugin for six development profiles, including
+concurrent workers. G1 remains REJECTED; R1/R2 remain open/deferred, HIGH severity
+and LOW/non-blocking development priority. Nine legacy tools remain deferred.
+Publication, fleet adoption and final verified operational docs remain pending;
+**Step 4 is not initiated**. INFRA-1 is approved, implementation pending after
+candidate verification/publication; no service deployment is claimed.
+
+### Historical pre-acceptance MC10 checkpoint
+
 Branch:
 
-`feat/serena-external-provider`
+`feat/impact-v2`
 
-Latest implementation/test checkpoint:
+Latest implementation checkpoint (pending independent MC10 validation/acceptance):
 
-`adc92f5 fix: route Node.js projects to native JavaScript analyzer`
+`080b15c fix: avoid duplicate impact response writes`
 
-Node.js routing through the existing native TypeScript/JavaScript analyzer is
-complete. Node.js projects remain classified as `projectType: "nodejs"`, overview
-reports `supported: true`, and graph/search/context/expand use the existing
-JavaScript-capable analyzer. No separate Node.js analyzer/provider was introduced.
-Native .NET, TypeScript and optional Serena/Python behavior remains unchanged.
-Architecture review, testing and code review passed for this checkpoint.
-Node.js project classification is distinct from analyzer identity: `nodejs`
-projects resolve to the existing TypeScript/JavaScript analyzer, not a separate
-Node.js provider. Native analysis remains structural; CommonJS `require()`
-relationships are not fully modeled, and `.mjs`/`.cjs` coverage remains limited
-or unsupported where applicable.
+Impact v2 Step 3 now has the accepted pure single/multi-target composer, optional
+affected-test candidates, an observation-bound live project service, and a
+read-only `POST /api/intelligence/projects/:projectId/impact` operation. The live
+boundary resolves persisted identity/worktrees, excludes nested projects, uses
+the existing trusted single-provider policy, and reobserves sources, revision,
+project identity and exclusions before returning success. Domain compact-result
+bytes remain 64 KiB default / 128 KiB maximum; the complete compact HTTP success
+body has a separate fixed 160 KiB ceiling. This checkpoint is implemented and
+locally verified. The full suite reports 502 tests: 488 passed, 0 failed and 14
+skipped opt-in real Docker/Serena cases. It is not yet an independent acceptance
+record.
 
 Previous Serena/Python implementation/test checkpoint:
 
@@ -28,7 +41,8 @@ Previous Serena/Python implementation/test checkpoint:
 
 Optional Serena/Python integration: **COMPLETE**, disabled by default until a
 trusted immutable local image is configured. This checkpoint's documentation
-update records its canonical contract. Step 3 / Impact v2 remains **NOT STARTED**.
+update records its canonical contract. It is historical context for the later
+Impact v2 work above.
 
 Previous Serena/Python final verification:
 
@@ -172,6 +186,10 @@ Step 1 final verification (at `f8adc7c`):
   for Python, through a fixed offline snapshot-only Docker worker
 - observed mounted-source binding, explicit transport failure/fallback reasons,
   real sandbox conformance and default-off trusted image configuration
+- Impact v2 pure bounded single/multi-target reverse-impact evidence
+- optional affected-test candidates with retained per-origin witnesses
+- live persisted-project/worktree Impact observation and fail-closed reobservation
+- read-only project-ID Impact HTTP endpoint with independent domain/transport caps
 
 ## Architecture boundary
 
@@ -353,18 +371,50 @@ Build/enablement guide: `docker/serena-python/README.md`.
 
 ## Current development frontier
 
-### Step 3 — Impact v2
+<a id="step-3--impact-v2-implemented-pending-independent-mc10-acceptance"></a>
 
-Next implementation frontier. **NOT STARTED.** Requires separate authorization.
+### Step 3 — Impact v2: ACCEPTED
 
-Implement incrementally:
+Accepted historical revision: `4d8d23e564e355d84916b93d890762ac0c7498ee`.
+The former pending-MC10 status above is retained as historical evidence.
+
+The bounded file/multi-file traversal, project composer, optional affected-test
+candidates, live service and HTTP operation are implemented on `feat/impact-v2`.
+Impact v2 remains separate from legacy exploration impact. Results are
+revision/worktree-bound evidence only, never authorization or effective scope.
+The canonical contract is documented in
+`docs/project-intelligence/06_SCOPE_IMPACT_CONFLICTS.md`.
+
+Approved foundation constraints:
+
+- statuses: `available`, `partial`, `unsupported`, `unavailable` and
+  `not_requested` for optional sections;
+- per-evidence outcomes: `evidence_found`, `no_evidence_found`, `not_evaluated`,
+  where `no_evidence_found` is not proof of safety or no impact;
+- completeness dimensions: source, provider, traversal and output;
+- evidence basis: semantic, structural, heuristic or unknown;
+- one selected provider graph per result; no cross-provider federation;
+- optional Serena/Python references can be conservative evidence, but definitions
+  are not dependency edges and `<module>` reference owners are not proven callers;
+- traversal depth default `2`, maximum `5`; depth `0` does not expand neighbors;
+- multi-target results require a witness for every retained origin;
+- affected tests are candidates, not coverage guarantees;
+- no LLM, persistent Impact cache, telemetry, Project Expert, Git-diff impact,
+  Effective Scope, Conflict Engine or Guard in this foundation slice.
+
+Implemented incrementally:
 
 1. file impact
 2. multi-file impact
 3. affected tests
-4. git diff impact later
+4. live project service and bounded HTTP operation
+
+Git-diff impact remains deferred. Step 4 is not authorized by this checkpoint.
 
 ### Step 4 — Effective Task Scope
+
+**NOT INITIATED.** Complete publication, approved profile adoption and verified
+operational documentation first; the following remains target work.
 
 Derive:
 

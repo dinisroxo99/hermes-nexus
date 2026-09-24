@@ -10,7 +10,42 @@ This document distinguishes repository-verified checkpoints from the original
 conversation-derived snapshot. Before editing production code, verify the
 repository again; the tracked active plan remains the implementation authority.
 
-## Repository-verified Step 2 checkpoint
+## Current adoption checkpoint — 2026-09-24
+
+Step 3 is historically accepted at `4d8d23e564e355d84916b93d890762ac0c7498ee`.
+The adoption source baseline is
+`feat/nexus-profile-integration@10d1f348fd4c6ddbb5319d972c71b426e51e574a`, with
+tracked `project_task_context` and `project_impact` tools. See
+[DEV-ADOPTION-1](../hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption)
+for the approved six-profile development scope, legacy deferral, configuration
+and rollback. G1 remains REJECTED and R1/R2 open/deferred; the current HIGH
+severity / LOW non-blocking disposition is not a lifecycle fix. Publication,
+fleet adoption and final verified operational docs remain pending. INFRA-1 is
+approved, implementation pending after candidate verification/publication, not
+deployed. **Step 4 is not initiated.**
+
+<a id="repository-verified-impact-v2-implementation-checkpoint"></a>
+
+## Historical pre-acceptance Impact v2 implementation checkpoint
+
+On branch `feat/impact-v2`, implementation checkpoint `f238349` adds the live
+read-only `POST /api/intelligence/projects/:projectId/impact` operation after the
+accepted pure Impact v2 composer. It resolves persisted project/worktree identity,
+collects bounded authorized sources, uses the existing native-first optional-
+provider policy, composes once, and rechecks sources, safe revision, resolved
+identity and nested-project exclusions before success. It does not persist Impact
+results or reuse a cache.
+
+The accepted domain budget remains 65,536 bytes by default and 131,072 bytes
+maximum for compact `ImpactResult`. The compact HTTP success envelope is measured
+separately and capped at 163,840 UTF-8 bytes; response overflow fails closed with
+HTTP 500 / `impact_response_too_large`, without retrimming the domain result.
+Request bodies remain capped at 65,536 observed bytes. At that historical
+checkpoint, independent MC10 validation and acceptance were pending. It did not
+claim Step 4, Git-diff impact, Effective Scope, conflicts or Hermes integration;
+the later accepted/adoption status is recorded above.
+
+## Historical repository-verified Step 2 checkpoint
 
 Subsequent Step 2.5 adds the AnalyzerProvider abstraction, native adapters,
 deterministic capability/coverage/fallback reporting and a data-only external
@@ -23,8 +58,8 @@ Serena/Pyright semantic symbols, definitions and references for Python, verified
 with real containers; no runtime network or persistent project index. It does
 not change identity/revision semantics or start Step 3. See
 `19_ANALYZER_PROVIDER_LAYER.md` and the tracked active
-plan for the latest verification checkpoint. The Step 2 record below is retained
-as historical evidence; Impact v2 is still not started.
+plan for the latest provider verification checkpoint. The Step 2 record below is
+retained as historical evidence; it is not the current Impact v2 status.
 
 At `93e2dd3 test: verify task context isolation and bounded output`:
 
@@ -38,10 +73,10 @@ At `93e2dd3 test: verify task context isolation and bounded output`:
 - No dependency, persistent Context Pack cache, registry migration, Hermes
   runtime implementation or later phase was introduced.
 
-See `04_ICM_AND_CONTEXT_PACK.md` for the exact contract, provenance, bounded
-retrieval, Linux/WSL descriptor requirement and limitations. Step 3 is not
-started. Historical foundation records below are retained as historical evidence,
-not as the latest source/test checkpoint.
+See `04_ICM_AND_CONTEXT_PACK.md` for the exact Context Pack contract, provenance,
+bounded retrieval, Linux/WSL descriptor requirement and limitations. Historical
+foundation records below are retained as historical evidence, not as the latest
+source/test checkpoint.
 
 ## Repository
 

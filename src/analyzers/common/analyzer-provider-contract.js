@@ -39,13 +39,28 @@ export function detectSnapshotLanguages(sourceFiles) {
   return [...new Set(normalizeContextSources(sourceFiles).map((file) => LANGUAGES[path.posix.extname(file.path).toLowerCase()]).filter(Boolean))].sort();
 }
 
+export function isValidSnapshotSourcePosition(source, line, column) {
+  if (!providerRecord(source) || typeof source.text !== "string"
+    || !Number.isSafeInteger(line) || !Number.isSafeInteger(column)) return false;
+  const lines = source.text.split(/\r?\n/);
+  return line >= 1 && line <= lines.length && column >= 1 && column <= lines[line - 1].length + 1;
+}
+
 export function createProviderSnapshot(project, sourceFiles, revision = {}) {
   const projectId = project.projectId ?? null;
   if (projectId !== null) validateProjectId(projectId);
   if (!providerRecord(revision)) throw providerError("invalid_analyzer_snapshot");
   const safeRevision = {};
+  const hasRepositoryIdentity = Object.hasOwn(revision, "repositoryIdentity") && revision.repositoryIdentity !== undefined;
+  const hasRepositoryId = Object.hasOwn(revision, "repositoryId") && revision.repositoryId !== undefined;
+  if (hasRepositoryIdentity && hasRepositoryId && revision.repositoryIdentity !== revision.repositoryId) throw providerError("invalid_analyzer_snapshot");
+  const repositoryId = hasRepositoryIdentity ? revision.repositoryIdentity : hasRepositoryId ? revision.repositoryId : null;
+  if (repositoryId !== null) {
+    try { validateProjectId(repositoryId); }
+    catch { throw providerError("invalid_analyzer_snapshot"); }
+  }
   for (const key of ["status", "commitSha", "branch", "repositoryId", "worktreeId"]) {
-    const value = revision[key] ?? null;
+    const value = key === "repositoryId" ? repositoryId : revision[key] ?? null;
     if (value !== null && (typeof value !== "string" || value.length > 512 || /[\u0000-\u001f\u007f]/.test(value))) throw providerError("invalid_analyzer_snapshot");
     if (value !== null && ((["repositoryId", "worktreeId"].includes(key) && !/^[A-Za-z0-9_-]{1,128}$/.test(value))
       || (key === "branch" && /^(?:[A-Za-z]:|[\\/])/.test(value))

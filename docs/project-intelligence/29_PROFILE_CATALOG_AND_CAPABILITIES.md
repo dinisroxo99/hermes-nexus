@@ -6,6 +6,12 @@
 
 Status: **PLANNED RUNTIME CONFIGURATION**
 
+This target capability model is not the current installation inventory.
+[DEV-ADOPTION-1](../hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption)
+approves two-tool adoption for orchestrator, architect, implementer, tester,
+reviewer and documenter only; default/workspace-manager are excluded and fleet
+installation/verification remain pending. See [per-role use](../hermes-tool-integration.md#role-specific-use-and-fallback).
+
 ## Boundary
 
 Profiles belong to Hermes.

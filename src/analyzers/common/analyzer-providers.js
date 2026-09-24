@@ -1,6 +1,6 @@
 import { getAnalyzer, listAnalyzerProviders } from "./analyzer-registry.js";
 import { ANALYZER_OPERATIONS, PROVIDER_LIMITS, createProviderSnapshot, providerError, isAnalyzerSymbolLabel } from "./analyzer-provider-contract.js";
-import { contextDigest, compareContextStrings as compare } from "../../lib/project-context-files.js";
+import { contextDigest } from "../../lib/project-context-files.js";
 import { readExternalSnapshotResponse } from "../external/snapshot-provider.js";
 import { SERENA_PROVIDER } from "../external/serena-provider.js";
 import { runSerenaSnapshot } from "../external/serena-transport.js";
@@ -10,7 +10,7 @@ function nativeEvidence(provider, snapshot, limits) {
   const analyzer = getAnalyzer(projectType);
   if (!analyzer) return null;
   const project = { name: "snapshot", absolutePath: "/__project_context__" };
-  const opts = { ...limits, sourceFiles: snapshot.files };
+  const opts = { nodeLimit: limits.nodeLimit, edgeLimit: limits.edgeLimit, sourceFiles: snapshot.files };
   const raw = analyzer.fullGraph ? analyzer.fullGraph(project, opts) : analyzer.analyze(project, opts);
   if (raw.success === false) return null;
   const files = new Set(snapshot.files.map((file) => file.path));
@@ -23,11 +23,19 @@ function nativeEvidence(provider, snapshot, limits) {
       const id = `symbol_${contextDigest(JSON.stringify([snapshot.projectId, provider.id, node.id]))}`;
       ids.set(node.id, id);
       return { id, label: node.label, file: node.file, kind: ["class", "function", "hook", "interface", "type", "record", "struct", "enum", "component"].includes(node.kind) ? node.kind : "symbol", line: null };
-    }).sort((a, b) => compare(a.file, b.file) || compare(a.id, b.id));
-  const edges = (raw.edges || []).filter((edge) => ids.has(edge.from) && ids.has(edge.to)).map((edge) => ({ from: ids.get(edge.from), to: ids.get(edge.to), relation: ["uses", "imports", "references"].includes(edge.relation) ? edge.relation : "references" }))
-    .sort((a, b) => compare(JSON.stringify(a), JSON.stringify(b)));
+    });
+  const edgeKeys = new Set();
+  const edges = [];
+  for (const edge of raw.edges || []) {
+    if (!ids.has(edge.from) || !ids.has(edge.to)) continue;
+    const normalized = { from: ids.get(edge.from), to: ids.get(edge.to), relation: ["uses", "imports", "references"].includes(edge.relation) ? edge.relation : "references" };
+    const key = JSON.stringify(normalized);
+    if (edgeKeys.has(key)) continue;
+    edgeKeys.add(key);
+    edges.push(normalized);
+  }
   return { projectType, nodes, edges, definitions: [], implementations: [], diagnostics: [],
-    limited: Boolean(raw.limited || raw.metadata?.totalSymbols > limits.nodeLimit || raw.metadata?.totalEdges > limits.edgeLimit || nodes.length < (raw.nodes || []).length) };
+    limited: Boolean(raw.limited || nodes.length < (raw.nodes || []).length) };
 }
 
 export function analyzeProviderSnapshot(project, sourceFiles, options = {}) {

@@ -74,6 +74,9 @@ then defaults. Check for existing overrides if changing `.env` has no effect.
 `PROJECTS_ROOT_CONTAINER` overrides the single-root runtime location. `PORT` is
 different: local `npm start` reads it from the process environment, not `.env`;
 Compose uses `.env`'s `PORT` for the host port mapping. The default is `8770`.
+Local `npm start` also reads `HOST` from the process environment. When it is
+absent, the server preserves the existing `0.0.0.0` bind; an explicitly empty or
+whitespace-only value is rejected instead of falling back to that wildcard.
 
 For multiple roots, `PROJECTS_ROOTS` must be a JSON array, for example:
 
@@ -160,6 +163,12 @@ npm ci
 npm start
 ```
 
+To bind a local Node.js service only to IPv4 loopback, set the address explicitly:
+
+```bash
+HOST=127.0.0.1 PORT=8770 npm start
+```
+
 Or, for the supplied single-root Docker setup:
 
 ```bash
@@ -181,7 +190,8 @@ in `POST /api/intelligence/projects/:projectId/task-context`; the request body
 requires a task such as `{"task":{"title":"Inspect this project"}}`.
 See the [Task Context Pack reference](./SERVICE_REFERENCE.md#task-context-pack)
 for its read-only contract and source-retrieval limitations. The server binds
-to all interfaces by default; use a trusted local network.
+to all interfaces by default; use a trusted local network, or set
+`HOST=127.0.0.1` when the listener must remain local to the host.
 
 ## How it works
 

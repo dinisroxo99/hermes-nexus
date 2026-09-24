@@ -1,6 +1,6 @@
 import path from "node:path";
 import { getProjectCacheIdentity } from "./project-revision.js";
-import { normalizeContextSources } from "./project-context-files.js";
+import { compareContextStrings, normalizeContextSources } from "./project-context-files.js";
 import { inferFeatureFromSymbol, inferLayerFromProjectName } from "./project-structure.js";
 import { findFiles, normalizePath, readText, relative } from "../utils/fs-utils.js";
 
@@ -677,7 +677,8 @@ export function getFullGraphExplorer(project, options = {}) {
     features = []
   } = options;
 
-  const index = options.sourceFiles === undefined ? getSymbolIndex(project) : createSymbolIndex(project, options.sourceFiles);
+  const snapshot = options.sourceFiles !== undefined;
+  const index = snapshot ? createSymbolIndex(project, options.sourceFiles) : getSymbolIndex(project);
   const layerFilter = new Set(layers.filter(Boolean));
   const featureFilter = new Set(features.filter(Boolean));
   const allowedSymbols = index.symbols.filter((symbol) => {
@@ -693,6 +694,7 @@ export function getFullGraphExplorer(project, options = {}) {
     const aPriority = CATEGORY_PRIORITY[a.category] ?? 99;
     const bPriority = CATEGORY_PRIORITY[b.category] ?? 99;
     if (aPriority !== bPriority) return aPriority - bPriority;
+    if (snapshot) return compareSnapshotNodes(a, b);
     return a.label.localeCompare(b.label);
   });
 
@@ -715,7 +717,8 @@ export function getFullGraphExplorer(project, options = {}) {
   allEdges.sort((a, b) => {
     const aScore = scoreEdge(a);
     const bScore = scoreEdge(b);
-    return aScore - bScore;
+    if (aScore !== bScore) return aScore - bScore;
+    return snapshot ? compareSnapshotEdges(a, b) : 0;
   });
 
   const includedNodeIds = new Set();
@@ -764,4 +767,18 @@ export function getFullGraphExplorer(project, options = {}) {
       ? `Grafo limitado a ${includedNodes.length} nós e ${limitedEdges.length} arestas (original: ${allNodes.length} nós, ${allEdges.length} arestas). Aumente os limites se necessário.`
       : `Grafo completo: ${includedNodes.length} nós, ${limitedEdges.length} arestas.`
   };
+}
+
+function compareSnapshotNodes(a, b) {
+  return compareContextStrings(a.file, b.file)
+    || compareContextStrings(a.label, b.label)
+    || compareContextStrings(a.kind, b.kind)
+    || compareContextStrings(a.id, b.id);
+}
+
+function compareSnapshotEdges(a, b) {
+  return compareContextStrings(a.from, b.from)
+    || compareContextStrings(a.to, b.to)
+    || compareContextStrings(a.relation, b.relation)
+    || compareContextStrings(a.id, b.id);
 }

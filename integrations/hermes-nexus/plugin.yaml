@@ -1,0 +1,13 @@
+name: hermes-nexus
+version: 0.1.0
+description: Read-only architect pilot tools for bounded Hermes Nexus task context and impact evidence.
+author: hermes-nexus
+kind: standalone
+provides_tools:
+  - project_task_context
+  - project_impact
+config_schema:
+  base_url:
+    type: str
+    required: true
+    description: Explicit local Nexus URL, for example http://127.0.0.1:8770.

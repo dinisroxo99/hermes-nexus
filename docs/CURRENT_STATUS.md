@@ -7,6 +7,34 @@
 This is a linked public summary of the implementation checkpoint, not a separate
 implementation plan or a live view of another checkout.
 
+Current source baseline (2026-09-24):
+`feat/nexus-profile-integration@10d1f348fd4c6ddbb5319d972c71b426e51e574a`.
+Step 3 was independently accepted at historical SHA
+`4d8d23e564e355d84916b93d890762ac0c7498ee`, an ancestor of this candidate.
+**Steps 1, 2, 2.5 and 3 are complete. Step 4 is NOT INITIATED.**
+
+The tracked `hermes-nexus` plugin delivers `project_task_context` and
+`project_impact` in `project_intelligence`.
+[DEV-ADOPTION-1](hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption)
+approves normal development adoption, including concurrent workers, for
+orchestrator, architect, implementer, tester, reviewer and documenter; default
+and workspace-manager are excluded. Publication and six-profile adoption remain
+pending, followed by final verified operational documentation before Step 4.
+Nine legacy tools remain deferred, not a blocker for the two-tool path.
+**G1 remains REJECTED; R1/R2 remain OPEN / DEFERRED**, HIGH severity and
+LOW/non-blocking development priority, with original R2 MEDIUM retained in
+[known issues](KNOWN_ISSUES.md). This is not production readiness or a lifecycle fix.
+
+[INFRA-1](hermes-plugin-installation.md#infra-1--approved-implementation-pending)
+is **approved, implementation pending** after candidate verification/publication,
+not deployed. The old PMW expired at `2026-09-24T11:16:43+01:00`; no extension,
+shutdown or live-state check is demonstrated. Current approval is not liveness.
+
+### Historical Serena/mainline consolidation evidence
+
+The following pins and test counts describe that earlier integration, not the
+current branch or a new test run:
+
 - Repository: `dinisroxo99/hermes-nexus`.
 - Consolidation branch: `integration/serena-main-baseline`.
 - Exact mainline base revision: **`ba2ea1df6188a6026afc29a8f457ede105344dcd`**
@@ -17,8 +45,8 @@ implementation plan or a live view of another checkout.
   read with current source and the detailed contracts linked below.
 - Documentation is refreshed on the same branch for that implementation revision.
 
-**Steps 1, 2 and 2.5 are COMPLETE. Step 3 — Impact v2 is NEXT and NOT STARTED.**
-The optional Serena/Python continuation is also complete and remains opt-in.
+At that consolidation checkpoint, Steps 1, 2 and 2.5 were complete and Step 3
+had not started. The optional Serena/Python continuation remains opt-in.
 
 The Node.js routing fix has passed architecture review, testing and code review.
 The previous Serena/Python implementation checkpoint reports **338 tests passed, 0 failed, 0 skipped**
@@ -27,8 +55,8 @@ tests also pass with no skips. `npm run check`, syntax checks of 14 changed JS
 and 2 Python files, and `git diff --check` pass. Final independent re-review found
 no remaining concrete security/logic blockers (29 targeted tests independently passed).
 That is the implementation verification record, not a claim that every command
-was rerun by a reader of this page. Older test counts and historical snapshots
-are not the current baseline.
+was rerun by a reader of this page. Those test counts are historical, not a new
+candidate verification or plugin lifecycle acceptance.
 
 ## Implemented
 
@@ -39,6 +67,8 @@ are not the current baseline.
 | Step 2 — Task Context Pack | Bounded, project/revision-scoped composition of task, ICM, files, symbols, direct references and heuristic tests, with provenance and omission indicators. Deterministic selection, not a repository prompt dump or arbitrary LLM summary. Read-only; no persistent pack cache. | [Context Pack contract](project-intelligence/04_ICM_AND_CONTEXT_PACK.md), [builder](../src/lib/task-context.js), [HTTP tests](../tests/task-context-routes.test.js) |
 | Step 2.5 — Analyzer Provider Layer | Normalized contract and native adapters; deterministic selection/fallback; provider/version/capability/language metadata; bounded snapshot-scoped external evidence validation; polyglot symbol-name normalization. Node.js projects remain classified as `nodejs` while resolving to the existing JavaScript-capable native TypeScript analyzer. Task Context Pack consumes normalized providers and exposes partial/not_analyzed coverage. | [Provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md), [provider selection](../src/analyzers/common/analyzer-providers.js), [data validator](../src/analyzers/external/snapshot-provider.js), [pack/provider tests](../tests/task-context-providers.test.js), [Node.js routing tests](../tests/nodejs-analyzer-routing.test.js) |
 | Existing graph impact | Bounded node-based impact, symbol context and graph insights. This is not Step 3 Impact v2. | [Graph intelligence](../src/lib/graph-intelligence.js), [analyzer service tests](../tests/analyzer-service.test.js) |
+| Step 3 — Impact v2 | Bounded file/multi-file reverse-impact evidence and optional affected-test candidates, resolved against persisted project/worktree/revision, with reobservation and independent output caps. | [Impact contract](project-intelligence/06_SCOPE_IMPACT_CONFLICTS.md), [HTTP route](../src/routes/project-impact.routes.js), [service tests](../tests/project-impact-service.test.js) |
+| Hermes thin plugin | Exactly two tracked read-only tools; approved development adoption pending, not automatic installation or Guard. | [Usage contract](hermes-tool-integration.md#dev-adoption-1--two-tool-usage-contract), [open limitations](KNOWN_ISSUES.md) |
 | Optional Serena/Python | Real semantic symbols, definitions and references through a pinned offline snapshot-only Docker worker; mounted-source binding, strict validation, bounded cleanup and explicit fallback. | [Runtime guide](../docker/serena-python/README.md), [provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md), [real semantic tests](../tests/serena-python-docker.test.js), [real sandbox tests](../tests/serena-sandbox-docker.test.js) |
 
 ### Current intelligence endpoints
@@ -50,6 +80,7 @@ GET  /api/intelligence/discover
 POST /api/intelligence/discover/register
 GET  /api/intelligence/projects/:name/overview
 POST /api/intelligence/projects/:projectId/task-context
+POST /api/intelligence/projects/:projectId/impact
 ```
 
 Registration is state-changing and disabled by default. The task-context POST
@@ -105,12 +136,12 @@ See [the full matrix](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md#languag
 
 Following the [active implementation plan](../.hermes/plans/2026-09-17_002050-project-intelligence-service-active.md):
 
-**Impact v2 (next, not started)** → Effective Task Scope → Conflict Engine →
+**Effective Task Scope (Step 4, not initiated)** → Conflict Engine →
 Hermes Guard integration → Telemetry / validated project history → Project Expert
 → Learning / evaluation.
 
-Existing context selection is not Impact v2; workspace matching is not effective
-scope or conflict analysis. Hermes retains profiles, agents, models/providers,
+Context selection and the now separate Impact v2 operation are distinct;
+workspace matching is not effective scope or conflict analysis. Hermes retains profiles, agents, models/providers,
 Kanban/task lifecycle, workers, sessions, worktrees and retries. These are not
 features to reimplement inside this service. Project-specific training/adapters
 remain deferred; current code facts should be retrieved.

@@ -4,7 +4,8 @@
 > Companion review: `reviews/20_API_MCP_CONTRACTS_ROUNDTABLE.md`
 
 
-Status: **PLANNED**
+Status: **MIXED** — most semantic tools/MCP adapters remain planned; the bounded
+Impact v2 HTTP operation described below is implemented.
 
 ## Principle
 
@@ -50,6 +51,26 @@ direct/transitive blast radius
 affected tests
 evidence
 ```
+
+Implemented HTTP surface:
+
+```text
+POST /api/intelligence/projects/:projectId/impact
+```
+
+This read-only adapter accepts only bounded target paths, an optional verified
+worktree locator, `includeTests`, and existing Impact limits. The service resolves
+persisted identity, observes authorized sources, uses the trusted native-first
+single-provider layer, composes one accepted Impact v2 result, and reobserves
+sources/revision/project boundaries before success. It returns the unchanged
+domain result in the existing success envelope. Request bytes (65,536), compact
+domain bytes (65,536 default / 131,072 maximum), and compact complete HTTP success
+bytes (163,840) are separate limits. See `06_SCOPE_IMPACT_CONFLICTS.md` for exact
+identity, trust, status, completeness, race, error and limitation semantics.
+
+No MCP `project_impact` tool, Hermes plugin/profile integration, generic DTO
+replacement, Git-diff impact, Effective Scope or conflict operation is implemented
+by this HTTP checkpoint.
 
 ### `project_insights`
 
