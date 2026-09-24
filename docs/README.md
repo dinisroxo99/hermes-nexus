@@ -18,9 +18,15 @@ Revision, Task Context Pack, Analyzer Provider Layer and accepted Step 3 Impact 
 plus optional sandboxed Serena/Python semantic analysis. Step 4 is **NOT INITIATED**;
 scope/conflicts, runtime guard integration and project knowledge remain planned.
 [DEV-ADOPTION-1](hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption)
-approves two-tool development adoption, with publication/six-profile installation
-still pending and G1/R1/R2 limitations retained. INFRA-1 is approved, implementation
-pending after candidate verification/publication; no deployed service is claimed.
+approves two-tool development adoption. The
+[dated INFRA-1 record](hermes-plugin-installation.md#infra-1--current-operation-accepted-boot-unverified)
+distinguishes reconciled publication and accepted six-profile H-only offline
+adoption from current service operation accepted on 2026-09-24. A subsequent
+operator decision on that date accepts **INFRA-1 with the WSL restart test waived
+as an acceptance condition in this phase**. Boot after WSL restart remains
+untested, not a technical PASS; its missing proof no longer blocks acceptance.
+Rollback was not exercised or proved available; G1/R1/R2 limitations remain
+unchanged. This acceptance is not full technical validation or Step 4 authorization.
 
 ## Setup and service guides
 
