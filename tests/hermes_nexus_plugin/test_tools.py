@@ -783,6 +783,90 @@ class EffectiveTaskScopeComposerTests(unittest.TestCase):
         res = self.compose(pack, impact)
         self.assertEqual(res["error"], "scope_revision_mismatch")
 
+    # --- exact reproductions for ETS4-F1..F5 (both-sides bad values; alias intra-pack; dual roles) ---
+
+    def test_dirty_true_both_sides_rejects_F1(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        pack["revision"]["dirty"] = True
+        impact["revision"]["dirty"] = True
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_revision_mismatch")
+        self.assertFalse(res.get("ok", True))
+        self.assertNotIn("write", res)
+        self.assertEqual(res["status"], "rejected")
+
+    def test_islinked_false_both_sides_rejects_F2(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        pack["revision"]["isLinkedWorktree"] = False
+        impact["revision"]["isLinkedWorktree"] = False
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_revision_mismatch")
+        self.assertFalse(res.get("ok", True))
+        self.assertNotIn("write", res)
+
+    def test_revision_status_partial_both_sides_rejects_F3(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        pack["revision"]["status"] = "partial"
+        impact["revision"]["status"] = "partial"
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_revision_mismatch")
+        self.assertFalse(res.get("ok", True))
+        self.assertNotIn("write", res)
+
+    def test_alias_mismatch_within_pack_rejects_F4(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        pack["revision"]["repositoryIdentity"] = HEX64
+        pack["revision"]["repositoryId"] = "f" + "a" * 63  # alias differs from canonical
+        impact["revision"]["repositoryId"] = HEX64
+        if "repositoryIdentity" in impact.get("revision", {}):
+            del impact["revision"]["repositoryIdentity"]
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_identity_mismatch")
+        self.assertFalse(res.get("ok", True))
+        self.assertNotIn("write", res)
+
+    def test_dual_roles_for_path_in_affected_and_candidates_F5(self):
+        pack = _base_pack(["f.py"])
+        affected_item_g = {
+            "path": "g.py",
+            "origins": [{"originPath": "f.py", "minimumDistance": 1, "witness": {"id": "w1", "relationshipKind": "imports", "trust": "derived", "basis": "static"}}],
+            "originSummary": {"attributionTruncated": False, "reasons": []},
+        }
+        affected_item_h = {
+            "path": "h.py",
+            "origins": [{"originPath": "f.py", "minimumDistance": 2, "witness": {"id": "w2", "relationshipKind": "imports", "trust": "derived", "basis": "static"}}],
+            "originSummary": {"attributionTruncated": False, "reasons": []},
+        }
+        cand_item_h = {
+            "path": "h.py",
+            "origins": [{"originPath": "f.py", "minimumDistance": 5, "witness": {"id": "w3", "relationshipKind": "test-import", "trust": "derived", "basis": "static"}}],
+            "originSummary": {"attributionTruncated": False, "reasons": []},
+        }
+        impact = _base_impact(
+            ["f.py"],
+            affected=[affected_item_g, affected_item_h],
+            cands=[cand_item_h],
+            include_tests=True,
+        )
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertEqual(res["status"], "available")
+        watch = res["watch"]
+        watch_paths = [w["path"] for w in watch]
+        self.assertIn("g.py", watch_paths)
+        self.assertIn("h.py", watch_paths)
+        h_entries = [w for w in watch if w["path"] == "h.py"]
+        self.assertEqual(len(h_entries), 1)
+        h_entry = h_entries[0]
+        self.assertIn("affected_file", h_entry["roles"])
+        self.assertIn("affected_test_candidate", h_entry["roles"])
+        self.assertEqual(sorted(h_entry["roles"]), ["affected_file", "affected_test_candidate"])
+        # appears once
+        self.assertEqual(watch_paths.count("h.py"), 1)
+
     def test_composer_does_not_mutate_inputs(self):
         pack = _base_pack(["f.py"])
         impact = _base_impact(["f.py"])

@@ -136,10 +136,28 @@ def compose_effective_task_scope(
     i_wtid = ir.get("worktreeId")
     if p_wtid and i_wtid and p_wtid != i_wtid:
         return _fail("scope_revision_mismatch", "worktreeId mismatch")
-    p_repo = pr.get("repositoryIdentity") or pr.get("repositoryId")
-    i_repo = ir.get("repositoryId") or ir.get("repositoryIdentity")
+
+    # value gates (fail-closed even when pack/impact agree on bad value): ETS4-F1,F2,F3
+    if pr.get("dirty") is not False:
+        return _fail("scope_revision_mismatch", "revision.dirty must be false")
+    if pr.get("isLinkedWorktree") is not True:
+        return _fail("scope_revision_mismatch", "revision.isLinkedWorktree must be true")
+    if pr.get("status") != "available":
+        return _fail("scope_revision_mismatch", "revision.status must be available")
+
+    # repository identity/alias (do not rename wire fields; alias must match its canonical if present): ETS4-F4
+    p_identity = pr.get("repositoryIdentity")
+    p_alias = pr.get("repositoryId")
+    i_identity = ir.get("repositoryId")
+    i_alias = ir.get("repositoryIdentity")
+    p_repo = p_identity or p_alias
+    i_repo = i_identity or i_alias
     if p_repo != i_repo:
         return _fail("scope_identity_mismatch", "repositoryIdentity / repositoryId mismatch")
+    if p_alias is not None and p_identity is not None and p_alias != p_identity:
+        return _fail("scope_identity_mismatch", "pack alias repositoryId must equal its repositoryIdentity")
+    if i_alias is not None and i_identity is not None and i_alias != i_identity:
+        return _fail("scope_identity_mismatch", "impact alias repositoryIdentity must equal its repositoryId")
 
     # task echo from pack (sections.task.items[0])
     try:
@@ -186,25 +204,32 @@ def compose_effective_task_scope(
     write = [{"path": p, "source": "explicit_task_path"} for p in write_paths]
     write_set = set(write_paths)
 
-    # WATCH = retained impact evidence minus WRITE paths; dedup; order affected then new cands
-    watch: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    # WATCH: path once; dual roles when in both affectedFiles + candidates (ETS4-F5)
+    # roles subset of affected_file + affected_test_candidate
+    watch_by_path: dict[str, dict[str, Any]] = {}
     for item in (impact_data.get("affectedFiles") or []):
         if not isinstance(item, dict):
             continue
         p = item.get("path")
-        if p and p not in write_set and p not in seen:
-            seen.add(p)
-            watch.append(_make_watch_entry(item, ["affected_file"]))
+        if p and p not in write_set:
+            if p not in watch_by_path:
+                watch_by_path[p] = _make_watch_entry(item, ["affected_file"])
 
     if include_tests:
         for item in (at.get("candidates") or []):
             if not isinstance(item, dict):
                 continue
             p = item.get("path")
-            if p and p not in write_set and p not in seen:
-                seen.add(p)
-                watch.append(_make_watch_entry(item, ["affected_test_candidate"]))
+            if p and p not in write_set:
+                if p in watch_by_path:
+                    # dual role path: extend roles (once)
+                    entry = watch_by_path[p]
+                    if "affected_test_candidate" not in entry.get("roles", []):
+                        entry["roles"] = list(entry["roles"]) + ["affected_test_candidate"]
+                else:
+                    watch_by_path[p] = _make_watch_entry(item, ["affected_test_candidate"])
+
+    watch: list[dict[str, Any]] = list(watch_by_path.values())
 
     # classify available vs incomplete (contract rules)
     pack_obs = pack_data.get("observation") or {}
