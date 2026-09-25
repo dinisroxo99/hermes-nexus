@@ -7,6 +7,8 @@
 This is a linked public summary of the implementation checkpoint, not a separate
 implementation plan or a live view of another checkout.
 
+The documentation gate lives in the orchestrator and reviewer SOUL.
+
 Current source baseline (2026-09-25):
 `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776` (plugin/caller pin; tree
 `8e97d59c406e9a1e195fcff4213c941d4f07f5de`; merge of the gated ETS caller).
