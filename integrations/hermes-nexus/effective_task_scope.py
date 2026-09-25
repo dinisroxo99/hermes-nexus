@@ -248,8 +248,8 @@ def compose_effective_task_scope(
     pack_obs = pack_data.get("observation") or {}
     impact_obs = impact_data.get("observation") or {}
     impact_comp = impact_data.get("completeness") or {}
-    pack_incomplete = bool(pack_obs.get("incomplete")) if pack_obs_present else True
-    impact_incomplete = bool(impact_obs.get("incomplete")) if impact_obs_present else True
+    pack_incomplete = (not pack_obs_present) or (pack_obs.get("incomplete") is not False)
+    impact_incomplete = (not impact_obs_present) or (impact_obs.get("incomplete") is not False)
     impact_status = impact_data.get("status")
     impact_fs = impact_data.get("findingState")
 
@@ -263,8 +263,19 @@ def compose_effective_task_scope(
         if not at_present:
             tests_incomplete = True
         else:
-            at_comp = at.get("completeness") or {}
-            tests_incomplete = bool(at_comp.get("source") or at_comp.get("provider") or at_comp.get("traversal") or at_comp.get("output"))
+            at_status = at.get("status")
+            at_fs = at.get("findingState")
+            at_comp = at.get("completeness")
+            at_comp_present = isinstance(at_comp, dict)
+            if at_status != "available" or at_fs not in ("evidence_found", "no_evidence_found") or not at_comp_present:
+                tests_incomplete = True
+            else:
+                at_comp = at_comp or {}
+                tests_incomplete = bool(at_comp.get("source") or at_comp.get("provider") or at_comp.get("traversal") or at_comp.get("output"))
+
+    # ETS4_COMPOSER_R6R7_CORRECTED
+    # R6: available and watchExhaustive only if tests section exists, status=available, completeness present and empty, findingState evidence_found|no_evidence_found (reuses tests_not_requested for other cases)
+    # R7: absent key or non-False incomplete flag counts as incomplete (pack_*/impact_*_observation_incomplete); no new codes
 
     has_trunc = any(bool(w.get("attributionTruncated")) for w in watch)
 
@@ -303,7 +314,7 @@ def compose_effective_task_scope(
         if not include_tests:
             reasons.append("tests_not_requested")
         elif include_tests:
-            if not at_present or at.get("status") == "not_requested":
+            if not at_present or (at or {}).get("status") != "available" or (at or {}).get("findingState") not in ("evidence_found", "no_evidence_found") or "completeness" not in (at or {}):
                 reasons.append("tests_not_requested")
             elif tests_incomplete:
                 # copy from test section completeness, do not invent (R5)

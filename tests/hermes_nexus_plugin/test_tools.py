@@ -973,6 +973,65 @@ class EffectiveTaskScopeComposerTests(unittest.TestCase):
         res = self.compose(pack, impact)
         self.assertEqual(res["error"], "scope_input_rejected")
 
+    # --- exact reproductions for ETS4-R6 (4 forms) and ETS4-R7 (missing incomplete key) ---
+    def test_affected_tests_status_not_requested_R6(self):
+        pack = _base_pack(["f.py"])
+        impact = _base_impact(["f.py"], include_tests=True)
+        impact["affectedTests"] = {"status": "not_requested", "candidates": [], "findingState": "not_evaluated", "completeness": {"source": [], "provider": [], "traversal": [], "output": []}}
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertEqual(res["status"], "incomplete")
+        self.assertFalse(res.get("watchExhaustive", True))
+        reasons = (res.get("observation") or {}).get("reasons", [])
+        self.assertIn("tests_not_requested", reasons)
+        self.assertTrue(len(res.get("write", [])) > 0)
+
+    def test_affected_tests_status_partial_empty_completeness_R6(self):
+        pack = _base_pack(["f.py"])
+        impact = _base_impact(["f.py"], status="available", finding_state="evidence_found", include_tests=True)
+        impact["affectedTests"] = {"status": "partial", "candidates": [], "findingState": "not_evaluated", "completeness": {"source": [], "provider": [], "traversal": [], "output": []}}
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertEqual(res["status"], "incomplete")
+        self.assertFalse(res.get("watchExhaustive", True))
+        reasons = (res.get("observation") or {}).get("reasons", [])
+        self.assertIn("tests_not_requested", reasons)
+        self.assertTrue(len(res.get("write", [])) > 0)
+
+    def test_affected_tests_missing_completeness_key_R6(self):
+        pack = _base_pack(["f.py"])
+        impact = _base_impact(["f.py"], include_tests=True)
+        if "completeness" in impact.get("affectedTests", {}):
+            del impact["affectedTests"]["completeness"]
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertEqual(res["status"], "incomplete")
+        self.assertFalse(res.get("watchExhaustive", True))
+        reasons = (res.get("observation") or {}).get("reasons", [])
+        self.assertIn("tests_not_requested", reasons)
+        self.assertTrue(len(res.get("write", [])) > 0)
+
+    def test_affected_tests_findingstate_not_evaluated_R6(self):
+        pack = _base_pack(["f.py"])
+        impact = _base_impact(["f.py"], include_tests=True)
+        impact["affectedTests"]["findingState"] = "not_evaluated"
+        impact["affectedTests"]["completeness"] = {"source": [], "provider": [], "traversal": [], "output": []}
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertEqual(res["status"], "incomplete")
+        self.assertFalse(res.get("watchExhaustive", True))
+        reasons = (res.get("observation") or {}).get("reasons", [])
+        self.assertIn("tests_not_requested", reasons)
+        self.assertTrue(len(res.get("write", [])) > 0)
+
+    def test_observation_key_absent_counts_incomplete_R7(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        pack["observation"] = {"basis": "working_tree"}  # present but no 'incomplete' key
+        impact["observation"] = {"basis": "working_tree"}
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertEqual(res["status"], "incomplete")
+        self.assertFalse(res.get("watchExhaustive", True))
+        reasons = (res.get("observation") or {}).get("reasons", [])
+        self.assertIn("pack_observation_incomplete", reasons)
+        self.assertIn("impact_observation_incomplete", reasons)
+        self.assertTrue(len(res.get("write", [])) > 0)
 
 if __name__ == "__main__":
     unittest.main()
