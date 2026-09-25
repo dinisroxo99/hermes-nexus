@@ -29,7 +29,7 @@ These etapas are not a renumbering of historical Steps 1–9.
    `integrations/hermes-nexus/__init__.py:29`. Out of this change.
 3. Etapa 3A — only after Etapa 2: observable WRITE∩WRITE, without blocking,
    RESERVED, leases, Guard, or WRITE×WATCH.
-4. Etapa 3B — only after ACK of 3A. Hermes 0.21.5 is not a hook.
+4. Etapa 3B — only after ACK of 3A. Hermes 0.21.5 does not prove a hook.
 5. Etapa 4 — measure that slice only if real logs exist; otherwise Step 7 stays
    intact.
 
