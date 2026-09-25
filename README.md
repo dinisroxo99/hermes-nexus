@@ -70,10 +70,10 @@ WRITE / RESERVED / WATCH / IMPACT · Conflict Intelligence · Project Expert.
 
 ## Current status
 
-Implementation checkpoint: [current verified status](docs/CURRENT_STATUS.md),
-with Step 3 historically accepted at `4d8d23e564e355d84916b93d890762ac0c7498ee`
+Implementation checkpoint: [current verified status](docs/CURRENT_STATUS.md)
+records three distinct SHAs for this checkout, the plugin/caller pin, and the
+service pin. Step 3 was historically accepted at `4d8d23e564e355d84916b93d890762ac0c7498ee`
 and composer at `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` (main merge ff1093e7cfaf447bc063a22b8edaa3feed1e1b6d; legacy feat/787f662 not included).
-Plugin/caller pin: `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776` (tree `8e97d59c406e9a1e195fcff4213c941d4f07f5de`).
 
 - **Complete:** project foundation; Step 1 Project Identity / Revision; Step 2
   Task Context Pack; Step 2.5 Analyzer Provider Layer.
@@ -84,13 +84,15 @@ Plugin/caller pin: `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776` (tree `8e97d59c406
   JavaScript-capable native analyzer and snapshot-bound external data validation.
 - **Complete:** Step 3 — bounded file/multi-file Impact v2 and optional test
   candidates, separate from earlier node-based graph impact.
-- **Approved, two-tool publication pending:** [DEV-ADOPTION-1](docs/hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption),
+- **Accepted two-tool publication / H-only offline adoption:** [DEV-ADOPTION-1](docs/hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption),
   `project_task_context` / `project_impact` for six development profiles. Nine
   legacy tools remain deferred. G1 is rejected; R1/R2 remain OPEN/HIGH, not fixed.
 - **Composer checkpoint (read-only):** `compose_effective_task_scope` exists in plugin at `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` (main@ff1093e7...); read-only local, sem tool/rota/schemas; labels only WRITE and WATCH; RESERVED/IMPACT `not_emitted`. `feat/legacy-project-map-t_d032c9fe@787f662df941ea8461efeb0db86f51ad569a461c` / adapter 1A do not enter this delta. Step 4 not initiated as coordination/enforcement.
 - **ETS caller exposure (dated 2026-09-25, not live):** pin, `scope_enabled`, SOUL and proofs in [ETS profile exposure](docs/ETS_PROFILE_EXPOSURE.md). Pin `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`; hide-by-omit — `register()` adds `project_effective_task_scope` only when `scope_enabled` is exactly true (omitted/false ≠ true). `provides_tools` stays exactly the two core tools; the ETS name does not enter the global yaml. Independent pinned copies (not symlinks) with `scope_enabled: true` on orchestrator, architect, implementer, tester, reviewer and documenter. `default` and `workspace-manager` excluded; workspace-manager has no flag. ETS is read-only classification; WRITE is not authorization. `includeTests` omitted in the plugin ≠ true; SOUL is instructions, not a wrapper. When obtaining ETS: Context, then Impact and ETS with `includeTests` true; standalone Impact keeps the tool default. Orchestrator card `t_8318a878` is the old TUI / long session (tools not loaded; `ETS_ORCHESTRATOR_EXPOSE_LIVE_PROOF_JS_NOT_EXECUTED`). After that TUI quit, a new session ran the live proof; operator-authorized record only: `evidence_found`; ETS `incomplete`; WRITE 1; WATCH 5. Incomplete ≠ safety; WRITE does not authorize.
 Operator-authorized implementer, tester, and reviewer SOUL hashes and inspect live proofs for ETS profile exposure are recorded in [ETS profile exposure](docs/ETS_PROFILE_EXPOSURE.md).
-- **Next, not initiated:** Step 4 — Effective Task Scope (as coordination/enforcement). Two-tool publication and final verified operational documentation must precede it.
+- **Next, not initiated:** Step 4 — Effective Task Scope as coordination/enforcement.
+  ETS classification exists; Guard remains planned. Publication/adoption are
+  already accepted and do not open this step.
 - **Planned:** effective scope, conflicts, Hermes guard integration, project
   telemetry/validated history, Project Expert and learning/evaluation.
 - **Implemented, opt-in:** sandboxed Serena/Pyright semantic symbols, definitions
@@ -161,7 +163,7 @@ Development verification: `npm test` and `npm run check`.
 COMPLETE: Project foundation → Project Identity / Revision
           → Task Context Pack → Analyzer Provider Layer
           → Impact v2
-NEXT / NOT INITIATED: Effective Task Scope
+NEXT / NOT INITIATED: Effective Task Scope as coordination/enforcement
 PLANNED: Conflict Engine → Hermes Guard integration
          → Telemetry / validated project history → Project Expert
          → Learning / evaluation

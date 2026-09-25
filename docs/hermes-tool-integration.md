@@ -25,11 +25,12 @@ The integration has two distinct delivery states:
 
 Normal development adoption is approved for exactly orchestrator, architect,
 implementer, tester, reviewer and documenter, including concurrent workers.
-Default and workspace-manager are excluded. Publication/installation across that
-fleet remain pending, not proven by this guide. The
+Default and workspace-manager are excluded. Publication and six-profile H-only
+offline adoption are accepted, not pending; this guide does not prove live fleet
+health. The
 [installation contract](hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption)
 records the source baseline, operator authority, configuration, rollback and
-INFRA-1 (approved, implementation pending). G1 remains **REJECTED** and R1/R2 **OPEN / DEFERRED** with
+INFRA-1 current-operation acceptance (WSL-restart boot not demonstrated). G1 remains **REJECTED** and R1/R2 **OPEN / DEFERRED** with
 current HIGH severity, LOW/non-blocking development priority; see
 [risk disposition](KNOWN_ISSUES.md#dev-adoption-1--current-risk-disposition).
 
@@ -156,8 +157,9 @@ Only the two tools above are delivered by this tracked plugin. All nine
 separation](hermes-plugin-installation.md#legacy-catalogue-and-bounded-provenance).
 Existing HTTP endpoints/browser functions are not proof of an installed adapter.
 Legacy deferral does not block two-tool adoption. `project_map_admin` is conditional
-future work, not a present toolset. MCP, automatic Guard, Effective Scope and
-conflicts remain future layers; Hermes retains runtime ownership.
+future work, not a present toolset. MCP, automatic Guard, Effective Scope as
+coordination/enforcement, and conflicts remain future layers. ETS WRITE/WATCH
+classification exists and is not Guard. Hermes retains runtime ownership.
 
 ## Recommended option
 
@@ -214,9 +216,10 @@ orchestration. See the [provider contract](project-intelligence/19_ANALYZER_PROV
 Step 3 Impact v2 is implemented and historically accepted at
 `4d8d23e564e355d84916b93d890762ac0c7498ee`. Future work:
 
-- Effective task scopes, conflicts and further high-level Hermes tools/guard
-  integration. Runtime orchestration remains a Hermes responsibility, not a
-  future feature to build inside this service.
+- Effective task scope as coordination/enforcement, conflicts and further
+  high-level Hermes tools/guard integration. ETS WRITE/WATCH classification
+  exists and is not that enforcement. Runtime orchestration remains a Hermes
+  responsibility, not a future feature to build inside this service.
 
 The service does not run agents or enforce runtime task policy. Hermes consumes
 its project evidence through an adapter. ICM is one input to Project Intelligence,
@@ -341,7 +344,9 @@ DELETE /api/cache/symbols
 
 ## Currently suggested low-level Hermes tools
 
-These are low-level graph/project-map tools for the existing endpoints. They are distinct from planned future high-level Project Intelligence tools.
+Historical catalogue only. These nine `project_map_*` names remain
+LEGACY/DEFERRED and are not current installation instructions. They are distinct
+from planned future high-level Project Intelligence tools.
 
 ### `project_map_projects`
 

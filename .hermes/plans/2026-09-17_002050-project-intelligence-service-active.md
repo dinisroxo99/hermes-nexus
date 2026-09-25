@@ -2,16 +2,38 @@
 
 ## Current checkpoint
 
-2026-09-24: Step 3 is historically accepted at
-`4d8d23e564e355d84916b93d890762ac0c7498ee`. Current adoption source baseline is
+2026-09-26: Step 3 is historically accepted at
+`4d8d23e564e355d84916b93d890762ac0c7498ee`. This checkout is
+`9fdcae32479ca688d49aab7c85ad83e704636ced`. Plugin/caller pin
+`6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`. Service pin
+`85e511e7f65061cda861c98cd1acfbe9d79526b1`. Current adoption source baseline is
 `feat/nexus-profile-integration@10d1f348fd4c6ddbb5319d972c71b426e51e574a`.
 [DEV-ADOPTION-1](../../docs/hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption)
 approves the tracked Context/Impact plugin for six development profiles, including
-concurrent workers. G1 remains REJECTED; R1/R2 remain open/deferred, HIGH severity
-and LOW/non-blocking development priority. Nine legacy tools remain deferred.
-Publication, fleet adoption and final verified operational docs remain pending;
-**Step 4 is not initiated**. INFRA-1 is approved, implementation pending after
-candidate verification/publication; no service deployment is claimed.
+concurrent workers. Two-tool publication and six-profile H-only offline adoption
+are accepted in
+[plugin installation](../../docs/hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption).
+INFRA-1 current operation is accepted at the service pin, with WSL-restart boot
+not demonstrated and rollback not proved; that is not a boot, 24/7, G1 PASS, or
+unit-runs-this-HEAD claim. G1 remains REJECTED; R1/R2 remain open/deferred, HIGH
+severity and LOW/non-blocking development priority. Nine legacy tools remain
+deferred. ETS WRITE/WATCH classification exists and is not Step 4, Conflict
+Engine, or Guard. **Step 4 is not initiated as coordination/enforcement.**
+
+### Next pipeline (distinct from Steps 1–9)
+
+These etapas are not a renumbering of historical Steps 1–9.
+
+1. Etapa 1 — this documentation recenter.
+2. Etapa 2 — after this merge only: the docstring at
+   `integrations/hermes-nexus/__init__.py:29`. Out of this change.
+3. Etapa 3A — only after Etapa 2: observable WRITE∩WRITE, without blocking,
+   RESERVED, leases, Guard, or WRITE×WATCH.
+4. Etapa 3B — only after ACK of 3A. Hermes 0.21.5 is not a hook.
+5. Etapa 4 — measure that slice only if real logs exist; otherwise Step 7 stays
+   intact.
+
+3A before 3B. Do not execute 2, 3A, 3B, or 4 here.
 
 ### Historical pre-acceptance MC10 checkpoint
 
@@ -413,8 +435,9 @@ Git-diff impact remains deferred. Step 4 is not authorized by this checkpoint.
 
 ### Step 4 — Effective Task Scope
 
-**NOT INITIATED.** Complete publication, approved profile adoption and verified
-operational documentation first; the following remains target work.
+**NOT INITIATED as coordination/enforcement.** Two-tool publication and
+six-profile H-only offline adoption are accepted. ETS WRITE/WATCH classification
+is not this step. The following remains target work.
 
 Derive:
 

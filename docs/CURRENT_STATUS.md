@@ -9,11 +9,15 @@ implementation plan or a live view of another checkout.
 
 The documentation gate lives in the orchestrator and reviewer SOUL.
 
-Current source baseline (2026-09-25):
-`6ebb7aaa7ae7027c3e590a51bdbf5b5935651776` (plugin/caller pin; tree
+Current repository revision (2026-09-26):
+`9fdcae32479ca688d49aab7c85ad83e704636ced` (tree
+`1ff8944347df384674b6a1d675afc8226a5297ce`).
+Plugin/caller pin: `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776` (tree
 `8e97d59c406e9a1e195fcff4213c941d4f07f5de`; merge of the gated ETS caller).
-Composer `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` and caller
-`cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb` are ancestors of this pin.
+Service pin: `85e511e7f65061cda861c98cd1acfbe9d79526b1` (tree
+`6f96db4a43043764f266920872a844825bb59482`). These three SHAs are not
+interchangeable. Composer `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` and caller
+`cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb` are ancestors of the plugin pin.
 The previous public-docs checkpoint
 `725729f4d9d78e669dcd74d7cdb08210c8828b14` (main merge
 `ef32c8c9c721e251a53240c264e315ab42817bb7`) is also an ancestor.
@@ -28,14 +32,16 @@ those two names; `project_effective_task_scope` does **not** enter the global ya
 [DEV-ADOPTION-1](hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption)
 approves normal development adoption, including concurrent workers, for
 orchestrator, architect, implementer, tester, reviewer and documenter; default
-and workspace-manager are excluded. Publication of that two-tool path remains
-pending, followed by final verified operational documentation before Step 4.
+and workspace-manager are excluded. Two-tool publication and six-profile H-only
+offline adoption are accepted as recorded in that installation contract. ETS is
+read-only classification, not Step 4, Conflict Engine or Guard.
 Nine legacy Project Map tools remain deferred (LEGACY/DEFERRED), not a blocker
 for the two-tool path.
 **G1 remains REJECTED; R1/R2 remain OPEN / HIGH**, HIGH severity and
 LOW/non-blocking development priority, with original R2 MEDIUM retained in
 [known issues](KNOWN_ISSUES.md). This is not production readiness, G1 PASS,
-or a lifecycle fix.
+or a lifecycle fix. This documentation does not claim boot after WSL restart,
+24/7 availability, or that the systemd unit runs this repository HEAD.
 
 Dated 2026-09-25 handoffs (not live probes in this documentation task) record
 ETS caller exposure on independent pinned plugin copies, not symlinks, with
@@ -64,9 +70,11 @@ authorize; not G1 PASS; Step 4 not initiated.
 Operator-authorized implementer, tester, and reviewer SOUL hashes and inspect live proofs for ETS profile exposure are recorded in [ETS profile exposure](ETS_PROFILE_EXPOSURE.md).
 
 [INFRA-1](hermes-plugin-installation.md#infra-1--approved-implementation-pending)
-is **approved, implementation pending** after candidate verification/publication,
-not deployed. The old PMW expired at `2026-09-24T11:16:43+01:00`; no extension,
-shutdown or live-state check is demonstrated. Current approval is not liveness.
+current operation is accepted at the service pin, with WSL-restart boot not
+demonstrated and rollback not proved. That acceptance is not liveness, boot
+PASS, 24/7 availability, G1 PASS, or a claim that the unit runs this HEAD.
+The old PMW expired at `2026-09-24T11:16:43+01:00`; no extension,
+shutdown or live-state check is demonstrated here.
 
 ### Historical Serena/mainline consolidation evidence
 
@@ -106,7 +114,7 @@ candidate verification or plugin lifecycle acceptance.
 | Step 2.5 — Analyzer Provider Layer | Normalized contract and native adapters; deterministic selection/fallback; provider/version/capability/language metadata; bounded snapshot-scoped external evidence validation; polyglot symbol-name normalization. Node.js projects remain classified as `nodejs` while resolving to the existing JavaScript-capable native TypeScript analyzer. Task Context Pack consumes normalized providers and exposes partial/not_analyzed coverage. | [Provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md), [provider selection](../src/analyzers/common/analyzer-providers.js), [data validator](../src/analyzers/external/snapshot-provider.js), [pack/provider tests](../tests/task-context-providers.test.js), [Node.js routing tests](../tests/nodejs-analyzer-routing.test.js) |
 | Existing graph impact | Bounded node-based impact, symbol context and graph insights. This is not Step 3 Impact v2. | [Graph intelligence](../src/lib/graph-intelligence.js), [analyzer service tests](../tests/analyzer-service.test.js) |
 | Step 3 — Impact v2 | Bounded file/multi-file reverse-impact evidence and optional affected-test candidates, resolved against persisted project/worktree/revision, with reobservation and independent output caps. | [Impact contract](project-intelligence/06_SCOPE_IMPACT_CONFLICTS.md), [HTTP route](../src/routes/project-impact.routes.js), [service tests](../tests/project-impact-service.test.js) |
-| Hermes thin plugin | Exactly two tracked read-only tools (`project_task_context`, `project_impact`); `compose_effective_task_scope` exists in plugin at `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5`, read-only local, sem tool/rota/schemas; labels only WRITE e WATCH; RESERVED/IMPACT `not_emitted`. `feat/legacy-project-map-t_d032c9fe@787f662df941ea8461efeb0db86f51ad569a461c` / adapter 1A do not enter this delta. Two-tool publication pending, not automatic installation or Guard. | [Usage contract](hermes-tool-integration.md#dev-adoption-1--two-tool-usage-contract), [open limitations](KNOWN_ISSUES.md), [composer](../integrations/hermes-nexus/effective_task_scope.py) |
+| Hermes thin plugin | Exactly two tracked read-only tools (`project_task_context`, `project_impact`); `compose_effective_task_scope` exists in plugin at `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5`, read-only local, sem tool/rota/schemas; labels only WRITE e WATCH; RESERVED/IMPACT `not_emitted`. `feat/legacy-project-map-t_d032c9fe@787f662df941ea8461efeb0db86f51ad569a461c` / adapter 1A do not enter this delta. Two-tool publication is accepted as recorded in the installation contract, not automatic installation or Guard. | [Usage contract](hermes-tool-integration.md#dev-adoption-1--two-tool-usage-contract), [open limitations](KNOWN_ISSUES.md), [composer](../integrations/hermes-nexus/effective_task_scope.py) |
 | Gated ETS caller | `project_effective_task_scope` (local compose from accepted pack+impact) exists at ancestor `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb` on pin `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`. Hidden via `register_tool` omission unless `scope_enabled` is exactly true. `provides_tools` lists exactly the two core tools. Six development profiles have independent pin copies with `scope_enabled: true`; `default` and `workspace-manager` excluded. Read-only classification, not Step 4 coordination/enforcement. | pin 6ebb7aaa; [effective_task_scope](../integrations/hermes-nexus/effective_task_scope.py) |
 | Optional Serena/Python | Real semantic symbols, definitions and references through a pinned offline snapshot-only Docker worker; mounted-source binding, strict validation, bounded cleanup and explicit fallback. | [Runtime guide](../docker/serena-python/README.md), [provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md), [real semantic tests](../tests/serena-python-docker.test.js), [real sandbox tests](../tests/serena-sandbox-docker.test.js) |
 
