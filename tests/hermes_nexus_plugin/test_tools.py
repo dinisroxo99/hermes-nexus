@@ -8,6 +8,7 @@ import json
 import logging
 import sys
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable, cast
@@ -604,6 +605,433 @@ class RegistrationTests(unittest.TestCase):
         for registration in ctx.registry.values():
             self.assertFalse(registration["schema"]["parameters"]["additionalProperties"])
 
+
+# --- ETS-4 composer tests (added for t_2d8ff304; only plugin-side, no src/ change) ---
+
+HEX40 = "a" * 40
+HEX64 = "b" * 64
+WORKTREE_ID = "c" * 64
+
+
+def _base_pack(paths=None, incomplete=False):
+    if paths is None:
+        paths = ["AGENTS.md"]
+    return {
+        "schemaVersion": 1,
+        "analysisVersion": "task-context-v1",
+        "projectId": "prj_123",
+        "project": {"rootId": "local", "relativePath": "checkout"},
+        "revision": {
+            "status": "available",
+            "commitSha": HEX40,
+            "branch": "feat/test",
+            "dirty": False,
+            "isLinkedWorktree": True,
+            "repositoryIdentity": HEX64,
+            "worktreeId": WORKTREE_ID,
+        },
+        "contextPackId": "context_" + "d" * 64,
+        "observation": {"incomplete": incomplete},
+        "sections": {
+            "task": {
+                "items": [
+                    {
+                        "id": "t_test",
+                        "title": "test task",
+                        "paths": paths,
+                        "symbols": [],
+                    }
+                ],
+                "status": "available",
+            }
+        },
+    }
+
+
+def _base_impact(paths=None, finding_state="evidence_found", status="available", incomplete=False, include_tests=True, affected=None, cands=None, completeness=None, at_completeness=None, trunc=False):
+    if paths is None:
+        paths = ["AGENTS.md"]
+    if affected is None:
+        affected = []
+    if cands is None:
+        cands = []
+    if completeness is None:
+        completeness = {"source": [], "provider": [], "traversal": [], "output": []}
+    if at_completeness is None:
+        at_completeness = {"source": [], "provider": [], "traversal": [], "output": []}
+    targets = [{"originPath": p, "targetSource": {"path": p, "hash": "h"}, "status": "available", "findingState": finding_state, "completeness": completeness} for p in paths]
+    res = {
+        "schemaVersion": 1,
+        "analysisVersion": "impact-v2",
+        "projectId": "prj_123",
+        "project": {"rootId": "local", "relativePath": "checkout"},
+        "targets": targets,
+        "revision": {
+            "status": "available",
+            "commitSha": HEX40,
+            "branch": "feat/test",
+            "repositoryId": HEX64,
+            "worktreeId": WORKTREE_ID,
+            "dirty": False,
+            "isLinkedWorktree": True,
+        },
+        "snapshotToken": "snap_" + "e" * 64,
+        "observation": {"incomplete": incomplete},
+        "status": status,
+        "findingState": finding_state,
+        "affectedFiles": affected,
+        "affectedTests": {
+            "status": "not_requested" if not include_tests else "available",
+            "findingState": finding_state if include_tests else "not_evaluated",
+            "candidates": cands,
+            "completeness": at_completeness,
+        },
+        "completeness": completeness,
+    }
+    # mark trunc on first if requested
+    if trunc and res["affectedFiles"]:
+        res["affectedFiles"][0]["originSummary"] = {"attributionTruncated": True, "reasons": []}
+    return res
+
+
+class EffectiveTaskScopeComposerTests(unittest.TestCase):
+    def setUp(self):
+        self.plugin = _load_package()
+        # expose directly; import after load so submodule is populated
+        self.scope = importlib.import_module(self.plugin.__name__ + ".effective_task_scope")
+        self.compose = self.scope.compose_effective_task_scope
+
+    def test_valid_complete_available(self):
+        pack = _base_pack(["f.py"])
+        impact = _base_impact(["f.py"], finding_state="evidence_found", status="available", incomplete=False, include_tests=True,
+                              affected=[{"path": "g.py", "origins": [{"originPath": "f.py", "minimumDistance": 1, "witness": {"id": "w1", "relationshipKind": "imports", "trust": "derived", "basis": "static"}}], "originSummary": {"attributionTruncated": False, "reasons": []}}],
+                              cands=[])
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertEqual(res["analysisVersion"], "effective-task-scope-v1")
+        self.assertEqual(res["status"], "available")
+        self.assertTrue(res["writeExhaustive"])
+        self.assertTrue(res["watchExhaustive"])
+        self.assertEqual([w["path"] for w in res["write"]], ["f.py"])
+        self.assertEqual([w["path"] for w in res["watch"]], ["g.py"])
+        self.assertIn("affected_file", res["watch"][0]["roles"])
+        self.assertEqual(res["observation"]["incomplete"], False)
+        self.assertNotIn("data", res)  # no wrapper
+
+    def test_include_tests_false_makes_incomplete_watch_not_exhaustive(self):
+        pack = _base_pack(["f.py"])
+        impact = _base_impact(["f.py"], incomplete=False, include_tests=False)
+        res = self.compose(pack, impact, include_tests=False)
+        self.assertEqual(res["status"], "incomplete")
+        self.assertFalse(res["watchExhaustive"])
+        self.assertIn("tests_not_requested", res["observation"].get("reasons", []))
+
+    def test_not_evaluated_rejects_with_exact_code(self):
+        pack = _base_pack()
+        impact = _base_impact(finding_state="not_evaluated", status="partial")
+        res = self.compose(pack, impact)
+        self.assertFalse(res.get("ok", True))
+        self.assertEqual(res["error"], "scope_impact_not_evaluated")
+        self.assertEqual(res["status"], "rejected")
+        self.assertNotIn("write", res)
+
+    def test_identity_mismatch_rejects(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        impact["projectId"] = "prj_other"
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_identity_mismatch")
+
+    def test_revision_mismatch_rejects(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        impact["revision"]["commitSha"] = "b" * 40
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_revision_mismatch")
+
+    def test_task_mismatch_rejects(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        # corrupt echo
+        pack["sections"]["task"]["items"][0]["title"] = ""
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_task_mismatch")
+
+    def test_path_set_mismatch_rejects(self):
+        pack = _base_pack(["a.py"])
+        impact = _base_impact(["b.py"])
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_path_set_mismatch")
+
+    def test_insufficient_targets_rejects(self):
+        pack = _base_pack([])
+        impact = _base_impact([])
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_insufficient_targets")
+
+    def test_no_evidence_found_complete_yields_watch_empty_exhaustive_true(self):
+        pack = _base_pack(["f.py"])
+        impact = _base_impact(["f.py"], finding_state="no_evidence_found", status="available", incomplete=False, include_tests=True, affected=[], cands=[])
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertEqual(res["status"], "available")
+        self.assertTrue(res["watchExhaustive"])
+        self.assertEqual(res["watch"], [])
+
+    def test_dirty_or_unavailable_rejects(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        pack["revision"]["dirty"] = True
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_revision_mismatch")
+
+    # --- exact reproductions for ETS4-F1..F5 (both-sides bad values; alias intra-pack; dual roles) ---
+
+    def test_dirty_true_both_sides_rejects_F1(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        pack["revision"]["dirty"] = True
+        impact["revision"]["dirty"] = True
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_revision_mismatch")
+        self.assertFalse(res.get("ok", True))
+        self.assertNotIn("write", res)
+        self.assertEqual(res["status"], "rejected")
+
+    def test_islinked_false_both_sides_rejects_F2(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        pack["revision"]["isLinkedWorktree"] = False
+        impact["revision"]["isLinkedWorktree"] = False
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_revision_mismatch")
+        self.assertFalse(res.get("ok", True))
+        self.assertNotIn("write", res)
+
+    def test_revision_status_partial_both_sides_rejects_F3(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        pack["revision"]["status"] = "partial"
+        impact["revision"]["status"] = "partial"
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_revision_mismatch")
+        self.assertFalse(res.get("ok", True))
+        self.assertNotIn("write", res)
+
+    def test_alias_mismatch_within_pack_rejects_F4(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        pack["revision"]["repositoryIdentity"] = HEX64
+        pack["revision"]["repositoryId"] = "f" + "a" * 63  # alias differs from canonical
+        impact["revision"]["repositoryId"] = HEX64
+        if "repositoryIdentity" in impact.get("revision", {}):
+            del impact["revision"]["repositoryIdentity"]
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_identity_mismatch")
+        self.assertFalse(res.get("ok", True))
+        self.assertNotIn("write", res)
+
+    def test_dual_roles_for_path_in_affected_and_candidates_F5(self):
+        pack = _base_pack(["f.py"])
+        affected_item_g = {
+            "path": "g.py",
+            "origins": [{"originPath": "f.py", "minimumDistance": 1, "witness": {"id": "w1", "relationshipKind": "imports", "trust": "derived", "basis": "static"}}],
+            "originSummary": {"attributionTruncated": False, "reasons": []},
+        }
+        affected_item_h = {
+            "path": "h.py",
+            "origins": [{"originPath": "f.py", "minimumDistance": 2, "witness": {"id": "w2", "relationshipKind": "imports", "trust": "derived", "basis": "static"}}],
+            "originSummary": {"attributionTruncated": False, "reasons": []},
+        }
+        cand_item_h = {
+            "path": "h.py",
+            "origins": [{"originPath": "f.py", "minimumDistance": 5, "witness": {"id": "w3", "relationshipKind": "test-import", "trust": "derived", "basis": "static"}}],
+            "originSummary": {"attributionTruncated": False, "reasons": []},
+        }
+        impact = _base_impact(
+            ["f.py"],
+            affected=[affected_item_g, affected_item_h],
+            cands=[cand_item_h],
+            include_tests=True,
+        )
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertEqual(res["status"], "available")
+        watch = res["watch"]
+        watch_paths = [w["path"] for w in watch]
+        self.assertIn("g.py", watch_paths)
+        self.assertIn("h.py", watch_paths)
+        h_entries = [w for w in watch if w["path"] == "h.py"]
+        self.assertEqual(len(h_entries), 1)
+        h_entry = h_entries[0]
+        self.assertIn("affected_file", h_entry["roles"])
+        self.assertIn("affected_test_candidate", h_entry["roles"])
+        self.assertEqual(sorted(h_entry["roles"]), ["affected_file", "affected_test_candidate"])
+        # appears once
+        self.assertEqual(watch_paths.count("h.py"), 1)
+
+    # --- exact reproductions for ETS4-R1..R5 (reviewer probes not covered by F1-F5 or prior 28/113) ---
+
+    def test_alias_present_identity_absent_rejects_R1(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        del pack["revision"]["repositoryIdentity"]
+        pack["revision"]["repositoryId"] = HEX64
+        res = self.compose(pack, impact)
+        self.assertEqual(res.get("error"), "scope_identity_mismatch")
+        self.assertFalse(res.get("ok", True))
+        self.assertNotIn("write", res)
+        self.assertEqual(res.get("status"), "rejected")
+
+    def test_impact_alias_canonical_absent_rejects_R1(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        del impact["revision"]["repositoryId"]
+        impact["revision"]["repositoryIdentity"] = HEX64
+        res = self.compose(pack, impact)
+        self.assertEqual(res.get("error"), "scope_identity_mismatch")
+        self.assertFalse(res.get("ok", True))
+        self.assertNotIn("write", res)
+
+    def test_worktree_id_one_sided_missing_rejects_R2(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        del impact["revision"]["worktreeId"]
+        res = self.compose(pack, impact)
+        self.assertEqual(res.get("error"), "scope_revision_mismatch")
+        self.assertFalse(res.get("ok", True))
+        self.assertNotIn("write", res)
+
+    def test_path_order_divergence_rejects_R3(self):
+        pack = _base_pack(["a.py", "b.py"])
+        impact = _base_impact(["b.py", "a.py"])
+        res = self.compose(pack, impact)
+        self.assertEqual(res.get("error"), "scope_path_set_mismatch")
+        self.assertFalse(res.get("ok", True))
+        self.assertNotIn("write", res)
+
+    def test_path_multiplicity_divergence_rejects_R3(self):
+        pack = _base_pack(["a.py", "a.py"])
+        impact = _base_impact(["a.py"])
+        res = self.compose(pack, impact)
+        self.assertEqual(res.get("error"), "scope_path_set_mismatch")
+        self.assertFalse(res.get("ok", True))
+        self.assertNotIn("write", res)
+
+    def test_missing_observation_not_available_R4(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        del pack["observation"]
+        del impact["observation"]
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertNotEqual(res.get("status"), "available")
+        self.assertFalse(res.get("watchExhaustive", True))
+
+    def test_missing_completeness_not_available_R4(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        del impact["completeness"]
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertNotEqual(res.get("status"), "available")
+
+    def test_missing_affected_tests_with_include_true_not_available_R4(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        del impact["affectedTests"]
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertNotEqual(res.get("status"), "available")
+
+    def test_omit_include_tests_kwarg_not_available_R4(self):
+        # exact reproduction of residual: compose(pack, impact) without include_tests kwarg
+        # even when impact has full affectedTests.status=available (default _base)
+        pack = _base_pack()
+        impact = _base_impact()
+        res = self.compose(pack, impact)  # omit kwarg exactly
+        self.assertNotEqual(res.get("status"), "available")
+        self.assertFalse(res.get("watchExhaustive", True))
+        self.assertIn("tests_not_requested", (res.get("observation") or {}).get("reasons", []))
+
+    def test_test_completeness_reasons_copied_not_invented_R5(self):
+        pack = _base_pack()
+        impact = _base_impact(at_completeness={"source": [], "provider": [], "traversal": ["depth_limit"], "output": []}, include_tests=True)
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertEqual(res.get("status"), "incomplete")
+        reasons = (res.get("observation") or {}).get("reasons", [])
+        self.assertIn("depth_limit", reasons)
+        self.assertNotIn("impact_tests_incomplete", reasons)
+
+    def test_composer_does_not_mutate_inputs(self):
+        pack = _base_pack(["f.py"])
+        impact = _base_impact(["f.py"])
+        pcopy = deepcopy(pack)
+        icopy = deepcopy(impact)
+        self.compose(pack, impact)
+        self.assertEqual(pack, pcopy)
+        self.assertEqual(impact, icopy)
+
+    def test_composer_rejects_on_schema_mismatch(self):
+        pack = _base_pack()
+        pack["analysisVersion"] = "task-context-v0"
+        impact = _base_impact()
+        res = self.compose(pack, impact)
+        self.assertEqual(res["error"], "scope_input_rejected")
+
+    # --- exact reproductions for ETS4-R6 (4 forms) and ETS4-R7 (missing incomplete key) ---
+    def test_affected_tests_status_not_requested_R6(self):
+        pack = _base_pack(["f.py"])
+        impact = _base_impact(["f.py"], include_tests=True)
+        impact["affectedTests"] = {"status": "not_requested", "candidates": [], "findingState": "not_evaluated", "completeness": {"source": [], "provider": [], "traversal": [], "output": []}}
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertEqual(res["status"], "incomplete")
+        self.assertFalse(res.get("watchExhaustive", True))
+        reasons = (res.get("observation") or {}).get("reasons", [])
+        self.assertIn("tests_not_requested", reasons)
+        self.assertTrue(len(res.get("write", [])) > 0)
+
+    def test_affected_tests_status_partial_empty_completeness_R6(self):
+        pack = _base_pack(["f.py"])
+        impact = _base_impact(["f.py"], status="available", finding_state="evidence_found", include_tests=True)
+        impact["affectedTests"] = {"status": "partial", "candidates": [], "findingState": "not_evaluated", "completeness": {"source": [], "provider": [], "traversal": [], "output": []}}
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertEqual(res["status"], "incomplete")
+        self.assertFalse(res.get("watchExhaustive", True))
+        reasons = (res.get("observation") or {}).get("reasons", [])
+        self.assertIn("tests_not_requested", reasons)
+        self.assertTrue(len(res.get("write", [])) > 0)
+
+    def test_affected_tests_missing_completeness_key_R6(self):
+        pack = _base_pack(["f.py"])
+        impact = _base_impact(["f.py"], include_tests=True)
+        if "completeness" in impact.get("affectedTests", {}):
+            del impact["affectedTests"]["completeness"]
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertEqual(res["status"], "incomplete")
+        self.assertFalse(res.get("watchExhaustive", True))
+        reasons = (res.get("observation") or {}).get("reasons", [])
+        self.assertIn("tests_not_requested", reasons)
+        self.assertTrue(len(res.get("write", [])) > 0)
+
+    def test_affected_tests_findingstate_not_evaluated_R6(self):
+        pack = _base_pack(["f.py"])
+        impact = _base_impact(["f.py"], include_tests=True)
+        impact["affectedTests"]["findingState"] = "not_evaluated"
+        impact["affectedTests"]["completeness"] = {"source": [], "provider": [], "traversal": [], "output": []}
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertEqual(res["status"], "incomplete")
+        self.assertFalse(res.get("watchExhaustive", True))
+        reasons = (res.get("observation") or {}).get("reasons", [])
+        self.assertIn("tests_not_requested", reasons)
+        self.assertTrue(len(res.get("write", [])) > 0)
+
+    def test_observation_key_absent_counts_incomplete_R7(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        pack["observation"] = {"basis": "working_tree"}  # present but no 'incomplete' key
+        impact["observation"] = {"basis": "working_tree"}
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertEqual(res["status"], "incomplete")
+        self.assertFalse(res.get("watchExhaustive", True))
+        reasons = (res.get("observation") or {}).get("reasons", [])
+        self.assertIn("pack_observation_incomplete", reasons)
+        self.assertIn("impact_observation_incomplete", reasons)
+        self.assertTrue(len(res.get("write", [])) > 0)
 
 if __name__ == "__main__":
     unittest.main()
