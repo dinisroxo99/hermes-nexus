@@ -44,7 +44,7 @@ export function readProjectRevision(project, options = {}) {
     const status = required(["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none"]);
     Object.assign(result, {
       status: head.error ? "unborn" : "available",
-      commitSha: head.error ? null : head.output.trim(), branch, dirty: status.length > 0,
+      commitSha: head.error ? null : head.output.trim(), branch, dirty: porcelainIndicatesDirty(status),
       repositoryIdentity: digest([gitCommonDir]),
       worktreeId: digest([gitDir, gitRoot]),
       isLinkedWorktree: gitDir !== gitCommonDir
@@ -112,4 +112,46 @@ function hasGitMarker(directory) {
 
 function digest(parts) {
   return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
+}
+
+function porcelainIndicatesDirty(statusText) {
+  if (!statusText || statusText.length === 0) {
+    return false;
+  }
+  const tokens = statusText.split("\0").filter((t) => t.length > 0);
+  let i = 0;
+  while (i < tokens.length) {
+    const tok = tokens[i];
+    if (tok.length < 2) {
+      i++;
+      continue;
+    }
+    const xy = tok.slice(0, 2);
+    let path = tok.slice(2).trimStart();
+    i++;
+    const x = xy[0];
+    const y = xy[1];
+    if (x === "R" || x === "C" || y === "R" || y === "C") {
+      // rename/copy consumes two paths (per porcelain v1 -z)
+      if (i < tokens.length) {
+        i++;
+      }
+    }
+    if (xy === "??" && isOmittedUntrackedBytecode(path)) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
+function isOmittedUntrackedBytecode(pathname) {
+  if (!pathname) return false;
+  // split segments on / and \ ; exact == for __pycache__ segment, endsWith for .pyc basename. case sensitive.
+  const segments = pathname.split(/[/\\]/).filter((s) => s.length > 0);
+  if (segments.some((s) => s === "__pycache__")) {
+    return true;
+  }
+  const basename = segments[segments.length - 1] || "";
+  return basename.endsWith(".pyc");
 }
