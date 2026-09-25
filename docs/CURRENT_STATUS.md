@@ -7,11 +7,11 @@
 This is a linked public summary of the implementation checkpoint, not a separate
 implementation plan or a live view of another checkout.
 
-Current source baseline (2026-09-24):
-`feat/nexus-profile-integration@10d1f348fd4c6ddbb5319d972c71b426e51e574a`.
+Current source baseline (2026-09-25):
+`main@ff1093e7cfaf447bc063a22b8edaa3feed1e1b6d` (merge includes composer at `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5`).
 Step 3 was independently accepted at historical SHA
 `4d8d23e564e355d84916b93d890762ac0c7498ee`, an ancestor of this candidate.
-**Steps 1, 2, 2.5 and 3 are complete. Step 4 is NOT INITIATED.**
+**Steps 1, 2, 2.5 and 3 are complete. Step 4 is NOT INITIATED as coordination/enforcement.**
 
 The tracked `hermes-nexus` plugin delivers `project_task_context` and
 `project_impact` in `project_intelligence`.
@@ -21,7 +21,7 @@ orchestrator, architect, implementer, tester, reviewer and documenter; default
 and workspace-manager are excluded. Publication and six-profile adoption remain
 pending, followed by final verified operational documentation before Step 4.
 Nine legacy tools remain deferred, not a blocker for the two-tool path.
-**G1 remains REJECTED; R1/R2 remain OPEN / DEFERRED**, HIGH severity and
+**G1 remains REJECTED; R1/R2 remain OPEN / HIGH**, HIGH severity and
 LOW/non-blocking development priority, with original R2 MEDIUM retained in
 [known issues](KNOWN_ISSUES.md). This is not production readiness or a lifecycle fix.
 
@@ -68,7 +68,7 @@ candidate verification or plugin lifecycle acceptance.
 | Step 2.5 — Analyzer Provider Layer | Normalized contract and native adapters; deterministic selection/fallback; provider/version/capability/language metadata; bounded snapshot-scoped external evidence validation; polyglot symbol-name normalization. Node.js projects remain classified as `nodejs` while resolving to the existing JavaScript-capable native TypeScript analyzer. Task Context Pack consumes normalized providers and exposes partial/not_analyzed coverage. | [Provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md), [provider selection](../src/analyzers/common/analyzer-providers.js), [data validator](../src/analyzers/external/snapshot-provider.js), [pack/provider tests](../tests/task-context-providers.test.js), [Node.js routing tests](../tests/nodejs-analyzer-routing.test.js) |
 | Existing graph impact | Bounded node-based impact, symbol context and graph insights. This is not Step 3 Impact v2. | [Graph intelligence](../src/lib/graph-intelligence.js), [analyzer service tests](../tests/analyzer-service.test.js) |
 | Step 3 — Impact v2 | Bounded file/multi-file reverse-impact evidence and optional affected-test candidates, resolved against persisted project/worktree/revision, with reobservation and independent output caps. | [Impact contract](project-intelligence/06_SCOPE_IMPACT_CONFLICTS.md), [HTTP route](../src/routes/project-impact.routes.js), [service tests](../tests/project-impact-service.test.js) |
-| Hermes thin plugin | Exactly two tracked read-only tools; approved development adoption pending, not automatic installation or Guard. | [Usage contract](hermes-tool-integration.md#dev-adoption-1--two-tool-usage-contract), [open limitations](KNOWN_ISSUES.md) |
+| Hermes thin plugin | Exactly two tracked read-only tools (`project_task_context`, `project_impact`); `compose_effective_task_scope` exists in plugin at `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5`, read-only, sem tool/rota/schemas; labels only WRITE e WATCH; RESERVED/IMPACT `not_emitted`. `feat/legacy-project-map-t_d032c9fe@787f662df941ea8461efeb0db86f51ad569a461c` does not enter this merge. Approved development adoption pending, not automatic installation or Guard. | [Usage contract](hermes-tool-integration.md#dev-adoption-1--two-tool-usage-contract), [open limitations](KNOWN_ISSUES.md), [composer](../integrations/hermes-nexus/effective_task_scope.py) |
 | Optional Serena/Python | Real semantic symbols, definitions and references through a pinned offline snapshot-only Docker worker; mounted-source binding, strict validation, bounded cleanup and explicit fallback. | [Runtime guide](../docker/serena-python/README.md), [provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md), [real semantic tests](../tests/serena-python-docker.test.js), [real sandbox tests](../tests/serena-sandbox-docker.test.js) |
 
 ### Current intelligence endpoints
@@ -136,7 +136,7 @@ See [the full matrix](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md#languag
 
 Following the [active implementation plan](../.hermes/plans/2026-09-17_002050-project-intelligence-service-active.md):
 
-**Effective Task Scope (Step 4, not initiated)** → Conflict Engine →
+**Effective Task Scope (Step 4, not initiated as coordination/enforcement)** → Conflict Engine →
 Hermes Guard integration → Telemetry / validated project history → Project Expert
 → Learning / evaluation.
 
