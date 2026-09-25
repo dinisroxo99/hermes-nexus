@@ -51,6 +51,7 @@ WRITE does not authorize edit, lock, dispatch or new cards, and does not open
 Step 4, Conflict Engine, Guard, legacy tools or extra documentation work.
 Incomplete / partial / unsupported / unavailable / `not_evaluated` ≠ safety.
 Test candidates ≠ results. Do not invent `dirty: false` or opaque IDs.
+The service revision reader no longer treats untracked `__pycache__/` and `*.pyc` as dirty; other untracked paths and all tracked dirt still count; `dirty: false` is never invented.
 When obtaining ETS: Context, then Impact and ETS with `includeTests` true;
 standalone Impact keeps the tool default (omitted ≠ true). Byte reviews of
 those six copies recorded APPROVE with 0 material findings. Orchestrator card
