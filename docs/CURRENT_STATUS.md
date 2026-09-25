@@ -58,6 +58,7 @@ session that ran the tools. After that TUI quit, a new session ran the
 orchestrator live proof. Operator-authorized record only: `evidence_found`;
 ETS `incomplete`; WRITE 1; WATCH 5. Incomplete ≠ safety; WRITE does not
 authorize; not G1 PASS; Step 4 not initiated.
+Operator-authorized implementer, tester, and reviewer SOUL hashes and inspect live proofs for ETS profile exposure are recorded in [ETS profile exposure](ETS_PROFILE_EXPOSURE.md).
 
 [INFRA-1](hermes-plugin-installation.md#infra-1--approved-implementation-pending)
 is **approved, implementation pending** after candidate verification/publication,
