@@ -15,7 +15,9 @@
 
 The [current checkpoint](CURRENT_STATUS.md) includes completed Project Identity /
 Revision, Task Context Pack, Analyzer Provider Layer and accepted Step 3 Impact v2,
-plus optional sandboxed Serena/Python semantic analysis. Step 4 is **NOT INITIATED**;
+plus optional sandboxed Serena/Python semantic analysis. WRITE/WATCH classification
+exists ([ETS profile exposure](ETS_PROFILE_EXPOSURE.md)); `provides_tools` remains
+two tools; Step 4 as Guard / conflicts / RESERVED has not been initiated;
 scope/conflicts, runtime guard integration and project knowledge remain planned.
 [DEV-ADOPTION-1](hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption)
 approves two-tool development adoption. The

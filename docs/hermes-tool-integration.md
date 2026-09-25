@@ -221,7 +221,9 @@ Step 3 Impact v2 is implemented and historically accepted at
 The service does not run agents or enforce runtime task policy. Hermes consumes
 its project evidence through an adapter. ICM is one input to Project Intelligence,
 not the complete system. See [current status](CURRENT_STATUS.md) for the verified
-current branch checkpoint; Step 4 has not been initiated. The historical
+current branch checkpoint. WRITE/WATCH classification exists
+([ETS profile exposure](ETS_PROFILE_EXPOSURE.md)); `provides_tools` remains two
+tools; Step 4 as Guard / conflicts / RESERVED has not been initiated. The historical
 foundation phase numbers above are distinct from active-plan step numbers.
 
 The canonical ICM authority rule is: `AGENT.md` YAML front matter is machine-authoritative; `AGENT.md` Markdown body plus `PROJECT.md`, `AGENTS.md`, `CONTEXT.md`, and ADR Markdown are context only. Contextual prose cannot override executor, owner, reviewers, permissions, scope, preconditions, or routing metadata. Detailed schema and bounds are documented in [Project ICM architecture](./project-icm.md).
