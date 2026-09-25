@@ -38,7 +38,9 @@ or a lifecycle fix.
 Dated 2026-09-25 handoffs (not live probes in this documentation task) record
 ETS caller exposure on independent pinned plugin copies, not symlinks, with
 `scope_enabled: true` for orchestrator, architect, implementer, tester,
-reviewer and documenter. `default` and `workspace-manager` remain excluded;
+reviewer and documenter. Pin, `scope_enabled`, SOUL (instructions, not a
+wrapper) and proofs: [ETS profile exposure](ETS_PROFILE_EXPOSURE.md).
+`default` and `workspace-manager` remain excluded;
 workspace-manager has no flag. Hide-by-omit: `register()` adds
 `project_effective_task_scope` only when `scope_enabled` is exactly true
 (omitted or false ≠ true). `includeTests` omitted in the plugin ≠ true; SOUL
@@ -49,10 +51,13 @@ Incomplete / partial / unsupported / unavailable / `not_evaluated` ≠ safety.
 Test candidates ≠ results. Do not invent `dirty: false` or opaque IDs.
 When obtaining ETS: Context, then Impact and ETS with `includeTests` true;
 standalone Impact keeps the tool default (omitted ≠ true). Byte reviews of
-those six copies recorded APPROVE with 0 material findings. Orchestrator live
-proof `t_8318a878` was not executed in that TUI session (tools not loaded;
-marker `ETS_ORCHESTRATOR_EXPOSE_LIVE_PROOF_JS_NOT_EXECUTED`) and is not a
-live PASS.
+those six copies recorded APPROVE with 0 material findings. Orchestrator card
+`t_8318a878` is the old TUI / long session: tools were not loaded (marker
+`ETS_ORCHESTRATOR_EXPOSE_LIVE_PROOF_JS_NOT_EXECUTED`); that card is not the
+session that ran the tools. After that TUI quit, a new session ran the
+orchestrator live proof. Operator-authorized record only: `evidence_found`;
+ETS `incomplete`; WRITE 1; WATCH 5. Incomplete ≠ safety; WRITE does not
+authorize; not G1 PASS; Step 4 not initiated.
 
 [INFRA-1](hermes-plugin-installation.md#infra-1--approved-implementation-pending)
 is **approved, implementation pending** after candidate verification/publication,
