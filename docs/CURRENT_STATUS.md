@@ -8,22 +8,56 @@ This is a linked public summary of the implementation checkpoint, not a separate
 implementation plan or a live view of another checkout.
 
 Current source baseline (2026-09-25):
-`main@ff1093e7cfaf447bc063a22b8edaa3feed1e1b6d` (merge includes composer at `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5`).
+`6ebb7aaa7ae7027c3e590a51bdbf5b5935651776` (plugin/caller pin; tree
+`8e97d59c406e9a1e195fcff4213c941d4f07f5de`; merge of the gated ETS caller).
+Composer `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` and caller
+`cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb` are ancestors of this pin.
+The previous public-docs checkpoint
+`725729f4d9d78e669dcd74d7cdb08210c8828b14` (main merge
+`ef32c8c9c721e251a53240c264e315ab42817bb7`) is also an ancestor.
 Step 3 was independently accepted at historical SHA
 `4d8d23e564e355d84916b93d890762ac0c7498ee`, an ancestor of this candidate.
 **Steps 1, 2, 2.5 and 3 are complete. Step 4 is NOT INITIATED as coordination/enforcement.**
+`787f662` / adapter 1A do **not** enter this delta.
 
 The tracked `hermes-nexus` plugin delivers `project_task_context` and
-`project_impact` in `project_intelligence`.
+`project_impact` in `project_intelligence`. `provides_tools` remains exactly
+those two names; `project_effective_task_scope` does **not** enter the global yaml.
 [DEV-ADOPTION-1](hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption)
 approves normal development adoption, including concurrent workers, for
 orchestrator, architect, implementer, tester, reviewer and documenter; default
-and workspace-manager are excluded. Publication and six-profile adoption remain
+and workspace-manager are excluded. Publication of that two-tool path remains
 pending, followed by final verified operational documentation before Step 4.
-Nine legacy tools remain deferred, not a blocker for the two-tool path.
+Nine legacy Project Map tools remain deferred (LEGACY/DEFERRED), not a blocker
+for the two-tool path.
 **G1 remains REJECTED; R1/R2 remain OPEN / HIGH**, HIGH severity and
 LOW/non-blocking development priority, with original R2 MEDIUM retained in
-[known issues](KNOWN_ISSUES.md). This is not production readiness or a lifecycle fix.
+[known issues](KNOWN_ISSUES.md). This is not production readiness, G1 PASS,
+or a lifecycle fix.
+
+Dated 2026-09-25 handoffs (not live probes in this documentation task) record
+ETS caller exposure on independent pinned plugin copies, not symlinks, with
+`scope_enabled: true` for orchestrator, architect, implementer, tester,
+reviewer and documenter. Pin, `scope_enabled`, SOUL (instructions, not a
+wrapper) and proofs: [ETS profile exposure](ETS_PROFILE_EXPOSURE.md).
+`default` and `workspace-manager` remain excluded;
+workspace-manager has no flag. Hide-by-omit: `register()` adds
+`project_effective_task_scope` only when `scope_enabled` is exactly true
+(omitted or false ≠ true). `includeTests` omitted in the plugin ≠ true; SOUL
+paragraphs are instructions, not a wrapper. ETS is read-only classification;
+WRITE does not authorize edit, lock, dispatch or new cards, and does not open
+Step 4, Conflict Engine, Guard, legacy tools or extra documentation work.
+Incomplete / partial / unsupported / unavailable / `not_evaluated` ≠ safety.
+Test candidates ≠ results. Do not invent `dirty: false` or opaque IDs.
+When obtaining ETS: Context, then Impact and ETS with `includeTests` true;
+standalone Impact keeps the tool default (omitted ≠ true). Byte reviews of
+those six copies recorded APPROVE with 0 material findings. Orchestrator card
+`t_8318a878` is the old TUI / long session: tools were not loaded (marker
+`ETS_ORCHESTRATOR_EXPOSE_LIVE_PROOF_JS_NOT_EXECUTED`); that card is not the
+session that ran the tools. After that TUI quit, a new session ran the
+orchestrator live proof. Operator-authorized record only: `evidence_found`;
+ETS `incomplete`; WRITE 1; WATCH 5. Incomplete ≠ safety; WRITE does not
+authorize; not G1 PASS; Step 4 not initiated.
 
 [INFRA-1](hermes-plugin-installation.md#infra-1--approved-implementation-pending)
 is **approved, implementation pending** after candidate verification/publication,
@@ -68,8 +102,8 @@ candidate verification or plugin lifecycle acceptance.
 | Step 2.5 — Analyzer Provider Layer | Normalized contract and native adapters; deterministic selection/fallback; provider/version/capability/language metadata; bounded snapshot-scoped external evidence validation; polyglot symbol-name normalization. Node.js projects remain classified as `nodejs` while resolving to the existing JavaScript-capable native TypeScript analyzer. Task Context Pack consumes normalized providers and exposes partial/not_analyzed coverage. | [Provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md), [provider selection](../src/analyzers/common/analyzer-providers.js), [data validator](../src/analyzers/external/snapshot-provider.js), [pack/provider tests](../tests/task-context-providers.test.js), [Node.js routing tests](../tests/nodejs-analyzer-routing.test.js) |
 | Existing graph impact | Bounded node-based impact, symbol context and graph insights. This is not Step 3 Impact v2. | [Graph intelligence](../src/lib/graph-intelligence.js), [analyzer service tests](../tests/analyzer-service.test.js) |
 | Step 3 — Impact v2 | Bounded file/multi-file reverse-impact evidence and optional affected-test candidates, resolved against persisted project/worktree/revision, with reobservation and independent output caps. | [Impact contract](project-intelligence/06_SCOPE_IMPACT_CONFLICTS.md), [HTTP route](../src/routes/project-impact.routes.js), [service tests](../tests/project-impact-service.test.js) |
-| Hermes thin plugin | Exactly two tracked read-only tools (`project_task_context`, `project_impact`); `compose_effective_task_scope` exists in plugin at `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5`, read-only, sem tool/rota/schemas; labels only WRITE e WATCH; RESERVED/IMPACT `not_emitted`. `feat/legacy-project-map-t_d032c9fe@787f662df941ea8461efeb0db86f51ad569a461c` does not enter this merge. Approved development adoption pending, not automatic installation or Guard. | [Usage contract](hermes-tool-integration.md#dev-adoption-1--two-tool-usage-contract), [open limitations](KNOWN_ISSUES.md), [composer](../integrations/hermes-nexus/effective_task_scope.py) |
-| Gated ETS caller | `project_effective_task_scope` (local compose from accepted pack+impact) exists at `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb`; hidden via `register_tool` omission when `scope_enabled=false` (default); `provides_tools` lists exactly the two core tools; six profiles continue with `project_task_context` and `project_impact`. No adoption or exposure affirmed. | tests at cc4fcbc; [effective_task_scope](../integrations/hermes-nexus/effective_task_scope.py) |
+| Hermes thin plugin | Exactly two tracked read-only tools (`project_task_context`, `project_impact`); `compose_effective_task_scope` exists in plugin at `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5`, read-only local, sem tool/rota/schemas; labels only WRITE e WATCH; RESERVED/IMPACT `not_emitted`. `feat/legacy-project-map-t_d032c9fe@787f662df941ea8461efeb0db86f51ad569a461c` / adapter 1A do not enter this delta. Two-tool publication pending, not automatic installation or Guard. | [Usage contract](hermes-tool-integration.md#dev-adoption-1--two-tool-usage-contract), [open limitations](KNOWN_ISSUES.md), [composer](../integrations/hermes-nexus/effective_task_scope.py) |
+| Gated ETS caller | `project_effective_task_scope` (local compose from accepted pack+impact) exists at ancestor `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb` on pin `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`. Hidden via `register_tool` omission unless `scope_enabled` is exactly true. `provides_tools` lists exactly the two core tools. Six development profiles have independent pin copies with `scope_enabled: true`; `default` and `workspace-manager` excluded. Read-only classification, not Step 4 coordination/enforcement. | pin 6ebb7aaa; [effective_task_scope](../integrations/hermes-nexus/effective_task_scope.py) |
 | Optional Serena/Python | Real semantic symbols, definitions and references through a pinned offline snapshot-only Docker worker; mounted-source binding, strict validation, bounded cleanup and explicit fallback. | [Runtime guide](../docker/serena-python/README.md), [provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md), [real semantic tests](../tests/serena-python-docker.test.js), [real sandbox tests](../tests/serena-sandbox-docker.test.js) |
 
 ### Current intelligence endpoints
