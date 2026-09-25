@@ -58,9 +58,15 @@ local help on 2026-09-24.
    value**. A resolved `config get` value cannot prove that a key was absent on disk.
    Do not dump configuration or read secrets. Architect already has a pilot
    installation: capture that real prestate, not an assumed empty directory.
-2. Copy only these five files from that immutable revision into the flat directory
-   `/home/dinis/.hermes/profiles/<profile>/plugins/hermes-nexus/`:
-   `plugin.yaml`, `__init__.py`, `schemas.py`, `client.py`, `tools.py`.
+2. From the plugin/caller pin (`6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`) or a
+   later accepted plugin revision, copy `plugin.yaml`, `__init__.py`,
+   `schemas.py`, `client.py`, `tools.py`, and `effective_task_scope.py` into the
+   flat directory
+   `/home/dinis/.hermes/profiles/<profile>/plugins/hermes-nexus/`.
+   The five-file list without `effective_task_scope.py` is historical for the
+   service pin `85e511e7f65061cda861c98cd1acfbe9d79526b1` (pre-ETS); do not copy
+   a sixth file from that pin, where it does not exist. This documentation task
+   does not execute the copy.
    Verify source and installed hashes individually against the accepted commit.
    Do not use the old nested `project-map/project-map` layout or a symlink to the
    moving writer. Inventory collisions before replacing any existing file.
@@ -104,8 +110,8 @@ local help on 2026-09-24.
 
 ## Delta rollback and update
 
-Updates use a newly published accepted SHA, the same five-file hash check and a
-fresh prestate inventory. Rollback restores exact persisted presence **and**
+Updates use a newly published accepted SHA, the same hash check of the files
+that revision actually contains, and a fresh prestate inventory. Rollback restores exact persisted presence **and**
 values, file contents/hashes, and only the changed instruction paragraphs:
 
 ```text

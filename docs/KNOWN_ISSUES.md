@@ -16,8 +16,9 @@ priority restriction below for the approved development baseline
 The baseline is the two-tool plugin (`project_task_context`, `project_impact`)
 in exactly orchestrator, architect, implementer, tester, reviewer and documenter,
 including normal concurrent development workers. Default and workspace-manager
-remain excluded. Publication/adoption are authorized but still pending execution
-and independent verification; see [DEV-ADOPTION-1](hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption).
+remain excluded. Publication/adoption are accepted as recorded in
+[DEV-ADOPTION-1](hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption);
+remaining limits below still apply.
 
 **G1 remains technically/historically REJECTED. OPTION-L-R1 and OPTION-L-R2 remain
 OPEN / KNOWN ISSUES — DEFERRED.** Current operator disposition is **HIGH severity,
@@ -35,9 +36,9 @@ reference and does not retrigger its own waiver by being implemented. Unattended
 material changes still require reassessment. Concrete lifecycle symptoms require
 stopping affected calls and coordinator/operator adjudication; reopening does not
 authorize an automatic fix, custom transport, process isolation or service restart.
-INFRA-1 is [approved, implementation pending](hermes-plugin-installation.md#infra-1--approved-implementation-pending)
-after candidate verification/publication, not an installed persistent service
-or a condition for publishing the two tools.
+INFRA-1 [current operation is accepted](hermes-plugin-installation.md#infra-1--approved-implementation-pending)
+at the service pin, with WSL-restart boot not demonstrated and rollback not
+proved; that acceptance does not authorize Step 4.
 
 ## OPTION-L-R1 — HTTPX lifecycle cleanup timing
 
