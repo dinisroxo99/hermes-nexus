@@ -867,6 +867,86 @@ class EffectiveTaskScopeComposerTests(unittest.TestCase):
         # appears once
         self.assertEqual(watch_paths.count("h.py"), 1)
 
+    # --- exact reproductions for ETS4-R1..R5 (reviewer probes not covered by F1-F5 or prior 28/113) ---
+
+    def test_alias_present_identity_absent_rejects_R1(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        del pack["revision"]["repositoryIdentity"]
+        pack["revision"]["repositoryId"] = HEX64
+        res = self.compose(pack, impact)
+        self.assertEqual(res.get("error"), "scope_identity_mismatch")
+        self.assertFalse(res.get("ok", True))
+        self.assertNotIn("write", res)
+        self.assertEqual(res.get("status"), "rejected")
+
+    def test_impact_alias_canonical_absent_rejects_R1(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        del impact["revision"]["repositoryId"]
+        impact["revision"]["repositoryIdentity"] = HEX64
+        res = self.compose(pack, impact)
+        self.assertEqual(res.get("error"), "scope_identity_mismatch")
+        self.assertFalse(res.get("ok", True))
+        self.assertNotIn("write", res)
+
+    def test_worktree_id_one_sided_missing_rejects_R2(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        del impact["revision"]["worktreeId"]
+        res = self.compose(pack, impact)
+        self.assertEqual(res.get("error"), "scope_revision_mismatch")
+        self.assertFalse(res.get("ok", True))
+        self.assertNotIn("write", res)
+
+    def test_path_order_divergence_rejects_R3(self):
+        pack = _base_pack(["a.py", "b.py"])
+        impact = _base_impact(["b.py", "a.py"])
+        res = self.compose(pack, impact)
+        self.assertEqual(res.get("error"), "scope_path_set_mismatch")
+        self.assertFalse(res.get("ok", True))
+        self.assertNotIn("write", res)
+
+    def test_path_multiplicity_divergence_rejects_R3(self):
+        pack = _base_pack(["a.py", "a.py"])
+        impact = _base_impact(["a.py"])
+        res = self.compose(pack, impact)
+        self.assertEqual(res.get("error"), "scope_path_set_mismatch")
+        self.assertFalse(res.get("ok", True))
+        self.assertNotIn("write", res)
+
+    def test_missing_observation_not_available_R4(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        del pack["observation"]
+        del impact["observation"]
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertNotEqual(res.get("status"), "available")
+        self.assertFalse(res.get("watchExhaustive", True))
+
+    def test_missing_completeness_not_available_R4(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        del impact["completeness"]
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertNotEqual(res.get("status"), "available")
+
+    def test_missing_affected_tests_with_include_true_not_available_R4(self):
+        pack = _base_pack()
+        impact = _base_impact()
+        del impact["affectedTests"]
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertNotEqual(res.get("status"), "available")
+
+    def test_test_completeness_reasons_copied_not_invented_R5(self):
+        pack = _base_pack()
+        impact = _base_impact(at_completeness={"source": [], "provider": [], "traversal": ["depth_limit"], "output": []}, include_tests=True)
+        res = self.compose(pack, impact, include_tests=True)
+        self.assertEqual(res.get("status"), "incomplete")
+        reasons = (res.get("observation") or {}).get("reasons", [])
+        self.assertIn("depth_limit", reasons)
+        self.assertNotIn("impact_tests_incomplete", reasons)
+
     def test_composer_does_not_mutate_inputs(self):
         pack = _base_pack(["f.py"])
         impact = _base_impact(["f.py"])

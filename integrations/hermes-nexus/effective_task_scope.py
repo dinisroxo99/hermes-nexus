@@ -134,8 +134,8 @@ def compose_effective_task_scope(
         return _fail("scope_revision_mismatch", "revision branch mismatch")
     p_wtid = pr.get("worktreeId")
     i_wtid = ir.get("worktreeId")
-    if p_wtid and i_wtid and p_wtid != i_wtid:
-        return _fail("scope_revision_mismatch", "worktreeId mismatch")
+    if (p_wtid is None) or (i_wtid is None) or (p_wtid != i_wtid):
+        return _fail("scope_revision_mismatch", "worktreeId must be present and equal on both sides")
 
     # value gates (fail-closed even when pack/impact agree on bad value): ETS4-F1,F2,F3
     if pr.get("dirty") is not False:
@@ -145,19 +145,26 @@ def compose_effective_task_scope(
     if pr.get("status") != "available":
         return _fail("scope_revision_mismatch", "revision.status must be available")
 
-    # repository identity/alias (do not rename wire fields; alias must match its canonical if present): ETS4-F4
+    # repository identity/alias (do not rename wire fields; alias must match its canonical if present): ETS4-F4 + R1
     p_identity = pr.get("repositoryIdentity")
     p_alias = pr.get("repositoryId")
     i_identity = ir.get("repositoryId")
     i_alias = ir.get("repositoryIdentity")
-    p_repo = p_identity or p_alias
-    i_repo = i_identity or i_alias
-    if p_repo != i_repo:
-        return _fail("scope_identity_mismatch", "repositoryIdentity / repositoryId mismatch")
+    # reject if alias present on a side but its canonical absent or differs (R1); do not use or
+    if p_alias is not None and (p_identity is None or p_alias != p_identity):
+        return _fail("scope_identity_mismatch", "pack has repositoryId alias without matching repositoryIdentity canonical")
+    if i_alias is not None and (i_identity is None or i_alias != i_identity):
+        return _fail("scope_identity_mismatch", "impact has repositoryIdentity alias without matching repositoryId canonical")
     if p_alias is not None and p_identity is not None and p_alias != p_identity:
         return _fail("scope_identity_mismatch", "pack alias repositoryId must equal its repositoryIdentity")
     if i_alias is not None and i_identity is not None and i_alias != i_identity:
         return _fail("scope_identity_mismatch", "impact alias repositoryIdentity must equal its repositoryId")
+    p_canon = p_identity
+    i_canon = i_identity
+    if p_canon != i_canon:
+        return _fail("scope_identity_mismatch", "repositoryIdentity / repositoryId mismatch")
+    p_repo = p_canon
+    i_repo = i_canon
 
     # task echo from pack (sections.task.items[0])
     try:
@@ -186,7 +193,7 @@ def compose_effective_task_scope(
         return _fail("scope_insufficient_targets", "task.paths empty after normalization")
 
     impact_paths = _get_impact_origin_paths(impact_data)
-    if set(write_paths) != set(impact_paths):
+    if write_paths != impact_paths:
         return _fail("scope_path_set_mismatch", "pack task paths differ from impact originPaths")
 
     # impact evaluation gate
@@ -196,9 +203,10 @@ def compose_effective_task_scope(
         return _fail("scope_impact_not_evaluated", "impact.status is unavailable or unsupported")
 
     # includeTests inference
-    at = impact_data.get("affectedTests") or {}
+    at_present = "affectedTests" in impact_data and isinstance(impact_data.get("affectedTests"), dict)
+    at = impact_data.get("affectedTests") or {} if at_present else {}
     if include_tests is None:
-        include_tests = at.get("status") != "not_requested"
+        include_tests = at.get("status") != "not_requested" if at_present else False
 
     # WRITE (exact order from pack)
     write = [{"path": p, "source": "explicit_task_path"} for p in write_paths]
@@ -231,28 +239,39 @@ def compose_effective_task_scope(
 
     watch: list[dict[str, Any]] = list(watch_by_path.values())
 
-    # classify available vs incomplete (contract rules)
+    # classify available vs incomplete (contract rules) -- presence required, absence != good values (R4)
+    pack_obs_present = "observation" in pack_data and isinstance(pack_data.get("observation"), dict)
+    impact_obs_present = "observation" in impact_data and isinstance(impact_data.get("observation"), dict)
+    impact_comp_present = "completeness" in impact_data and isinstance(impact_data.get("completeness"), dict)
     pack_obs = pack_data.get("observation") or {}
     impact_obs = impact_data.get("observation") or {}
     impact_comp = impact_data.get("completeness") or {}
-    pack_incomplete = bool(pack_obs.get("incomplete"))
-    impact_incomplete = bool(impact_obs.get("incomplete"))
+    pack_incomplete = bool(pack_obs.get("incomplete")) if pack_obs_present else True
+    impact_incomplete = bool(impact_obs.get("incomplete")) if impact_obs_present else True
     impact_status = impact_data.get("status")
     impact_fs = impact_data.get("findingState")
 
     comp_reasons: list[str] = []
-    for dim in ("source", "provider", "traversal", "output"):
-        comp_reasons.extend(impact_comp.get(dim, []) or [])
+    if impact_comp_present:
+        for dim in ("source", "provider", "traversal", "output"):
+            comp_reasons.extend(impact_comp.get(dim, []) or [])
 
     tests_incomplete = False
     if include_tests:
-        at_comp = at.get("completeness") or {}
-        tests_incomplete = bool(at_comp.get("source") or at_comp.get("provider") or at_comp.get("traversal") or at_comp.get("output"))
+        if not at_present:
+            tests_incomplete = True
+        else:
+            at_comp = at.get("completeness") or {}
+            tests_incomplete = bool(at_comp.get("source") or at_comp.get("provider") or at_comp.get("traversal") or at_comp.get("output"))
 
     has_trunc = any(bool(w.get("attributionTruncated")) for w in watch)
 
     is_available = (
-        not pack_incomplete
+        pack_obs_present
+        and impact_obs_present
+        and impact_comp_present
+        and at_present
+        and not pack_incomplete
         and not impact_incomplete
         and impact_status == "available"
         and impact_fs in ("evidence_found", "no_evidence_found")
@@ -272,9 +291,9 @@ def compose_effective_task_scope(
         watch_exhaustive = False
         obs_incomplete = True
         reasons = []
-        if pack_incomplete:
+        if not pack_obs_present or pack_incomplete:
             reasons.append("pack_observation_incomplete")
-        if impact_incomplete:
+        if not impact_obs_present or impact_incomplete:
             reasons.append("impact_observation_incomplete")
         if impact_status != "available":
             reasons.append("impact_status_partial")
@@ -282,10 +301,15 @@ def compose_effective_task_scope(
         if not include_tests:
             reasons.append("tests_not_requested")
         elif include_tests:
-            if at.get("status") == "not_requested":
+            if not at_present or at.get("status") == "not_requested":
                 reasons.append("tests_not_requested")
             elif tests_incomplete:
-                reasons.append("impact_tests_incomplete")
+                # copy from test section completeness, do not invent (R5)
+                at_comp = (at or {}).get("completeness") or {}
+                for dim in ("source", "provider", "traversal", "output"):
+                    for r in at_comp.get(dim, []) or []:
+                        if r not in reasons:
+                            reasons.append(r)
         if has_trunc:
             reasons.append("attribution_truncated")
         # dedup order preserving
@@ -315,7 +339,7 @@ def compose_effective_task_scope(
             "branch": pr.get("branch"),
             "dirty": pr.get("dirty"),
             "isLinkedWorktree": pr.get("isLinkedWorktree"),
-            "worktreeId": p_wtid or i_wtid,
+            "worktreeId": p_wtid,
             "repositoryIdentity": p_repo,
             "impactRepositoryId": i_repo,
             "contextPackId": pack_data.get("contextPackId"),
