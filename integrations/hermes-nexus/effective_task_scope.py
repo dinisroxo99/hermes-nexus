@@ -102,7 +102,7 @@ def compose_effective_task_scope(
     """Return effective-task-scope-v1 classification or reject shape.
 
     pack/impact: full handler result {"ok":true,"data":...} or the inner data.
-    include_tests: the value supplied to impact call (inferred from affectedTests if None).
+    include_tests: the value supplied to impact call; None/omitted treated as False (never infer True from affectedTests presence).
     task: optional original task for echo mismatch check.
     """
     try:
@@ -202,11 +202,13 @@ def compose_effective_task_scope(
     if impact_data.get("status") in ("unavailable", "unsupported"):
         return _fail("scope_impact_not_evaluated", "impact.status is unavailable or unsupported")
 
-    # includeTests inference
+    # ETS4_COMPOSER_R4_OMIT_INCLUDE_TESTS_CORRECTED
+    # includeTests: None (omitted kwarg) or False means no tests; do not infer True
+    # from affectedTests section presence (fixes residual ETS4-R4). Explicit True only.
+    if include_tests is None:
+        include_tests = False
     at_present = "affectedTests" in impact_data and isinstance(impact_data.get("affectedTests"), dict)
     at = impact_data.get("affectedTests") or {} if at_present else {}
-    if include_tests is None:
-        include_tests = at.get("status") != "not_requested" if at_present else False
 
     # WRITE (exact order from pack)
     write = [{"path": p, "source": "explicit_task_path"} for p in write_paths]

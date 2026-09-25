@@ -938,6 +938,16 @@ class EffectiveTaskScopeComposerTests(unittest.TestCase):
         res = self.compose(pack, impact, include_tests=True)
         self.assertNotEqual(res.get("status"), "available")
 
+    def test_omit_include_tests_kwarg_not_available_R4(self):
+        # exact reproduction of residual: compose(pack, impact) without include_tests kwarg
+        # even when impact has full affectedTests.status=available (default _base)
+        pack = _base_pack()
+        impact = _base_impact()
+        res = self.compose(pack, impact)  # omit kwarg exactly
+        self.assertNotEqual(res.get("status"), "available")
+        self.assertFalse(res.get("watchExhaustive", True))
+        self.assertIn("tests_not_requested", (res.get("observation") or {}).get("reasons", []))
+
     def test_test_completeness_reasons_copied_not_invented_R5(self):
         pack = _base_pack()
         impact = _base_impact(at_completeness={"source": [], "provider": [], "traversal": ["depth_limit"], "output": []}, include_tests=True)
