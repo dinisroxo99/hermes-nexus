@@ -72,7 +72,7 @@ WRITE / RESERVED / WATCH / IMPACT · Conflict Intelligence · Project Expert.
 
 Implementation checkpoint: [current verified status](docs/CURRENT_STATUS.md),
 with Step 3 historically accepted at `4d8d23e564e355d84916b93d890762ac0c7498ee`
-and the two-tool plugin delivered on `feat/nexus-profile-integration`.
+and composer at `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` (main merge ff1093e7cfaf447bc063a22b8edaa3feed1e1b6d; legacy feat/787f662 not included).
 
 - **Complete:** project foundation; Step 1 Project Identity / Revision; Step 2
   Task Context Pack; Step 2.5 Analyzer Provider Layer.
@@ -85,9 +85,9 @@ and the two-tool plugin delivered on `feat/nexus-profile-integration`.
   candidates, separate from earlier node-based graph impact.
 - **Approved, adoption pending:** [DEV-ADOPTION-1](docs/hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption),
   `project_task_context` / `project_impact` for six development profiles. Nine
-  legacy tools remain deferred. G1 is rejected; R1/R2 remain open/deferred with
-  HIGH severity and LOW/non-blocking development priority, not fixed.
-- **Next, not initiated:** Step 4 — Effective Task Scope. Publication, profile
+  legacy tools remain deferred. G1 is rejected; R1/R2 remain OPEN/HIGH, not fixed.
+- **Composer checkpoint (read-only):** `compose_effective_task_scope` exists in plugin at `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` (main@ff1093e7...); read-only, sem tool/rota/schemas; labels only WRITE and WATCH; RESERVED/IMPACT `not_emitted`. `feat/legacy-project-map-t_d032c9fe@787f662df941ea8461efeb0db86f51ad569a461c` does not enter this merge. Step 4 not initiated as coordination/enforcement.
+- **Next, not initiated:** Step 4 — Effective Task Scope (as coordination/enforcement). Publication, profile
   adoption and final verified operational documentation must precede it.
 - **Planned:** effective scope, conflicts, Hermes guard integration, project
   telemetry/validated history, Project Expert and learning/evaluation.
