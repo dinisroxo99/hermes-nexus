@@ -109,3 +109,49 @@ test("a separate Git directory with a .git file is not a linked worktree", async
   assert.equal(revision.status, "unborn");
   assert.equal(revision.isLinkedWorktree, false);
 });
+
+test("revision omits untracked __pycache__/ and *.pyc from dirty (other untracked and tracked dirt still dirty)", async (t) => {
+  const read = await reader();
+
+  // only untracked pycache dir
+  let f = gitFixture(t);
+  f.write("foo/__pycache__/bar.cpython-312.pyc", "bytecode\n");
+  assert.equal(read(f.project).dirty, false);
+
+  // only untracked .pyc
+  f = gitFixture(t);
+  f.write("mod.pyc", "bytecode\n");
+  assert.equal(read(f.project).dirty, false);
+
+  // untracked .env still dirties
+  f = gitFixture(t);
+  f.write(".env", "SECRET=1\n");
+  assert.equal(read(f.project).dirty, true);
+
+  // untracked debug.log still dirties
+  f = gitFixture(t);
+  f.write("debug.log", "log\n");
+  assert.equal(read(f.project).dirty, true);
+
+  // untracked node_modules/... still dirties
+  f = gitFixture(t);
+  f.write("node_modules/pkg/index.js", "module\n");
+  assert.equal(read(f.project).dirty, true);
+
+  // tracked source edit + untracked pycache -> dirty true
+  f = gitFixture(t);
+  f.write("src/source.ts", "export const dirty = true;\n");
+  f.write("foo/__pycache__/bar.cpython-312.pyc", "bytecode\n");
+  assert.equal(read(f.project).dirty, true);
+
+  // committed then modified tracked .pyc -> dirty true
+  f = gitFixture(t);
+  f.write("tracked.pyc", "initial\n");
+  f.commit("add tracked pyc");
+  f.write("tracked.pyc", "modified\n");
+  assert.equal(read(f.project).dirty, true);
+
+  // clean tree -> false
+  f = gitFixture(t);
+  assert.equal(read(f.project).dirty, false);
+});
