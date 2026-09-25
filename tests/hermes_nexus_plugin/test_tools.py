@@ -343,6 +343,7 @@ class FakeContext:
         refuse=None,
         profile_name="architect",
         real_context=False,
+        config=None,
     ):
         self.base_url = base_url
         self.registry = registry if registry is not None else {}
@@ -350,11 +351,14 @@ class FakeContext:
         self.refuse = refuse
         self.profile_name = profile_name
         self.calls = []
+        self.config = config or {}
         if real_context:
             self._manager = object()
 
     def get_config(self, key, default=None):
         self.calls.append(("get_config", key))
+        if key in self.config:
+            return self.config[key]
         return self.base_url if key == "base_url" else default
 
     def has_registered_tool(self, name):
@@ -442,7 +446,11 @@ class RegistrationTests(unittest.TestCase):
             class ActualRegistryContext:
                 _manager = SimpleNamespace(scope_key=scope)
 
-                def get_config(self, _key):
+                def get_config(self, key, default=None):
+                    if key == "base_url":
+                        return "http://127.0.0.1:8770"
+                    if key == "scope_enabled":
+                        return default if default is not None else False
                     return "http://127.0.0.1:8770"
 
                 def register_tool(self, **_kwargs):
@@ -549,7 +557,11 @@ class RegistrationTests(unittest.TestCase):
                 def __init__(self, scope):
                     self._manager = Manager(scope)
 
-                def get_config(self, _key):
+                def get_config(self, key, default=None):
+                    if key == "base_url":
+                        return "http://127.0.0.1:8770"
+                    if key == "scope_enabled":
+                        return default if default is not None else False
                     return "http://127.0.0.1:8770"
 
             architect_scope = "/isolated/architect"
@@ -604,6 +616,95 @@ class RegistrationTests(unittest.TestCase):
         self.plugin.register(ctx)
         for registration in ctx.registry.values():
             self.assertFalse(registration["schema"]["parameters"]["additionalProperties"])
+
+    # --- scope_enabled gated caller tests (per t_98553561 / t_ae10ca46) ---
+    def test_scope_enabled_absent_or_false_registers_exactly_two_tools(self):
+        for flag in (False, "absent"):
+            with self.subTest(flag=flag):
+                config = {} if flag == "absent" else {"scope_enabled": flag}
+                ctx = FakeContext(config=config)
+                self.plugin.register(ctx)
+                self.assertEqual(set(ctx.registry), {"project_task_context", "project_impact"})
+                self.assertNotIn("project_effective_task_scope", ctx.registry)
+
+    def test_scope_enabled_true_registers_handler_and_name_in_registry(self):
+        ctx = FakeContext(config={"scope_enabled": True})
+        self.plugin.register(ctx)
+        names = set(ctx.registry)
+        self.assertEqual(names, {"project_task_context", "project_impact", "project_effective_task_scope"})
+        reg = ctx.registry["project_effective_task_scope"]
+        self.assertEqual(reg["schema"]["name"], "project_effective_task_scope")
+        self.assertEqual(reg["toolset"], "project_intelligence")
+        self.assertTrue(reg["is_async"])
+        self.assertFalse(reg["override"])
+        self.assertTrue(callable(reg["handler"]))
+        # check_fn present (but not used as hide; hide is non-reg when false)
+        self.assertTrue(callable(reg.get("check_fn")))
+
+    def test_scope_enabled_invalid_type_refuses_before_any_handler_registration(self):
+        for bad in (1, "true", [], {}):
+            with self.subTest(bad=bad):
+                ctx = FakeContext(config={"scope_enabled": bad})
+                with self.assertRaisesRegex(RuntimeError, "scope_enabled must be a boolean"):
+                    self.plugin.register(ctx)
+                # nothing registered (refusal before handlers)
+                self.assertEqual(ctx.registry, {})
+                # saw the get_config for scope before raise
+                scope_gets = [c for c in ctx.calls if c == ("get_config", "scope_enabled")]
+                self.assertTrue(len(scope_gets) >= 1)
+
+    def test_scope_enabled_true_handler_invocation_with_ok_true_pack_impact_returns_scope_v1(self):
+        # fixtures: valid pack+impact (wrapped ok=true), include_tests omitted, ...
+        ctx = FakeContext(config={"scope_enabled": True})
+        self.plugin.register(ctx)
+        scope_handler = ctx.registry["project_effective_task_scope"]["handler"]
+
+        # valid pack+impact wrapped (ok=true) + data; include_tests omitted -> forces False per contract
+        pack_full = {"ok": True, "data": _base_pack(["src/mod.py"])}
+        impact_full = {"ok": True, "data": _base_impact(["src/mod.py"], include_tests=False)}
+        result = asyncio.run(scope_handler({"pack": pack_full, "impact": impact_full}))
+        res = json.loads(result)
+        self.assertEqual(res.get("analysisVersion"), "effective-task-scope-v1")
+        self.assertIn("status", res)
+        self.assertIn("write", res)
+        self.assertIn("watch", res)
+        # without flag the name is not in registry (not exposed)
+        ctx_false = FakeContext(config={"scope_enabled": False})
+        self.plugin.register(ctx_false)
+        self.assertNotIn("project_effective_task_scope", ctx_false.registry)
+
+    def test_scope_enabled_true_with_dirty_rejects_with_composer_code(self):
+        ctx = FakeContext(config={"scope_enabled": True})
+        self.plugin.register(ctx)
+        scope_handler = ctx.registry["project_effective_task_scope"]["handler"]
+        pack_full = {"ok": True, "data": _base_pack(["f.py"])}
+        impact_full = {"ok": True, "data": _base_impact(["f.py"])}
+        pack_full["data"]["revision"]["dirty"] = True
+        result = asyncio.run(
+            scope_handler({"pack": pack_full, "impact": impact_full})
+        )
+        res = json.loads(result)
+        self.assertEqual(res.get("error"), "scope_revision_mismatch")
+        self.assertFalse(res.get("ok", True))
+        self.assertEqual(res.get("status"), "rejected")
+
+    def test_scope_enabled_true_omit_include_tests_and_mismatches_reject_appropriately(self):
+        ctx = FakeContext(config={"scope_enabled": True})
+        self.plugin.register(ctx)
+        scope_handler = ctx.registry["project_effective_task_scope"]["handler"]
+        pack_full = {"ok": True, "data": _base_pack(["a.py"])}
+        impact_full = {"ok": True, "data": _base_impact(["b.py"])}  # path mismatch
+        result = asyncio.run(
+            scope_handler({"pack": pack_full, "impact": impact_full})
+        )
+        res = json.loads(result)
+        self.assertEqual(res.get("error"), "scope_path_set_mismatch")
+        # also test omit include_tests in call
+        pack2 = {"ok": True, "data": _base_pack(["f.py"])}
+        impact2 = {"ok": True, "data": _base_impact(["f.py"], include_tests=True)}
+        result2 = asyncio.run(scope_handler({"pack": pack2, "impact": impact2}))  # no includeTests key
+        res2 = json.loads(result2)
+        self.assertIn("tests_not_requested", (res2.get("observation") or {}).get("reasons", []))
 
 
 # --- ETS-4 composer tests (added for t_2d8ff304; only plugin-side, no src/ change) ---

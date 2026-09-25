@@ -87,6 +87,7 @@ and composer at `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` (main merge ff1093e7c
   `project_task_context` / `project_impact` for six development profiles. Nine
   legacy tools remain deferred. G1 is rejected; R1/R2 remain OPEN/HIGH, not fixed.
 - **Composer checkpoint (read-only):** `compose_effective_task_scope` exists in plugin at `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` (main@ff1093e7...); read-only, sem tool/rota/schemas; labels only WRITE and WATCH; RESERVED/IMPACT `not_emitted`. `feat/legacy-project-map-t_d032c9fe@787f662df941ea8461efeb0db86f51ad569a461c` does not enter this merge. Step 4 not initiated as coordination/enforcement.
+- Caller ETS at `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb`: gated by `scope_enabled` (default false), `register_tool` omitted (hide); `provides_tools` and six profiles continue with `project_task_context` and `project_impact` (no adoption/exposure affirmed).
 - **Next, not initiated:** Step 4 — Effective Task Scope (as coordination/enforcement). Publication, profile
   adoption and final verified operational documentation must precede it.
 - **Planned:** effective scope, conflicts, Hermes guard integration, project
