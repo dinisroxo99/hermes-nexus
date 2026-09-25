@@ -180,6 +180,32 @@ PROJECT_IMPACT_SCHEMA = {
     ),
 }
 
+# New schema only passed at register_tool time for the gated caller.
+# Not used by the two core tools, not exported in provides_tools, not altering PROJECT_*_SCHEMA.
+EFFECTIVE_TASK_SCOPE_SCHEMA = {
+    "name": "project_effective_task_scope",
+    "description": (
+        "Read-only local composition of effective-task-scope-v1 (WRITE/WATCH labels) "
+        "from already-accepted pack (from project_task_context) and impact (from project_impact). "
+        "Gated by scope_enabled (default false); no network, no side-effects, fail-closed with composer codes."
+    ),
+    "parameters": _object(
+        {
+            "pack": {
+                "type": "object",
+                "description": "Full accepted result (ok=true) or inner data from project_task_context call.",
+            },
+            "impact": {
+                "type": "object",
+                "description": "Full accepted result (ok=true) or inner data from project_impact call.",
+            },
+            "includeTests": {"type": "boolean"},
+            "task": {"type": "object"},
+        },
+        ["pack", "impact"],
+    ),
+}
+
 
 class ArgumentsError(ValueError):
     """A static, non-sensitive shallow input validation failure."""

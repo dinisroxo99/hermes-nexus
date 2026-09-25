@@ -11,3 +11,8 @@ config_schema:
     type: str
     required: true
     description: Explicit local Nexus URL, for example http://127.0.0.1:8770.
+  scope_enabled:
+    type: bool
+    required: false
+    default: false
+    description: Gate for the read-only project_effective_task_scope caller (local compose from accepted pack+impact). Default false; provides_tools remains exactly the two core tools.

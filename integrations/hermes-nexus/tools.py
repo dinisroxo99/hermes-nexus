@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 from .client import NexusClient, NexusClientError
+from .effective_task_scope import compose_effective_task_scope
 from .schemas import ArgumentsError, validate_impact_arguments, validate_task_context_arguments
 
 
@@ -79,3 +80,31 @@ def create_handlers(base_url: Any):
         return await _invoke("project_impact", args, base_url)
 
     return project_task_context, project_impact
+
+
+def create_scope_handler() -> Any:
+    """Create the gated effective task scope caller handler (local compose only, receives already-accepted ok=true pack+impact).
+
+    Does not call Nexus. Returns the compose result (v1 or existing fail-closed reject codes).
+    include_tests omitted/None forces False per contract. Never mutates; caller does not wash errors.
+    """
+
+    async def project_effective_task_scope(args: dict[str, Any], **_kwargs: Any) -> str:
+        if not isinstance(args, dict):
+            pack = None
+            impact = None
+            include_tests = None
+            task = None
+        else:
+            pack = args.get("pack")
+            impact = args.get("impact")
+            include_tests = args.get("includeTests") if "includeTests" in args else None
+            task = args.get("task")
+        # pack/impact expected already accepted (ok=true); compose handles extract + all fail-closed codes
+        # do not call compose from the two core handlers
+        scope = compose_effective_task_scope(
+            pack, impact, include_tests=include_tests, task=task
+        )
+        return _json(scope)
+
+    return project_effective_task_scope
