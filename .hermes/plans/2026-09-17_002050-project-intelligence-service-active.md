@@ -4,7 +4,7 @@
 
 2026-09-26: Step 3 is historically accepted at
 `4d8d23e564e355d84916b93d890762ac0c7498ee`. This checkout is
-`9fdcae32479ca688d49aab7c85ad83e704636ced`. Plugin/caller pin
+`44baa8678974614bc6cc4519c71772e6648434e4`. Plugin/caller pin
 `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`. Service pin
 `85e511e7f65061cda861c98cd1acfbe9d79526b1`. Current adoption source baseline is
 `feat/nexus-profile-integration@10d1f348fd4c6ddbb5319d972c71b426e51e574a`.
@@ -22,22 +22,25 @@ Engine, or Guard. **Step 4 is not initiated as coordination/enforcement.**
 
 ### Next pipeline (distinct from Steps 1–9)
 
-These etapas are not a renumbering of historical Steps 1–9.
+These slices are not a renumbering of historical Steps 1–9. E0 is this
+documentation pin only; E1–E7 and B1–B4 are registered, not implemented here.
 
-1. Etapa 1 — this documentation recenter.
-2. Etapa 2 — after this merge only: the docstring at
-   `integrations/hermes-nexus/__init__.py:29`. Out of this change.
-3. Etapa 3A — only after Etapa 2: observable WRITE∩WRITE, without blocking,
-   RESERVED, leases, Guard, or WRITE×WATCH.
-4. Etapa 3B — only after ACK of 3A. Hermes 0.21.5 does not prove a hook.
-   Etapa 3B: SOUL, installed hermes-nexus plugin.yaml, Hermes skills, and gateway
-   on the install with baseVersion 0.21.5 (commit
-   903a57c540917cedd30c7d971938f1af7bdf60e2, tag null) do not prove a hook for
-   Guard.
-5. Etapa 4 — measure that slice only if real logs exist; otherwise Step 7 stays
-   intact.
+Closed: Pipeline 1 docs · 2 docstring · 3A WRITE∩WRITE · 3B hook gap · 4 inventory.
+Main `44baa8678974614bc6cc4519c71772e6648434e4`. Dispatcher `t_01dc13a8` PASS.
+etapa 4 `NO_COMPARABLE_LOGS` (inventory `t_85a6ae43`; Historical Step 7 remains; no comparison table).
+3B stands: Hermes 0.21.5 does not prove a hook.
 
-3A before 3B. Do not execute 2, 3A, 3B, or 4 here.
+Next slices: E0 (this pin) → E1 WRITE×WATCH observável → E2 docs
+06_SCOPE_IMPACT_CONFLICTS.md one sentence → E3 Step 7 collect-forward log
+contract → E4 plugin install test → E5 Context Pack PROJECT.md+CURRENT_STATUS
+@ 44baa86 → E6 CI leve (`t_a329b8c3`) → E7 reader dirty: live service still 85e511e.
+
+- **B1** Guard / Step 6 — waits proven Hermes hook. FORA until hook: Guard, lock, lease, pre_tool_call, Step 6 enforcement
+- **B2** RESERVED / full Conflict Engine (11) — waits E1 accepted + change semantics; RESERVED stays not_emitted
+- **B3** Project Expert (Step 8) / learning (Step 9) / 24/7 — after E3 has real logs
+- **B4** R1/R2 — OPEN/HIGH; do not close via docs
+
+FORA always this queue: `t_2dd80a60`, hermes update, recopy `~/.hermes`, close R1/R2, third name in provides_tools, service `src/` without contract. WRITE/WATCH do not dispatch cards. Incomplete ≠ safety.
 
 ### Historical pre-acceptance MC10 checkpoint
 
