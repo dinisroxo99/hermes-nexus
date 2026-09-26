@@ -26,7 +26,7 @@ def _tool_exists(ctx, name: str) -> bool:
 
 
 def register(ctx) -> None:
-    """Register exactly two async, read-only tools without contacting Nexus."""
+    """Register two core read-only tools and optional ETS without contacting Nexus."""
     base_url = ctx.get_config("base_url")
     scope_enabled = ctx.get_config("scope_enabled", False)
     if type(scope_enabled) is not bool:
