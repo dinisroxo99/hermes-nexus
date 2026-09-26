@@ -206,6 +206,8 @@ function classifyDocument(relativePath, fileName, containingDirectoryDepth) {
     return DOCUMENT_NAMES.get(fileName);
   }
 
+  if (relativePath === "docs/CURRENT_STATUS.md") return "context";
+
   if (fileName.toLowerCase().endsWith(".md") && isInAdrRoot(relativePath)) {
     return "adr";
   }
