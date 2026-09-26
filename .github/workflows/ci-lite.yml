@@ -100,9 +100,14 @@ jobs:
         run: |
           npm test -- --test-reporter=tap | tee /tmp/ci-tap.log
           TAP=/tmp/ci-tap.log
-          if ! grep -q '# fail 0' "$TAP"; then
-            echo "ERROR: TAP does not contain '# fail 0'"
+          if ! grep -q ' fail 0' "$TAP"; then
+            echo "ERROR: TAP does not contain ' fail 0' (neither # nor ℹ prefix)"
             tail -30 "$TAP"
+            exit 2
+          fi
+          if grep -q ' fail [1-9]' "$TAP"; then
+            echo "ERROR: TAP shows non-zero fail count"
+            grep -E ' fail [0-9]' "$TAP" | tail -1
             exit 2
           fi
           skipped_titles=(
@@ -122,10 +127,14 @@ jobs:
             "real oversized provider output is rejected and container state disposed"
           )
           for title in "${skipped_titles[@]}"; do
-            if ! grep -F " - $title # SKIP" "$TAP" >/dev/null; then
+            if grep -F "✔ $title" "$TAP" >/dev/null; then
+              echo "ERROR: $title ran (✔ without # SKIP) instead of skipped"
+              exit 2
+            fi
+            if ! grep -F "$title" "$TAP" | grep -q '# SKIP'; then
               echo "ERROR: missing skip line for: $title"
               grep -F "$title" "$TAP" || echo "  (no mention of title at all)"
               exit 2
             fi
           done
-          echo "All 14 Serena/Docker tests confirmed skipped (via ' - <title> # SKIP') and # fail 0 present in TAP"
+          echo "All 14 Serena/Docker tests confirmed skipped (via title on line with # SKIP; accepts real ﹣ prefix + duration) and fail 0 present (accepts ℹ or #)"
