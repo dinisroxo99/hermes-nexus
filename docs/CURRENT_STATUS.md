@@ -35,6 +35,10 @@ orchestrator, architect, implementer, tester, reviewer and documenter; default
 and workspace-manager are excluded. Two-tool publication and six-profile H-only
 offline adoption are accepted as recorded in that installation contract. ETS is
 read-only classification, not Step 4, Conflict Engine or Guard.
+Etapa 3B: SOUL, installed hermes-nexus plugin.yaml, Hermes skills, and gateway
+on the install with baseVersion 0.21.5 (commit
+903a57c540917cedd30c7d971938f1af7bdf60e2, tag null) do not prove a hook for
+Guard.
 Nine legacy Project Map tools remain deferred (LEGACY/DEFERRED), not a blocker
 for the two-tool path.
 **G1 remains REJECTED; R1/R2 remain OPEN / HIGH**, HIGH severity and
