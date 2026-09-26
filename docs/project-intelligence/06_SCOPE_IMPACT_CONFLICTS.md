@@ -265,6 +265,10 @@ impact computation, persistent Impact caches or coverage guarantees. The remaini
 sections of this document describe planned Step 4 and conflict design, not current
 MC10 behavior.
 
+WRITE∩WRITE (`write-write-intersection-v1`) and WRITE×WATCH
+(`write-watch-intersection-v1`) are observation, an observed result sets
+`emptyIsNotNoConflict` to true, and they are not the Conflict Engine.
+
 ## Scope levels
 
 ### WRITE
