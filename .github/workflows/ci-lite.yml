@@ -1,0 +1,95 @@
+name: CI Lite
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  ci-lite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned Python deps
+        run: pip install --disable-pip-version-check httpx==0.28.1 httpcore==1.0.9
+
+      - name: Run plugin unittests (discover filtered, exclude host-hermes tests)
+        run: |
+          cat > /tmp/ci_plugin_filter.py << 'PYEOF'
+          import sys
+          import unittest
+
+          def get_all_test_names(suite):
+              names = []
+              for test in suite:
+                  if isinstance(test, unittest.TestSuite):
+                      names.extend(get_all_test_names(test))
+                  else:
+                      names.append(test.id())
+              return names
+
+          def filter_excluded(suite, excluded):
+              new_suite = unittest.TestSuite()
+              for test in suite:
+                  if isinstance(test, unittest.TestSuite):
+                      fs = filter_excluded(test, excluded)
+                      if fs.countTestCases() > 0:
+                          new_suite.addTest(fs)
+                  else:
+                      tid = test.id()
+                      if not any(ex in tid for ex in excluded):
+                          new_suite.addTest(test)
+              return new_suite
+
+          loader = unittest.TestLoader()
+          suite = loader.discover('tests/hermes_nexus_plugin', pattern='test_*.py')
+          all_names = get_all_test_names(suite)
+
+          excluded = [
+              "test_preflight_uses_actual_hermes_merged_scope_semantics",
+              "test_successful_registration_is_confined_to_architect_merged_scope"
+          ]
+
+          for ex in excluded:
+              if not any(ex in n for n in all_names):
+                  print(f"ERROR: excluded test method {ex} is MISSING from discovery", file=sys.stderr)
+                  sys.exit(2)
+
+          print(f"Discovery found {len(all_names)} tests (including the {len(excluded)} to be excluded)")
+          filtered = filter_excluded(suite, excluded)
+          print(f"Running {filtered.countTestCases()} tests after filter")
+          runner = unittest.TextTestRunner(verbosity=1, stream=sys.stdout, failfast=False)
+          result = runner.run(filtered)
+          if not result.wasSuccessful():
+              sys.exit(1)
+          print("Plugin unittests passed (filtered)")
+          PYEOF
+          PYTHONDONTWRITEBYTECODE=1 python -B -c "
+          import textwrap
+          with open('/tmp/ci_plugin_filter.py') as f:
+              src = f.read()
+          exec(textwrap.dedent(src))
+          "
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: npm ci
+        run: npm ci
+
+      - name: Run npm test (Serena/Docker tests must stay skipped)
+        env:
+          SERENA_DOCKER_TESTS: ''
+          SERENA_PYTHON_IMAGE: ''
+        run: npm test -- --test-reporter=tap
