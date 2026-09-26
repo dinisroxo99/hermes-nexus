@@ -30,6 +30,10 @@ These etapas are not a renumbering of historical Steps 1–9.
 3. Etapa 3A — only after Etapa 2: observable WRITE∩WRITE, without blocking,
    RESERVED, leases, Guard, or WRITE×WATCH.
 4. Etapa 3B — only after ACK of 3A. Hermes 0.21.5 does not prove a hook.
+   Etapa 3B: SOUL, installed hermes-nexus plugin.yaml, Hermes skills, and gateway
+   on the install with baseVersion 0.21.5 (commit
+   903a57c540917cedd30c7d971938f1af7bdf60e2, tag null) do not prove a hook for
+   Guard.
 5. Etapa 4 — measure that slice only if real logs exist; otherwise Step 7 stays
    intact.
 
