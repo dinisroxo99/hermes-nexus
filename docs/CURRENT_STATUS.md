@@ -10,8 +10,8 @@ implementation plan or a live view of another checkout.
 The documentation gate lives in the orchestrator and reviewer SOUL.
 
 Current repository revision (2026-09-26):
-`9fdcae32479ca688d49aab7c85ad83e704636ced` (tree
-`1ff8944347df384674b6a1d675afc8226a5297ce`).
+`44baa8678974614bc6cc4519c71772e6648434e4` (tree
+`c7bb391849cc4962b4b8202809040d76bbc7f972`).
 Plugin/caller pin: `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776` (tree
 `8e97d59c406e9a1e195fcff4213c941d4f07f5de`; merge of the gated ETS caller).
 Service pin: `85e511e7f65061cda861c98cd1acfbe9d79526b1` (tree
@@ -39,6 +39,10 @@ Etapa 3B: SOUL, installed hermes-nexus plugin.yaml, Hermes skills, and gateway
 on the install with baseVersion 0.21.5 (commit
 903a57c540917cedd30c7d971938f1af7bdf60e2, tag null) do not prove a hook for
 Guard.
+Main `44baa8678974614bc6cc4519c71772e6648434e4`. Dispatcher `t_01dc13a8` PASS.
+Pipeline 1 docs · 2 docstring · 3A WRITE∩WRITE · 3B hook gap · 4 inventory is closed.
+etapa 4 `NO_COMPARABLE_LOGS` (inventory `t_85a6ae43`; Historical Step 7 remains; no comparison table).
+3B stands: Hermes 0.21.5 does not prove a hook.
 Nine legacy Project Map tools remain deferred (LEGACY/DEFERRED), not a blocker
 for the two-tool path.
 **G1 remains REJECTED; R1/R2 remain OPEN / HIGH**, HIGH severity and
@@ -190,6 +194,9 @@ Following the [active implementation plan](../.hermes/plans/2026-09-17_002050-pr
 **Effective Task Scope (Step 4, not initiated as coordination/enforcement)** → Conflict Engine →
 Hermes Guard integration → Telemetry / validated project history → Project Expert
 → Learning / evaluation.
+
+Next slices E0–E7 and holds B1–B4 are registered on that plan, not implemented
+here. WRITE/WATCH do not dispatch cards.
 
 Context selection and the now separate Impact v2 operation are distinct;
 workspace matching is not effective scope or conflict analysis. Hermes retains profiles, agents, models/providers,
