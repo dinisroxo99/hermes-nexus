@@ -4,12 +4,20 @@ observe_write_write_intersection(left, right) -> dict
 Pure function. No Git, no network, no Nexus, no side-effects.
 Does not mutate inputs.
 
-Contract rules (exact):
-- available + writeExhaustive + labels write/watch => compute exact intersection of write[].path
-- result has "paths" (may be []), "writeExhaustive", "labelsEmitted", "emptyIsNotNoConflict": true
-- [] case still emits "paths": [] + emptyIsNotNoConflict (emptyIsNotNoConflict)
-- incomplete/rejected/not_evaluated (or non-qualifying) => no "paths" key
-- never emit conflict/lock/lease keys
+Contract (ETAPA3A_CONTRACT):
+- Accepted side only with: status="available", writeExhaustive=true, labelsEmitted exactly ["write","watch"],
+  valid "write" list, "revisionBinding" present, revisionBinding.dirty=false, revisionBinding.isLinkedWorktree=true.
+- No {ok,data} unwrap ever. Any wrapper (ok present) => status="not_evaluated", reason="input_rejected"
+- Compare projectId, revisionBinding.commitSha, revisionBinding.repositoryIdentity (worktreeId is NOT a gate).
+- Success: status="observed", schemaVersion=1, analysisVersion="write-write-intersection-v1",
+  echo identity (projectId + revisionBinding), paths=unique sorted by code point, emptyIsNotNoConflict=true.
+  Never includes conflict/lock/lease.
+- Reject: always status="not_evaluated" + closed "reason", NEVER "paths" key.
+  scope_impact_not_evaluated or input not_evaluated => "input_not_evaluated"
+  wrapper / rejected / bad write => "input_rejected"
+  incomplete / !writeExhaustive => "input_incomplete"
+  projectId differ => "identity_mismatch"
+  commitSha or repositoryIdentity differ => "revision_mismatch"
 """
 
 from __future__ import annotations
@@ -18,14 +26,9 @@ from copy import deepcopy
 from typing import Any
 
 
-def _extract(obj: Any, label: str) -> dict[str, Any]:
-    """Return inner data if wrapper with ok=true+data, else deepcopy if dict."""
-    if isinstance(obj, dict):
-        if obj.get("ok") is True and isinstance(obj.get("data"), dict):
-            return deepcopy(obj["data"])
-        if obj.get("schemaVersion") == 1:
-            return deepcopy(obj)
-    return deepcopy(obj) if isinstance(obj, dict) else {}
+def _is_wrapper(obj: Any) -> bool:
+    """Any presence of ok key means wrapper; treat as input_rejected (no unwrap)."""
+    return isinstance(obj, dict) and "ok" in obj
 
 
 def _get_write_paths(scope: dict[str, Any]) -> list[str]:
@@ -39,52 +42,76 @@ def _get_write_paths(scope: dict[str, Any]) -> list[str]:
     return paths
 
 
-def _qualifies(left_or_right: dict[str, Any]) -> bool:
-    if not isinstance(left_or_right, dict):
+def _qualifies(s: dict[str, Any]) -> bool:
+    if not isinstance(s, dict):
         return False
-    if left_or_right.get("status") != "available":
+    if s.get("status") != "available":
         return False
-    if left_or_right.get("writeExhaustive") is not True:
+    if s.get("writeExhaustive") is not True:
         return False
-    labels = left_or_right.get("labelsEmitted") or []
-    if "write" not in labels or "watch" not in labels:
+    labels = s.get("labelsEmitted") or []
+    if labels != ["write", "watch"]:
+        return False
+    if not isinstance(s.get("write"), list):
+        return False
+    rb = s.get("revisionBinding") or {}
+    if rb.get("dirty") is not False:
+        return False
+    if rb.get("isLinkedWorktree") is not True:
+        return False
+    if "revisionBinding" not in s:
         return False
     return True
 
 
 def observe_write_write_intersection(left: Any, right: Any) -> dict[str, Any]:
-    """Return intersection observation or fail shape. Never mutates inputs."""
-    l = _extract(left, "left")
-    r = _extract(right, "right")
+    """Return observed intersection or not_evaluated with closed reason. Never mutates, no unwrap."""
+    if _is_wrapper(left) or _is_wrapper(right):
+        return {"status": "not_evaluated", "reason": "input_rejected"}
+
+    l = deepcopy(left) if isinstance(left, dict) else {}
+    r = deepcopy(right) if isinstance(right, dict) else {}
+
+    # map scope_impact_not_evaluated explicitly; direct not_evaluated
+    for side in (l, r):
+        if side.get("status") == "not_evaluated":
+            return {"status": "not_evaluated", "reason": "input_not_evaluated"}
+        if side.get("error") == "scope_impact_not_evaluated":
+            return {"status": "not_evaluated", "reason": "input_not_evaluated"}
+
+    # identity gates (projectId, commitSha, repositoryIdentity)
+    if l.get("projectId") != r.get("projectId"):
+        return {"status": "not_evaluated", "reason": "identity_mismatch"}
+
+    lb = l.get("revisionBinding") or {}
+    rb = r.get("revisionBinding") or {}
+    if lb.get("commitSha") != rb.get("commitSha") or lb.get("repositoryIdentity") != rb.get("repositoryIdentity"):
+        return {"status": "not_evaluated", "reason": "revision_mismatch"}
 
     if not _qualifies(l) or not _qualifies(r):
-        l_status = l.get("status") if isinstance(l, dict) else None
-        r_status = r.get("status") if isinstance(r, dict) else None
-        l_fs = l.get("findingState") if isinstance(l, dict) else None
-        r_fs = r.get("findingState") if isinstance(r, dict) else None
-        if l_status == "not_evaluated" or r_status == "not_evaluated" or l_fs == "not_evaluated" or r_fs == "not_evaluated":
-            status = "not_evaluated"
-        elif l_status == "incomplete" or r_status == "incomplete":
-            status = "incomplete"
-        else:
-            status = "rejected"
-        res: dict[str, Any] = {"status": status, "writeExhaustive": False}
-        err = (l.get("error") if isinstance(l, dict) else None) or (r.get("error") if isinstance(r, dict) else None)
-        if err:
-            res["error"] = err
-        return res
+        ls = l.get("status")
+        rs = r.get("status")
+        l_we = l.get("writeExhaustive") is True
+        r_we = r.get("writeExhaustive") is True
+        if ls == "incomplete" or rs == "incomplete" or not l_we or not r_we:
+            return {"status": "not_evaluated", "reason": "input_incomplete"}
+        return {"status": "not_evaluated", "reason": "input_rejected"}
 
     left_paths = _get_write_paths(l)
     right_set = set(_get_write_paths(r))
-    inter_paths: list[str] = [p for p in left_paths if p in right_set]
+    inter_paths: list[str] = sorted(p for p in left_paths if p in right_set)
 
     return {
-        "status": "available",
-        "writeExhaustive": True,
+        "status": "observed",
+        "schemaVersion": 1,
+        "analysisVersion": "write-write-intersection-v1",
+        "projectId": l.get("projectId"),
+        "revisionBinding": lb,
         "labelsEmitted": ["write", "watch"],
+        "writeExhaustive": True,
         "paths": inter_paths,
         "emptyIsNotNoConflict": True,
-        # no conflict/lock/lease keys per contract
+        # no conflict/lock/lease
     }
 
 
