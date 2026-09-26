@@ -64,6 +64,11 @@ jobs:
 
           print(f"Discovery found {len(all_names)} tests (including the {len(excluded)} to be excluded)")
           filtered = filter_excluded(suite, excluded)
+          selected_names = get_all_test_names(filtered)
+          for ex in excluded:
+              if any(ex in n for n in selected_names):
+                  print(f"ERROR: excluded test method {ex} is still SELECTED after filter", file=sys.stderr)
+                  sys.exit(2)
           print(f"Running {filtered.countTestCases()} tests after filter")
           runner = unittest.TextTestRunner(verbosity=1, stream=sys.stdout, failfast=False)
           result = runner.run(filtered)
@@ -92,4 +97,35 @@ jobs:
         env:
           SERENA_DOCKER_TESTS: ''
           SERENA_PYTHON_IMAGE: ''
-        run: npm test -- --test-reporter=tap
+        run: |
+          npm test -- --test-reporter=tap | tee /tmp/ci-tap.log
+          TAP=/tmp/ci-tap.log
+          if ! grep -q '# fail 0' "$TAP"; then
+            echo "ERROR: TAP does not contain '# fail 0'"
+            tail -30 "$TAP"
+            exit 2
+          fi
+          skipped_titles=(
+            "real sandboxed Serena/Pyright discovers Python symbols"
+            "real Pyright resolves cross-file Python definitions and references"
+            "real Docker transport validates and disposes a Python snapshot"
+            "Context Pack consumes real normalized Python evidence without changing source security"
+            "worker rejects commands, incomplete operations and false mounted-source bindings"
+            "real Python evidence retains UTF-16 columns and encoded snapshot paths"
+            "real Python symbol budget reports partial rather than complete evidence"
+            "real Serena accepts uppercase Python suffixes without renaming source paths"
+            "real hostile-worker probes verify semantic container isolation"
+            "real sleeping provider times out and its container is removed"
+            "worker deadline terminates PID 1 before the host deadline"
+            "real missing Pyright fails offline without downloading a replacement"
+            "real provider crash degrades and disposes the sandbox"
+            "real oversized provider output is rejected and container state disposed"
+          )
+          for title in "${skipped_titles[@]}"; do
+            if ! grep -F " - $title # SKIP" "$TAP" >/dev/null; then
+              echo "ERROR: missing skip line for: $title"
+              grep -F "$title" "$TAP" || echo "  (no mention of title at all)"
+              exit 2
+            fi
+          done
+          echo "All 14 Serena/Docker tests confirmed skipped (via ' - <title> # SKIP') and # fail 0 present in TAP"
