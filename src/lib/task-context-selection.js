@@ -92,7 +92,7 @@ export function selectTaskContext(request, { sourceFiles, graph = { nodes: [], e
   });
   const documentItems = documents.filter((doc) => {
     if (!byPath.has(doc.path) || typeof doc.title !== "string" || doc.title.length > 1024) return false;
-    if (["PROJECT.md", "AGENTS.md", "CONTEXT.md"].includes(doc.path)) return true;
+    if (["PROJECT.md", "AGENTS.md", "CONTEXT.md", "docs/CURRENT_STATUS.md"].includes(doc.path)) return true;
     if (explicit(doc.path)) return true;
     if (doc.kind === "adr") return lexical(`${doc.path} ${doc.title}`);
     const directory = path.posix.dirname(doc.path);

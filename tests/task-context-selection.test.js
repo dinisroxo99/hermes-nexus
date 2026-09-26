@@ -69,3 +69,37 @@ test("section truncation distinguishes exact limit from actual omission", async 
   assert.equal(select(request, { sourceFiles }).files.truncated, false);
   assert.equal(select(request, { sourceFiles: [...sourceFiles, { path: "src/b.ts", text: "b" }] }).files.truncated, true);
 });
+
+test("context pack at 44baa86 includes PROJECT.md and docs/CURRENT_STATUS.md", async () => {
+  const { normalizeTaskContextRequest, selectTaskContext } = await api();
+  const { tmpdir } = await import("node:os");
+  const icmMod = await import("../src/lib/icm-documents.js");
+  const { buildIcmDocumentIndex } = icmMod;
+
+  const sourceFiles = [
+    { path: "PROJECT.md", text: "# Hermes Nexus\n" },
+    { path: "docs/CURRENT_STATUS.md", text: "# Current status\n" },
+    { path: "src/one.ts", text: "export class One {}\n" }
+  ];
+  const icm = buildIcmDocumentIndex({ name: "fixture", absolutePath: tmpdir(), relativePath: "." }, { sourceFiles, maxDocuments: 50 });
+
+  const request = normalizeTaskContextRequest({ projectId: "PrJ_Context", task: { title: "Inspect pin", description: "bounded pack" } });
+  const sections = selectTaskContext(request, { sourceFiles, graph: { nodes: [], edges: [] }, icm });
+  const pack = { schemaVersion: 1, analysisVersion: "task-context-v1", revision: { status: "available", commitSha: "44baa8678974614bc6cc4519c71772e6648434e4", dirty: false }, sections };
+
+  assert.equal(pack.revision.commitSha, "44baa8678974614bc6cc4519c71772e6648434e4");
+  const docPaths = pack.sections.documents.items.map((d) => d.path);
+  assert.ok(docPaths.includes("PROJECT.md"), "documents must include PROJECT.md");
+  assert.ok(docPaths.includes("docs/CURRENT_STATUS.md"), "documents must include docs/CURRENT_STATUS.md");
+
+  // negative: omit docs/CURRENT_STATUS.md
+  const sourceFilesNo = [
+    { path: "PROJECT.md", text: "# Hermes Nexus\n" },
+    { path: "src/one.ts", text: "export class One {}\n" }
+  ];
+  const icmNo = buildIcmDocumentIndex({ name: "fixture", absolutePath: tmpdir(), relativePath: "." }, { sourceFiles: sourceFilesNo, maxDocuments: 50 });
+  const sectionsNo = selectTaskContext(request, { sourceFiles: sourceFilesNo, graph: { nodes: [], edges: [] }, icm: icmNo });
+  const docPathsNo = sectionsNo.documents.items.map((d) => d.path);
+  assert.ok(!docPathsNo.includes("docs/CURRENT_STATUS.md"), "documents must not include docs/CURRENT_STATUS.md when absent from sources");
+  assert.ok(docPathsNo.includes("PROJECT.md"), "documents must still include PROJECT.md");
+});

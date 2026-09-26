@@ -84,6 +84,8 @@ references or basename conventions and are labelled heuristic. Root canonical
 documents remain available; localized documents follow task/workspace ancestry;
 ADRs need explicit or lexical relevance. This is not a coverage guarantee.
 
+When the bounded source snapshot contains `docs/CURRENT_STATUS.md`, task-context selection includes that exact path with the root canonical documents. Absence does not invent the path. No other `CURRENT_STATUS.md` path is canonical.
+
 ### Versioned output and provenance
 
 The pack contains `schemaVersion: 1`, `analysisVersion: "task-context-v1"`,
