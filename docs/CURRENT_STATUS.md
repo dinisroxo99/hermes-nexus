@@ -87,6 +87,7 @@ Step 4, Conflict Engine, Guard, legacy tools or extra documentation work.
 Incomplete / partial / unsupported / unavailable / `not_evaluated` ≠ safety.
 Test candidates ≠ results. Do not invent `dirty: false` or opaque IDs.
 The service revision reader no longer treats untracked `__pycache__/` and `*.pyc` as dirty; other untracked paths and all tracked dirt still count; `dirty: false` is never invented.
+D2 aligns the repository JavaScript and Python dirty readers to keep leading-space paths dirty, omit only eligible untracked exact `__pycache__` segments or `*.pyc`/`*.pyo` basenames, and reject malformed porcelain without inventing a clean result (JavaScript `dirty: null`; Python `not_evaluated` without `dirty`), without updating the live service.
 When obtaining ETS: Context, then Impact and ETS with `includeTests` true;
 standalone Impact keeps the tool default (omitted ≠ true). Byte reviews of
 those six copies recorded APPROVE with 0 material findings. Orchestrator card

@@ -41,7 +41,9 @@ export function readProjectRevision(project, options = {}) {
       const ref = run(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
       if (!ref.error || ref.error.status !== 1) return result;
     }
-    const status = required(["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none"]);
+    const statusRes = run(["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none"]);
+    if (statusRes.error) throw statusRes.error;
+    const status = statusRes.output; // raw porcelain v1 -z; required() trimming kept only for metadata
     Object.assign(result, {
       status: head.error ? "unborn" : "available",
       commitSha: head.error ? null : head.output.trim(), branch, dirty: porcelainIndicatesDirty(status),
@@ -118,40 +120,57 @@ function porcelainIndicatesDirty(statusText) {
   if (!statusText || statusText.length === 0) {
     return false;
   }
+  if (!statusText.endsWith("\0")) {
+    throw new Error("malformed porcelain: missing final NUL");
+  }
   const tokens = statusText.split("\0").filter((t) => t.length > 0);
   let i = 0;
+  let dirty = false;
   while (i < tokens.length) {
     const tok = tokens[i];
     if (tok.length < 2) {
-      i++;
-      continue;
+      throw new Error("malformed porcelain: short record");
+    }
+    if (tok[2] !== " ") {
+      throw new Error("malformed porcelain: missing separator");
     }
     const xy = tok.slice(0, 2);
-    let path = tok.slice(2).trimStart();
+    const path = tok.slice(3); // exactly after structural separator at offset 2; no trimStart, preserve leading U+0020 in pathname if present
+    if (path.length === 0) {
+      throw new Error("malformed porcelain: empty pathname");
+    }
     i++;
     const x = xy[0];
     const y = xy[1];
     if (x === "R" || x === "C" || y === "R" || y === "C") {
-      // rename/copy consumes two paths (per porcelain v1 -z)
+      // rename/copy consumes two paths (per porcelain v1 -z); validate second present
       if (i < tokens.length) {
+        const second = tokens[i];
+        if (second.length === 0) {
+          throw new Error("truncated rename/copy");
+        }
         i++;
+      } else {
+        throw new Error("truncated rename/copy");
       }
     }
     if (xy === "??" && isOmittedUntrackedBytecode(path)) {
       continue;
     }
-    return true;
+    dirty = true;
+    // continue full scan; malformed after dirty entry must still fail (no early return)
   }
-  return false;
+  return dirty;
 }
 
 function isOmittedUntrackedBytecode(pathname) {
-  if (!pathname) return false;
-  // split segments on / and \ ; exact == for __pycache__ segment, endsWith for .pyc basename. case sensitive.
+  if (!pathname || pathname[0] === " ") return false;
+  // split segments on / and \\ ; exact == for __pycache__ segment, endsWith for .pyc/.pyo basename. case sensitive.
+  // leading space in retained pathname (i.e. untracked filename begins with space) makes ineligible for omission
   const segments = pathname.split(/[/\\]/).filter((s) => s.length > 0);
   if (segments.some((s) => s === "__pycache__")) {
     return true;
   }
   const basename = segments[segments.length - 1] || "";
-  return basename.endsWith(".pyc");
+  return basename.endsWith(".pyc") || basename.endsWith(".pyo");
 }

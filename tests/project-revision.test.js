@@ -59,6 +59,34 @@ test("revision distinguishes unborn, non-Git, corrupt and unavailable repositori
     assert.equal(revision.dirty, null);
     assert.equal(JSON.stringify(revision).includes("sensitive"), false);
   }
+
+  // D2: extend with status-output injection for x\0 and other structural failures.
+  // Must get unavailable/dirty:null (throw to catch before assign), never fabricate clean false.
+  // Use existing readProjectRevision execFileSync seam.
+  const f2 = gitFixture(t);
+  const badStatus = (badOut) => read(f2.project, {
+    execFileSync: (command, args, options) => {
+      if (args.includes("status")) {
+        return badOut;
+      }
+      return execFileSync(command, args, options);
+    }
+  });
+  let r = badStatus("x\0");
+  assert.equal(r.status, "unavailable");
+  assert.equal(r.dirty, null);
+  r = badStatus("R  old\0"); // truncated paired path
+  assert.equal(r.status, "unavailable");
+  assert.equal(r.dirty, null);
+  r = badStatus(" M foo\0x\0"); // malformed after dirtying entry
+  assert.equal(r.status, "unavailable");
+  assert.equal(r.dirty, null);
+  r = badStatus("?? foo"); // missing final NUL
+  assert.equal(r.status, "unavailable");
+  assert.equal(r.dirty, null);
+  r = badStatus("??\0"); // empty path
+  assert.equal(r.status, "unavailable");
+  assert.equal(r.dirty, null);
 });
 
 test("revision bounds subprocesses and ignores inherited Git location overrides", async (t) => {
@@ -154,4 +182,106 @@ test("revision omits untracked __pycache__/ and *.pyc from dirty (other untracke
   // clean tree -> false
   f = gitFixture(t);
   assert.equal(read(f.project).dirty, false);
+
+  // D2: extend with mandatory cases 1-3/5, .pyo, leading-space variants (via exec seam for path space),
+  // case/suffix boundaries, rename/copy and mixed-record preservation. (no export of privates)
+  // 1. normal untracked -> dirty true
+  f = gitFixture(t);
+  let rev = read(f.project, {
+    execFileSync: (command, args, options) => {
+      if (args.includes("status")) {
+        return "?? src/business.py\0";
+      }
+      return execFileSync(command, args, options);
+    }
+  });
+  assert.equal(rev.dirty, true);
+
+  // 2. untracked pycache/pyc omitted -> dirty false
+  f = gitFixture(t);
+  rev = read(f.project, {
+    execFileSync: (command, args, options) => {
+      if (args.includes("status")) return "?? __pycache__/cached.pyc\0";
+      return execFileSync(command, args, options);
+    }
+  });
+  assert.equal(rev.dirty, false);
+
+  // 3. leading space on pycache path -> dirty true (not eligible for omit)
+  f = gitFixture(t);
+  rev = read(f.project, {
+    execFileSync: (command, args, options) => {
+      if (args.includes("status")) return "??  __pycache__/business.py\0";
+      return execFileSync(command, args, options);
+    }
+  });
+  assert.equal(rev.dirty, true);
+
+  // .pyo without leading space omitted
+  f = gitFixture(t);
+  rev = read(f.project, {
+    execFileSync: (command, args, options) => {
+      if (args.includes("status")) return "?? mod.pyo\0";
+      return execFileSync(command, args, options);
+    }
+  });
+  assert.equal(rev.dirty, false);
+
+  // leading-space .pyo -> dirty true
+  f = gitFixture(t);
+  rev = read(f.project, {
+    execFileSync: (command, args, options) => {
+      if (args.includes("status")) return "??  mod.pyo\0";
+      return execFileSync(command, args, options);
+    }
+  });
+  assert.equal(rev.dirty, true);
+
+  // case/suffix boundaries: .pyc.bak dirty, __Pycache__ (case) dirty
+  f = gitFixture(t);
+  rev = read(f.project, {
+    execFileSync: (command, args, options) => {
+      if (args.includes("status")) return "?? file.pyc.bak\0";
+      return execFileSync(command, args, options);
+    }
+  });
+  assert.equal(rev.dirty, true);
+
+  f = gitFixture(t);
+  rev = read(f.project, {
+    execFileSync: (command, args, options) => {
+      if (args.includes("status")) return "?? Foo/__Pycache__/a.txt\0";
+      return execFileSync(command, args, options);
+    }
+  });
+  assert.equal(rev.dirty, true);
+
+  // tracked + omitted still dirty (5)
+  f = gitFixture(t);
+  rev = read(f.project, {
+    execFileSync: (command, args, options) => {
+      if (args.includes("status")) return " M tracked.pyc\0?? mod.pyo\0";
+      return execFileSync(command, args, options);
+    }
+  });
+  assert.equal(rev.dirty, true);
+
+  // rename/copy with paired + following omitted
+  f = gitFixture(t);
+  rev = read(f.project, {
+    execFileSync: (command, args, options) => {
+      if (args.includes("status")) return "R  old.ts\0new.ts\0?? __pycache__/x.pyc\0";
+      return execFileSync(command, args, options);
+    }
+  });
+  assert.equal(rev.dirty, true);
+
+  f = gitFixture(t);
+  rev = read(f.project, {
+    execFileSync: (command, args, options) => {
+      if (args.includes("status")) return "C  old\0new\0";
+      return execFileSync(command, args, options);
+    }
+  });
+  assert.equal(rev.dirty, true);
 });
