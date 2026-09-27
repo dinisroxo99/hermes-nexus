@@ -1,6 +1,8 @@
-"""In-memory tests for hermes-nexus plugin install copy (flat six files) per E4 contract.
+"""In-memory tests for hermes-nexus plugin install copy (flat six-file base) per E4 contract.
 
-Copy exactly the documented six into tempfile.TemporaryDirectory()/hermes-nexus/ (flat).
+Complete current registration fixture = six-file BASE plus collect_forward_log.py.
+Copy exactly the base six (DOCUMENTED as BASE_SIX) into tempfile.TemporaryDirectory()/hermes-nexus/ (flat).
+The dedicated six-file test remains a base-subset assertion.
 Load register(ctx) from the copied __init__.py via spec_from_file_location using module name
 hermes_nexus_install_copy_test (with submodule_search_locations for relative imports).
 Probe ctx implements get_config / has_registered_tool / register_tool and has NO _manager attr.
@@ -27,7 +29,7 @@ from typing import Any
 
 SOURCE_DIR = Path(__file__).parents[2] / "integrations" / "hermes-nexus"
 
-DOCUMENTED_SIX = [
+BASE_SIX = [
     "plugin.yaml",
     "__init__.py",
     "schemas.py",
@@ -37,9 +39,9 @@ DOCUMENTED_SIX = [
 ]
 
 
-def _copy_six(dest: Path) -> None:
+def _copy_base_six(dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
-    for fname in DOCUMENTED_SIX:
+    for fname in BASE_SIX:
         src = SOURCE_DIR / fname
         if not src.exists():
             raise FileNotFoundError(f"documented source missing: {src}")
@@ -78,15 +80,15 @@ class ProbeCtx:
 
 
 class PluginInstallCopyTests(unittest.TestCase):
-    def test_install_copy_contains_exactly_documented_six_files(self) -> None:
+    def test_copy_contains_exactly_six_base_files(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             dest = Path(td) / "hermes-nexus"
-            _copy_six(dest)
+            _copy_base_six(dest)
             present = sorted(p.name for p in dest.iterdir() if p.is_file())
-            self.assertEqual(present, sorted(DOCUMENTED_SIX))
+            self.assertEqual(present, sorted(BASE_SIX))
             # exactly six, flat, no extras, no subdirs created by copy
             self.assertEqual(len([p for p in dest.iterdir()]), 6)
-            for fname in DOCUMENTED_SIX:
+            for fname in BASE_SIX:
                 self.assertTrue((dest / fname).is_file())
 
     def _load_register_from_copy(self, copy_root: Path):
@@ -107,7 +109,7 @@ class PluginInstallCopyTests(unittest.TestCase):
     def test_register_from_install_copy_when_scope_enabled_false(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             dest = Path(td) / "hermes-nexus"
-            _copy_six(dest)
+            _copy_base_six(dest)
             copy2(SOURCE_DIR / "collect_forward_log.py", dest / "collect_forward_log.py")
             plugin = self._load_register_from_copy(dest)
             ctx = ProbeCtx(scope_enabled=False)
@@ -123,7 +125,7 @@ class PluginInstallCopyTests(unittest.TestCase):
     def test_register_from_install_copy_when_scope_enabled_true(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             dest = Path(td) / "hermes-nexus"
-            _copy_six(dest)
+            _copy_base_six(dest)
             copy2(SOURCE_DIR / "collect_forward_log.py", dest / "collect_forward_log.py")
             plugin = self._load_register_from_copy(dest)
             ctx = ProbeCtx(scope_enabled=True)
