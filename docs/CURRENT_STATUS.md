@@ -9,22 +9,35 @@ implementation plan or a live view of another checkout.
 
 The documentation gate lives in the orchestrator and reviewer SOUL.
 
-Current repository revision (2026-09-27):
-`c7aaf44ed2f407b4941b020160ccf1178f36eb69` (merge of PR #24).
-Plugin/caller pin: `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776` (tree
+Current repository revision / `origin/main` (2026-09-27):
+`75e0079489d3966548f3d70bd571419d4a6b13b7` (merge of PR #27; tree
+`d09d905194a656fd66f5e632ef3538ca1cc2200a`). After accepted human cutover
+(2026-09-27), this SHA is also the live service revision.
+Plugin/caller pin remains `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776` (tree
 `8e97d59c406e9a1e195fcff4213c941d4f07f5de`; merge of the gated ETS caller).
-Service pin: `85e511e7f65061cda861c98cd1acfbe9d79526b1` (tree
-`6f96db4a43043764f266920872a844825bb59482`). These three SHAs are not
-interchangeable even though `85e511e7f65061cda861c98cd1acfbe9d79526b1` is an
-ancestor of `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776` and
-`6ebb7aaa7ae7027c3e590a51bdbf5b5935651776` is an ancestor of
-`c7aaf44ed2f407b4941b020160ccf1178f36eb69`. Composer `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` and caller
+Live service cwd is `/home/dinis/projects/hermes-nexus-service` (not the human
+checkout), detached HEAD `75e0079489d3966548f3d70bd571419d4a6b13b7`, user unit
+`hermes-nexus.service` ActiveState=active (operator record MainPID=16594).
+Operator-accepted GET `http://127.0.0.1:8770/api/health` → 200, `ok`,
+`data.status` ok; `/api/health` still has no SHA field (expected). Revision
+proof is that cwd HEAD, not health. This page does not rerun that probe and
+does not invent `dirty: false`. Untracked `__pycache__` is not Nexus dirty.
+`85e511e7f65061cda861c98cd1acfbe9d79526b1` (tree
+`6f96db4a43043764f266920872a844825bb59482`) is the **rollback pin**, not
+current live state: restore by `checkout --detach` that SHA in the service
+worktree plus a human restart. These identities are not interchangeable even
+though `85e511e7f65061cda861c98cd1acfbe9d79526b1` is an ancestor of
+`6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`, that plugin pin is an ancestor of
+`c7aaf44ed2f407b4941b020160ccf1178f36eb69` (PR #24), and PR #24 is an ancestor
+of `75e0079489d3966548f3d70bd571419d4a6b13b7`. Composer `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` and caller
 `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb` are ancestors of the plugin pin.
 The previous public-docs checkpoint / closed pipeline
 `44baa8678974614bc6cc4519c71772e6648434e4` (2026-09-26, PR #16) is a historical
 ancestor of this checkout, not current main. The earlier public-docs checkpoint
 `725729f4d9d78e669dcd74d7cdb08210c8828b14` (main merge
-`ef32c8c9c721e251a53240c264e315ab42817bb7`) is also an ancestor.
+`ef32c8c9c721e251a53240c264e315ab42817bb7`) is also an ancestor. The E8
+recenter `c7aaf44ed2f407b4941b020160ccf1178f36eb69` is likewise an ancestor,
+not current main.
 Step 3 was independently accepted at historical SHA
 `4d8d23e564e355d84916b93d890762ac0c7498ee`, an ancestor of this candidate.
 **Steps 1, 2, 2.5 and 3 are complete. Step 4 is NOT INITIATED as coordination/enforcement.**
@@ -45,7 +58,7 @@ on the install with baseVersion 0.21.5 (commit
 Guard.
 Closed-pipeline Main `44baa8678974614bc6cc4519c71772e6648434e4`. Dispatcher `t_01dc13a8` PASS.
 Pipeline 1 docs · 2 docstring · 3A WRITE∩WRITE · 3B hook gap · 4 inventory is closed.
-Current main is `c7aaf44ed2f407b4941b020160ccf1178f36eb69`.
+Current main is `75e0079489d3966548f3d70bd571419d4a6b13b7`.
 etapa 4 `NO_COMPARABLE_LOGS` (inventory `t_85a6ae43`; Historical Step 7 remains; no comparison table).
 3B stands: Hermes 0.21.5 does not prove a hook.
 Nine legacy Project Map tools remain deferred (LEGACY/DEFERRED), not a blocker
@@ -53,8 +66,10 @@ for the two-tool path.
 **G1 remains REJECTED; R1/R2 remain OPEN / HIGH**, HIGH severity and
 LOW/non-blocking development priority, with original R2 MEDIUM retained in
 [known issues](KNOWN_ISSUES.md). This is not production readiness, G1 PASS,
-or a lifecycle fix. This documentation does not claim boot after WSL restart,
-24/7 availability, or that the systemd unit runs this repository HEAD.
+or a lifecycle fix. This documentation does not claim boot after WSL restart
+or 24/7 availability. The live unit's WorkingDirectory is
+`/home/dinis/projects/hermes-nexus-service`, not the human checkout. Health has
+no SHA field; do not treat health as revision proof.
 
 Dated 2026-09-25 handoffs (not live probes in this documentation task) record
 ETS caller exposure on independent pinned plugin copies, not symlinks, with
@@ -83,9 +98,11 @@ authorize; not G1 PASS; Step 4 not initiated.
 Operator-authorized implementer, tester, and reviewer SOUL hashes and inspect live proofs for ETS profile exposure are recorded in [ETS profile exposure](ETS_PROFILE_EXPOSURE.md).
 
 [INFRA-1](hermes-plugin-installation.md#infra-1--approved-implementation-pending)
-current operation is accepted at the service pin, with WSL-restart boot not
-demonstrated and rollback not proved. That acceptance is not liveness, boot
-PASS, 24/7 availability, G1 PASS, or a claim that the unit runs this HEAD.
+current operation is accepted at live service
+`75e0079489d3966548f3d70bd571419d4a6b13b7`, with WSL-restart boot not
+demonstrated and rollback not proved. `85e511e7f65061cda861c98cd1acfbe9d79526b1`
+is the rollback pin only. That acceptance is not liveness, boot PASS, 24/7
+availability, or G1 PASS.
 The old PMW expired at `2026-09-24T11:16:43+01:00`; no extension,
 shutdown or live-state check is demonstrated here.
 
@@ -210,8 +227,10 @@ E0–E7 merged as PRs #17–#24: E0 #17
 `1ed21b597136cd15cc26359ff4af51ae01a17df0`; E7 #24
 `c7aaf44ed2f407b4941b020160ccf1178f36eb69`. E7 `reader_dirty` is plugin Python
 only (`integrations/hermes-nexus/reader_dirty.py` and
-`tests/hermes_nexus_plugin/test_reader_dirty.py` in the PR #24 merge); the live
-process did not change. B1–B4 remain existing holds, not implemented.
+`tests/hermes_nexus_plugin/test_reader_dirty.py` in the PR #24 merge); that merge
+did not by itself change the live process. Accepted cutover 2026-09-27 moved
+live service to `75e0079489d3966548f3d70bd571419d4a6b13b7`; `85e511e` is
+rollback only. B1–B4 remain existing holds, not implemented.
 WRITE/WATCH do not dispatch cards.
 
 Context selection and the now separate Impact v2 operation are distinct;
