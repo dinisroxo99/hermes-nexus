@@ -9,16 +9,20 @@ implementation plan or a live view of another checkout.
 
 The documentation gate lives in the orchestrator and reviewer SOUL.
 
-Current repository revision (2026-09-26):
-`44baa8678974614bc6cc4519c71772e6648434e4` (tree
-`c7bb391849cc4962b4b8202809040d76bbc7f972`).
+Current repository revision (2026-09-27):
+`c7aaf44ed2f407b4941b020160ccf1178f36eb69` (merge of PR #24).
 Plugin/caller pin: `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776` (tree
 `8e97d59c406e9a1e195fcff4213c941d4f07f5de`; merge of the gated ETS caller).
 Service pin: `85e511e7f65061cda861c98cd1acfbe9d79526b1` (tree
 `6f96db4a43043764f266920872a844825bb59482`). These three SHAs are not
-interchangeable. Composer `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` and caller
+interchangeable even though `85e511e7f65061cda861c98cd1acfbe9d79526b1` is an
+ancestor of `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776` and
+`6ebb7aaa7ae7027c3e590a51bdbf5b5935651776` is an ancestor of
+`c7aaf44ed2f407b4941b020160ccf1178f36eb69`. Composer `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` and caller
 `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb` are ancestors of the plugin pin.
-The previous public-docs checkpoint
+The previous public-docs checkpoint / closed pipeline
+`44baa8678974614bc6cc4519c71772e6648434e4` (2026-09-26, PR #16) is a historical
+ancestor of this checkout, not current main. The earlier public-docs checkpoint
 `725729f4d9d78e669dcd74d7cdb08210c8828b14` (main merge
 `ef32c8c9c721e251a53240c264e315ab42817bb7`) is also an ancestor.
 Step 3 was independently accepted at historical SHA
@@ -39,8 +43,9 @@ Etapa 3B: SOUL, installed hermes-nexus plugin.yaml, Hermes skills, and gateway
 on the install with baseVersion 0.21.5 (commit
 903a57c540917cedd30c7d971938f1af7bdf60e2, tag null) do not prove a hook for
 Guard.
-Main `44baa8678974614bc6cc4519c71772e6648434e4`. Dispatcher `t_01dc13a8` PASS.
+Closed-pipeline Main `44baa8678974614bc6cc4519c71772e6648434e4`. Dispatcher `t_01dc13a8` PASS.
 Pipeline 1 docs · 2 docstring · 3A WRITE∩WRITE · 3B hook gap · 4 inventory is closed.
+Current main is `c7aaf44ed2f407b4941b020160ccf1178f36eb69`.
 etapa 4 `NO_COMPARABLE_LOGS` (inventory `t_85a6ae43`; Historical Step 7 remains; no comparison table).
 3B stands: Hermes 0.21.5 does not prove a hook.
 Nine legacy Project Map tools remain deferred (LEGACY/DEFERRED), not a blocker
@@ -195,8 +200,19 @@ Following the [active implementation plan](../.hermes/plans/2026-09-17_002050-pr
 Hermes Guard integration → Telemetry / validated project history → Project Expert
 → Learning / evaluation.
 
-Next slices E0–E7 and holds B1–B4 are registered on that plan, not implemented
-here. WRITE/WATCH do not dispatch cards.
+E0–E7 merged as PRs #17–#24: E0 #17
+`d929a125b6a975c16c5630984c9bc8b835f1d02d`; E1 #18
+`9939c197761e2a0d6c4d11ad6d1feb9c1b04274b`; E2 #19
+`fb98b7e82f97ae3267231d04a8a2517420d0551e`; E3 #20
+`b9dc4b0618cf8b8a9cdd4e575a286e694b33fcb3`; E4 #21
+`fdff6494fa8dc5ee97691b37842cdd0e2669f724`; E5 #22
+`a86ac94fbdf0e8c1c28c52011f4c30bc8743f781`; E6 #23
+`1ed21b597136cd15cc26359ff4af51ae01a17df0`; E7 #24
+`c7aaf44ed2f407b4941b020160ccf1178f36eb69`. E7 `reader_dirty` is plugin Python
+only (`integrations/hermes-nexus/reader_dirty.py` and
+`tests/hermes_nexus_plugin/test_reader_dirty.py` in the PR #24 merge); the live
+process did not change. B1–B4 remain existing holds, not implemented.
+WRITE/WATCH do not dispatch cards.
 
 Context selection and the now separate Impact v2 operation are distinct;
 workspace matching is not effective scope or conflict analysis. Hermes retains profiles, agents, models/providers,
