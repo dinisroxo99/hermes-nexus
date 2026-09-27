@@ -535,10 +535,21 @@ class CallerTests(unittest.TestCase):
             csha = hashlib.sha256(f.read()).hexdigest()
         self.assertEqual(csha, "deba50d7418ccd520655fca1d7e06c75953a8fd30b4961bcdb55174f2949f94f")
         plug_path = PLUGIN_DIR / "plugin.yaml"
-        import yaml
         with open(plug_path) as f:
-            py = yaml.safe_load(f)
-        prov = py.get("provides_tools", [])
+            lines = f.readlines()
+        names = []
+        for i, line in enumerate(lines):
+            if line.strip() == "provides_tools:":
+                for j in range(i + 1, len(lines)):
+                    l = lines[j]
+                    if l.startswith("  - "):
+                        name = l[4:].strip()
+                        if name:
+                            names.append(name)
+                    else:
+                        break
+                break
+        prov = names
         self.assertEqual(prov, ["project_task_context", "project_impact"])
         self.assertEqual(len(prov), 2)
 

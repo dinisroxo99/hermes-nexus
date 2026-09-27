@@ -108,6 +108,7 @@ class PluginInstallCopyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             dest = Path(td) / "hermes-nexus"
             _copy_six(dest)
+            copy2(SOURCE_DIR / "collect_forward_log.py", dest / "collect_forward_log.py")
             plugin = self._load_register_from_copy(dest)
             ctx = ProbeCtx(scope_enabled=False)
             plugin.register(ctx)
@@ -123,6 +124,7 @@ class PluginInstallCopyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             dest = Path(td) / "hermes-nexus"
             _copy_six(dest)
+            copy2(SOURCE_DIR / "collect_forward_log.py", dest / "collect_forward_log.py")
             plugin = self._load_register_from_copy(dest)
             ctx = ProbeCtx(scope_enabled=True)
             plugin.register(ctx)
