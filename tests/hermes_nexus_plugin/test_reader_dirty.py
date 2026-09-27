@@ -225,12 +225,19 @@ class ReadDirtyTests(unittest.TestCase):
             {"porcelain": None, "serviceHasPycacheFilter": False, "linkedWorktree": True},
             {"porcelain": " M x\0", "serviceHasPycacheFilter": False, "linkedWorktree": "yes"},
             # D2 malformed framing / structural (must refuse, no dirty invented)
-            "??\0",  # short or empty path
-            "R  old\0",  # truncated rename/copy paired path
-            " M foo\0x\0",  # malformed after a dirtying entry
-            "?? foo",  # missing final NUL
-            "x\0",  # short record
-            "?? \0",  # empty pathname
+            # wrapped as real obs (reach _classify / read_dirty); reuse _assert_refused
+            {"porcelain": "??\0", "serviceHasPycacheFilter": False, "linkedWorktree": False},  # short or empty path
+            {"porcelain": "R  old\0", "serviceHasPycacheFilter": False, "linkedWorktree": False},  # truncated rename/copy paired path
+            {"porcelain": " M foo\0x\0", "serviceHasPycacheFilter": False, "linkedWorktree": False},  # malformed after a dirtying entry
+            {"porcelain": "?? foo", "serviceHasPycacheFilter": False, "linkedWorktree": False},  # missing final NUL
+            {"porcelain": "x\0", "serviceHasPycacheFilter": False, "linkedWorktree": False},  # short record
+            {"porcelain": "?? \0", "serviceHasPycacheFilter": False, "linkedWorktree": False},  # empty pathname
+            # D2-R1: interior empties as wrapped obs (real parse cases)
+            {"porcelain": "\0", "serviceHasPycacheFilter": False, "linkedWorktree": False},
+            {"porcelain": "\0\0", "serviceHasPycacheFilter": False, "linkedWorktree": False},
+            {"porcelain": "?? mod.pyc\0\0", "serviceHasPycacheFilter": False, "linkedWorktree": False},
+            {"porcelain": "?? src/a.py\0\0?? src/b.py\0", "serviceHasPycacheFilter": False, "linkedWorktree": False},
+            {"porcelain": "R  old\0\0?? mod.pyc\0", "serviceHasPycacheFilter": False, "linkedWorktree": False},
         ]
         for c in cases:
             with self.subTest(c=c):

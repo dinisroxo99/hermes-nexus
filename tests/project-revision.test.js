@@ -87,6 +87,24 @@ test("revision distinguishes unborn, non-Git, corrupt and unavailable repositori
   r = badStatus("??\0"); // empty path
   assert.equal(r.status, "unavailable");
   assert.equal(r.dirty, null);
+
+  // D2-R1: interior empty tokens (after final-NUL only trailing artifact dropped; empties refuse)
+  // must unavailable + dirty null, never invent clean false
+  r = badStatus("\0");
+  assert.equal(r.status, "unavailable");
+  assert.equal(r.dirty, null);
+  r = badStatus("\0\0");
+  assert.equal(r.status, "unavailable");
+  assert.equal(r.dirty, null);
+  r = badStatus("?? mod.pyc\0\0");
+  assert.equal(r.status, "unavailable");
+  assert.equal(r.dirty, null);
+  r = badStatus("?? src/a.py\0\0?? src/b.py\0"); // interior empty between records
+  assert.equal(r.status, "unavailable");
+  assert.equal(r.dirty, null);
+  r = badStatus("R  old\0\0?? mod.pyc\0"); // empty second path for rename (was swallowing)
+  assert.equal(r.status, "unavailable");
+  assert.equal(r.dirty, null);
 });
 
 test("revision bounds subprocesses and ignores inherited Git location overrides", async (t) => {

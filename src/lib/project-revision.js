@@ -123,7 +123,11 @@ function porcelainIndicatesDirty(statusText) {
   if (!statusText.endsWith("\0")) {
     throw new Error("malformed porcelain: missing final NUL");
   }
-  const tokens = statusText.split("\0").filter((t) => t.length > 0);
+  // drop ONLY the trailing split artifact (from final NUL); any remaining empty token
+  // is interior empty / malformed and must be rejected by subsequent checks (short/empty-path etc)
+  // to prevent silent drop that causes invented clean or path-swallow on renames.
+  const raw = statusText.split("\0");
+  const tokens = raw.slice(0, -1);
   let i = 0;
   let dirty = false;
   while (i < tokens.length) {

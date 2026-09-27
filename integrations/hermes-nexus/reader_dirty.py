@@ -45,7 +45,11 @@ def _classify_porcelain(porcelain: str) -> tuple[bool, bool]:
         return False, False
     if not porcelain.endswith("\0"):
         raise ValueError("malformed porcelain: missing final NUL")
-    tokens = [t for t in porcelain.split("\0") if t]
+    # drop ONLY the trailing split artifact (from final NUL); any remaining empty token
+    # is interior empty / malformed and must be rejected by subsequent checks (short/empty-path etc)
+    # to prevent silent drop that causes invented clean or path-swallow on renames.
+    raw = porcelain.split("\0")
+    tokens = raw[:-1] if raw else []
     i = 0
     dirty = False
     omitted = False
