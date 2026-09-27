@@ -74,6 +74,11 @@ Implementation checkpoint: [current verified status](docs/CURRENT_STATUS.md)
 records three distinct SHAs for this checkout, the plugin/caller pin, and the
 service pin. Step 3 was historically accepted at `4d8d23e564e355d84916b93d890762ac0c7498ee`
 and composer at `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` (main merge ff1093e7cfaf447bc063a22b8edaa3feed1e1b6d; legacy feat/787f662 not included).
+Repo main is `c7aaf44ed2f407b4941b020160ccf1178f36eb69`; plugin/caller pin remains
+`6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`; live service pin remains
+`85e511e7f65061cda861c98cd1acfbe9d79526b1`; those three identities are not
+interchangeable. E0–E7 merged as PRs #17–#24; E7 is plugin Python; the live
+service is unchanged; Step 4 enforcement is not started.
 
 - **Complete:** project foundation; Step 1 Project Identity / Revision; Step 2
   Task Context Pack; Step 2.5 Analyzer Provider Layer.

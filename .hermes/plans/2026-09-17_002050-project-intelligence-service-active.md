@@ -2,9 +2,9 @@
 
 ## Current checkpoint
 
-2026-09-26: Step 3 is historically accepted at
+2026-09-27: Step 3 is historically accepted at
 `4d8d23e564e355d84916b93d890762ac0c7498ee`. This checkout is
-`44baa8678974614bc6cc4519c71772e6648434e4`. Plugin/caller pin
+`c7aaf44ed2f407b4941b020160ccf1178f36eb69`. Plugin/caller pin
 `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`. Service pin
 `85e511e7f65061cda861c98cd1acfbe9d79526b1`. Current adoption source baseline is
 `feat/nexus-profile-integration@10d1f348fd4c6ddbb5319d972c71b426e51e574a`.
@@ -22,18 +22,27 @@ Engine, or Guard. **Step 4 is not initiated as coordination/enforcement.**
 
 ### Next pipeline (distinct from Steps 1–9)
 
-These slices are not a renumbering of historical Steps 1–9. E0 is this
-documentation pin only; E1–E7 and B1–B4 are registered, not implemented here.
+These slices are not a renumbering of historical Steps 1–9. E0–E7 merged as
+PRs #17–#24. B1–B4 remain existing holds, not implemented, and are not the next
+product queue.
 
 Closed: Pipeline 1 docs · 2 docstring · 3A WRITE∩WRITE · 3B hook gap · 4 inventory.
-Main `44baa8678974614bc6cc4519c71772e6648434e4`. Dispatcher `t_01dc13a8` PASS.
+Closed-pipeline Main `44baa8678974614bc6cc4519c71772e6648434e4`. Dispatcher `t_01dc13a8` PASS.
+Current main is `c7aaf44ed2f407b4941b020160ccf1178f36eb69`.
 etapa 4 `NO_COMPARABLE_LOGS` (inventory `t_85a6ae43`; Historical Step 7 remains; no comparison table).
 3B stands: Hermes 0.21.5 does not prove a hook.
 
-Next slices: E0 (this pin) → E1 WRITE×WATCH observável → E2 docs
-06_SCOPE_IMPACT_CONFLICTS.md one sentence → E3 Step 7 collect-forward log
-contract → E4 plugin install test → E5 Context Pack PROJECT.md+CURRENT_STATUS
-@ 44baa86 → E6 CI leve (`t_a329b8c3`) → E7 reader dirty: live service still 85e511e.
+Merged slices: E0 (docs pin, PR #17 `d929a125b6a975c16c5630984c9bc8b835f1d02d`) →
+E1 WRITE×WATCH observável (PR #18 `9939c197761e2a0d6c4d11ad6d1feb9c1b04274b`) →
+E2 docs 06_SCOPE_IMPACT_CONFLICTS.md one sentence (PR #19
+`fb98b7e82f97ae3267231d04a8a2517420d0551e`) → E3 Step 7 collect-forward log
+contract (PR #20 `b9dc4b0618cf8b8a9cdd4e575a286e694b33fcb3`) → E4 plugin install
+test (PR #21 `fdff6494fa8dc5ee97691b37842cdd0e2669f724`) → E5 Context Pack
+PROJECT.md+CURRENT_STATUS @ 44baa86 (PR #22
+`a86ac94fbdf0e8c1c28c52011f4c30bc8743f781`) → E6 CI leve (`t_a329b8c3`, PR #23
+`1ed21b597136cd15cc26359ff4af51ae01a17df0`) → E7 reader dirty (PR #24
+`c7aaf44ed2f407b4941b020160ccf1178f36eb69`): plugin Python only; live service
+still `85e511e7f65061cda861c98cd1acfbe9d79526b1`, out of scope.
 
 - **B1** Guard / Step 6 — waits proven Hermes hook. FORA until hook: Guard, lock, lease, pre_tool_call, Step 6 enforcement
 - **B2** RESERVED / full Conflict Engine (11) — waits E1 accepted + change semantics; RESERVED stays not_emitted
