@@ -52,6 +52,7 @@ orchestrator, architect, implementer, tester, reviewer and documenter; default
 and workspace-manager are excluded. Two-tool publication and six-profile H-only
 offline adoption are accepted as recorded in that installation contract. ETS is
 read-only classification, not Step 4, Conflict Engine or Guard.
+At repository revision `2ded0de4529ff65ac4c52cf55d992fd3cf6081d3`, the [installation guide](hermes-plugin-installation.md#revision-pinned-installation-and-configuration) specifies seven plugin files including `collect_forward_log.py`, while historical rollback pin `85e511e7f65061cda861c98cd1acfbe9d79526b1` retains five without `effective_task_scope.py` or `collect_forward_log.py`; this documentation alignment performs no profile copy or service change.
 Etapa 3B: SOUL, installed hermes-nexus plugin.yaml, Hermes skills, and gateway
 on the install with baseVersion 0.21.5 (commit
 903a57c540917cedd30c7d971938f1af7bdf60e2, tag null) do not prove a hook for
