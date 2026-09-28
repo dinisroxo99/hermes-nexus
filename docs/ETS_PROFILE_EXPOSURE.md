@@ -37,41 +37,53 @@ WATCH 5.
 ## Six-profile live collect persist (2026-09-28)
 
 Copied from Kanban handoffs. Not a personal live-run, JSONL, or session
-inspection. Canonical Git `integrations/hermes-nexus/tools.py` **is**
-overlay sha256
-`5dabeda0c30dd742e2b463fe1959d1cd133790e7a5a37e28422543a8ab5349e0`
-(same bytes as local `e62463eba49640448e42425b9e500497c4f02af0` and as
-the six-profile install). Runtime (six profiles, live-persist 6/6 already
-proven) and Git are aligned on those bytes. **No recopy** of the six
-profiles. Code gates: implementer `t_3110d536`, tester `t_9ec8c071`,
-reviewer `t_463c224e`.
+inspection. Dated 2026-09-28 observed `origin/main`
+`643eb3ab6433389f99264bc2b0a1aff7389ddc5d` (PR #37) carries canonical Git
+`integrations/hermes-nexus/tools.py` overlay sha256
+`5dabeda0c30dd742e2b463fe1959d1cd133790e7a5a37e28422543a8ab5349e0`.
+Historical content origin (not proven ancestor of main):
+`e62463eba49640448e42425b9e500497c4f02af0`. Content equality of `tools.py`
+≠ ancestry of `e62463e` and ≠ every installed file. **Do not present the
+native caller as absent from main.** Candidate `6152cea` qualified the ETS
+handler description; that `schemas.py` text is **not** claimed installed.
+This mission did **not** recopy. Code gates: implementer `t_3110d536`,
+tester `t_9ec8c071`, reviewer `t_463c224e`.
 
-Installed copies (local `~/.hermes/profiles/<name>/plugins/hermes-nexus`) are
-10 files total: nine match `28e9815b1a6efed8bae41f0d513d9856c8a44858`;
+Installed copies (local `~/.hermes/profiles/<name>/plugins/hermes-nexus`) at
+the dated handoff are **that inventory**, not "always ten files": nine match
+`28e9815b1a6efed8bae41f0d513d9856c8a44858`;
 `tools.py` is overlay sha256
 `5dabeda0c30dd742e2b463fe1959d1cd133790e7a5a37e28422543a8ab5349e0`
-(same bytes as local `e62463eba49640448e42425b9e500497c4f02af0` and as
-the six-profile install). Canonical Git
+(same **tools.py** bytes as `e62463e` content and as the six-profile
+install at that date). Canonical Git
 `integrations/hermes-nexus/tools.py` **is** that overlay blob, **not**
 the `28e9815` `tools.py` blob (`54c0fdcf9547cb8f6d98a52a13d5cbb937f0759b`)
 (Kanban `t_3110d536` / `t_9ec8c071` / `t_463c224e` plus `t_f8a1aba6` /
 `t_cd20ab7c` / `t_defcbfd1` / `t_d215eea4`; not a personal dest-hash
-inspection). `default` and `workspace-manager` were **not** installed.
+inspection). `default` and `workspace-manager` were **not** installed
+(plugin install/config/exposure). That does **not** forbid the
+workspace-manager **role**.
 
 Hash-gate remaining 5: `t_cd20ab7c` PASS. Architect dest `tools.py`
 `5dabeda0…` (`t_d215eea4` / `t_defcbfd1`). Recopy remaining 5: `t_f8a1aba6`.
 **No recopy** of the six profiles. Live service HEAD throughout:
 `bc8b52d7280e7adc83f05cb20df97fbb3199804c` (untouched). Profile-native
 caller tests `t_a2277b22` CallerTests 33/33, test_tools 60/60; review
-`t_56e363fe` PASS. Step 4 / Guard **not** initiated.
+`t_56e363fe` PASS. WRITE/WATCH classification exists and is not Step 4
+coordination/enforcement. Step 4 (Effective Task Scope as
+coordination/enforcement), Step 5 (Conflict Engine), and Step 6 (Guard)
+have not been initiated.
 
-Live-persist PASS (no `HERMES_PROFILE`; `DATA_DIR` prefix only; locator
-`expectedRevision.branch: null`, `task.paths: []`; stored `runId` =
-kwargs.session_id; `nexusTools` **bool**; payload collect exactly 6 keys;
-JSONL +1). Native profile from `HERMES_HOME` exact `.../profiles/<name>`
-and/or `__file__` `.../profiles/<name>/plugins/hermes-nexus/tools.py`.
-Fail-closed if neither; HOME/`__file__` conflict skips persist. Hermes
-0.21.5 `-p` does not export `HERMES_PROFILE`.
+Live-persist PASS (historical; not re-run here; no `HERMES_PROFILE`;
+`DATA_DIR` prefix only; locator `expectedRevision.branch: null`,
+`task.paths: []`; stored `runId` = kwargs.session_id; `nexusTools` **bool**;
+payload collect exactly 6 keys; JSONL +1). Native profile from
+`HERMES_HOME` exact `.../profiles/<name>` and/or `__file__`
+`.../profiles/<name>/plugins/hermes-nexus/tools.py`. Fail-closed if neither;
+HOME/`__file__` conflict skips persist. Hermes 0.21.5 `-p` does not export
+`HERMES_PROFILE`. These six records do not declare continuous collection on
+CLI, gateway, or workers. Collect-forward semantics:
+[CURRENT_STATUS](CURRENT_STATUS.md#collect-forward-semantics-current-code-on-this-candidate-no-code-change).
 
 | profile | card | session / stored runId | jsonl_after sha256 |
 |---|---|---|---|
@@ -85,5 +97,9 @@ Fail-closed if neither; HOME/`__file__` conflict skips persist. Hermes
 ## Contract that remains true
 
 - `provides_tools` remains two tools (`project_task_context` + `project_impact`).
+  Two names are compatible with ETS gated by `scope_enabled`.
 - Legado `787f662` is out.
-- Step 4.0 used ≠ Guard ≠ Step 4.1.
+- Historical local names: Step 4.0 used ≠ Guard ≠ Step 4.1. They do not
+  renumber the roadmap. Step 4 = Effective Task Scope as
+  coordination/enforcement; Step 5 = Conflict Engine; Step 6 = Guard.
+  WRITE/WATCH classification ≠ complete coordination/enforcement.

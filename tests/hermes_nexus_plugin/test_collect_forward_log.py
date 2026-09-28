@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 import json
 import os
+import subprocess
 import tempfile
 from unittest.mock import patch
 
@@ -400,6 +401,130 @@ class CollectForwardLogTests(unittest.TestCase):
                 with patch("builtins.open", side_effect=OSError("disk full")):
                     with self.assertRaises(OSError):
                         self.collect(_base_fields())
+
+    def test_real_collector_git_default_dest_ignore_append_isolated(self):
+        """Focused real collector + real git test per recon item 8.
+
+        Uses candidate's real .gitignore (post /data/collect... rule), temp layout
+        outside .hermes, real persistence (no mock of collector or jsonl), env isolation.
+        __file__ is simulated only for collector layout verify (real write happens);
+        boundary noted in handoff. This is not a live Hermes session.
+        """
+        # capture current worktree .gitignore content (has the exact rule)
+        gitignore_src = Path(__file__).parents[2] / ".gitignore"
+        gitignore_content = gitignore_src.read_text(encoding="utf-8")
+        self.assertIn("/data/collect-forward-log.jsonl", gitignore_content)
+
+        with tempfile.TemporaryDirectory(dir="/tmp", prefix="hn-recon-") as tmp:
+            src = Path(tmp)
+            # minimal valid source layout so collector _verify... passes using simulated __file__
+            (src / "package.json").write_text('{"name": "hermes-nexus"}', encoding="utf-8")
+            (src / "src" / "lib").mkdir(parents=True, exist_ok=True)
+            (src / "src" / "lib" / "project-config.js").write_text("// stub for layout verify\n", encoding="utf-8")
+            integ = src / "integrations" / "hermes-nexus"
+            integ.mkdir(parents=True, exist_ok=True)
+            coll_py = integ / "collect_forward_log.py"
+            coll_py.write_text("# stub; __file__ points here for verify only\n", encoding="utf-8")
+            # real .gitignore at repo root for git
+            (src / ".gitignore").write_text(gitignore_content, encoding="utf-8")
+
+            # isolated git + env
+            home = src / "h"
+            home.mkdir()
+            base_env = {
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+                "GIT_CONFIG_SYSTEM": "/dev/null",
+                "HOME": str(home),
+                "PATH": os.environ.get("PATH", ""),
+                # ensure no DATA_DIR leaks to trigger default
+                "DATA_DIR": "",
+            }
+
+            def _git(args, cwd=src, env=None):
+                e = dict(base_env)
+                if env:
+                    e.update(env)
+                cp = subprocess.run(["git"] + list(args), cwd=cwd, env=e, capture_output=True, text=True)
+                if cp.returncode != 0:
+                    raise AssertionError(f"git {args} failed: {cp.stderr}")
+                return cp
+
+            _git(["init", "-q"])
+            _git(["config", "user.email", "t@example"])
+            _git(["config", "user.name", "t"])
+            # commit the layout stubs + .gitignore so initial state clean (stubs required only for __file__ verify)
+            _git(["add", ".gitignore", "package.json", "src/lib/project-config.js", "integrations/hermes-nexus/collect_forward_log.py"])
+            _git(["commit", "-q", "-m", "init"])
+            self.assertEqual(_git(["status", "--porcelain"]).stdout.strip(), "")
+
+            # load the collect module and simulate __file__ (real I/O still occurs)
+            collect_mod = importlib.import_module(self.plugin.__name__ + ".collect_forward_log")
+            orig_file = getattr(collect_mod, "__file__", None)
+            try:
+                collect_mod.__file__ = str(coll_py)
+                fields = _base_fields(
+                    run_id="run-g1",
+                    profile="impl",
+                    sha="643eb3ab6433389f99264bc2b0a1aff7389ddc5d",
+                    nexus_tools=True,
+                    write_paths=[".gitignore"],
+                    watch_paths=["AGENTS.md"],
+                )
+                # call with empty DATA_DIR (no patch override)
+                with patch.dict(os.environ, {"DATA_DIR": ""}, clear=False):
+                    res = self.collect(fields)
+                jsonl = src / "data" / "collect-forward-log.jsonl"
+                self.assertTrue(jsonl.is_file(), "real jsonl must be written")
+                txt = jsonl.read_text(encoding="utf-8")
+                self.assertIn('"runId": "run-g1"', txt)
+                self.assertIn('"writePaths"', txt)
+                self.assertIn('"watchPaths"', txt)
+                # exactly the six keys in the persisted record
+                rec = json.loads(txt.strip().splitlines()[0])
+                for k in ("runId", "profile", "sha", "nexusTools", "writePaths", "watchPaths"):
+                    self.assertIn(k, rec)
+                # count-only return preserved
+                self.assertEqual(res.get("status"), "collected")
+                self.assertEqual(res.get("writePathCount"), 1)
+                self.assertEqual(res.get("watchPathCount"), 1)
+
+                # jsonl ignored by the real .gitignore rule
+                chk = subprocess.run(
+                    ["git", "check-ignore", "-q", "data/collect-forward-log.jsonl"],
+                    cwd=src, env=base_env, capture_output=True
+                )
+                self.assertEqual(chk.returncode, 0)
+                self.assertEqual(_git(["ls-files", "data/collect-forward-log.jsonl"]).stdout.strip(), "")
+
+                # second append preserves prior content
+                fields2 = _base_fields(run_id="run-g2", profile="impl2", sha="deadbeef", write_paths=["x"], watch_paths=[])
+                with patch.dict(os.environ, {"DATA_DIR": ""}, clear=False):
+                    res2 = self.collect(fields2)
+                txt2 = jsonl.read_text(encoding="utf-8")
+                self.assertIn("run-g1", txt2)
+                self.assertIn("run-g2", txt2)
+                self.assertEqual(txt2.count("\n"), 2)
+
+                # unrelated other file remains visible untracked
+                (src / "other-unrelated.txt").write_text("u")
+                st = _git(["status", "--porcelain"]).stdout
+                self.assertIn("?? other-unrelated.txt", st)
+
+                # another jsonl is NOT generically ignored
+                (src / "data" / "other-log.jsonl").write_text("{}\n")
+                chk3 = subprocess.run(
+                    ["git", "check-ignore", "-q", "data/other-log.jsonl"],
+                    cwd=src, env=base_env, capture_output=True
+                )
+                self.assertNotEqual(chk3.returncode, 0)
+
+                # change to a tracked file remains dirty
+                (src / ".gitignore").write_text(gitignore_content + "\n# touch\n", encoding="utf-8")
+                st2 = _git(["status", "--porcelain"]).stdout
+                self.assertIn(" M .gitignore", st2)
+            finally:
+                if orig_file is not None:
+                    collect_mod.__file__ = orig_file
 
 
 import asyncio

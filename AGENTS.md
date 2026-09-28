@@ -18,17 +18,23 @@ Agents must not:
 - change behavior while adding comments
 - mix unrelated changes in one commit
 
-The main orchestrator is `project-map-main`.
+The main orchestrator profile is `orchestrator`.
 
-For specialist work, use `profile_delegate` with:
+For specialist work, use the existing Hermes delegation and Kanban
+workflow with the profiles available in the current runtime:
 
-- project-map-coder
-- project-map-commenter
-- project-map-documenter
-- project-map-reviewer
-- project-map-tester
-- project-map-architect
-- project-map-git-flow
+- architect
+- implementer
+- tester
+- reviewer
+- documenter
+
+The former `project-map-*` names are historical references, not current
+profile names or required commands. Do not assume that historical aliases
+or delegation tool names are available in the current session.
+
+This naming clarification does not change implementation permissions,
+project boundaries, task authorization, or plugin exposure rules.
 
 ## Project Intelligence development
 

@@ -187,7 +187,8 @@ EFFECTIVE_TASK_SCOPE_SCHEMA = {
     "description": (
         "Read-only local composition of effective-task-scope-v1 (WRITE/WATCH labels) "
         "from already-accepted pack (from project_task_context) and impact (from project_impact). "
-        "Gated by scope_enabled (default false); no network, no side-effects, fail-closed with composer codes."
+        "Gated by scope_enabled (default false); no network, fail-closed with composer codes. "
+        "Composer is pure (no IO); the handler may append a local collect-forward record."
     ),
     "parameters": _object(
         {

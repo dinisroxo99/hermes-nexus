@@ -14,13 +14,18 @@ or operational acceptance. The original documentation checkpoint preceded
 publication and six-profile adoption; the dated INFRA-1 record below distinguishes
 their subsequent acceptance from service operation. Step 3 was accepted at
 `4d8d23e564e355d84916b93d890762ac0c7498ee`. WRITE/WATCH classification exists
-([ETS profile exposure](ETS_PROFILE_EXPOSURE.md)); `provides_tools` remains two
-tools; Step 4 as Guard / conflicts / RESERVED has not been initiated.
+([ETS profile exposure](ETS_PROFILE_EXPOSURE.md)) and is not Step 4
+coordination/enforcement; `provides_tools` remains two tools. Step 4 (Effective
+Task Scope as coordination/enforcement), Step 5 (Conflict Engine), and Step 6
+(Guard) have not been initiated.
 
 DEV-ADOPTION-1 authorizes normal development use, including concurrent workers,
 in exactly **orchestrator, architect, implementer, tester, reviewer, documenter**.
-`default` and `workspace-manager` are excluded from installation, configuration
-and instruction changes. The source baseline is
+`default` and `workspace-manager` are excluded from **plugin installation,
+configuration and instruction changes**. That exclusion does **not** forbid
+using the workspace-manager **role**. Older `project-map-*` profile names in
+later historical sections of this guide are not mandatory operational
+commands unless independently confirmed still to work. The source baseline is
 `feat/nexus-profile-integration@10d1f348fd4c6ddbb5319d972c71b426e51e574a`;
 installation must use the subsequently published, independently accepted revision,
 not assume that baseline has already been published. No new adapter implementation
@@ -52,23 +57,33 @@ orchestrator. For current CLI details consult the
 and the installed runtime's help; the command forms below were checked against
 local help on 2026-09-24.
 
-1. Confirm the published accepted full SHA, actual target profile home and clean
+1. Confirm the published accepted SHA, actual target profile home and clean
    source identity. Inventory only affected non-secret files, hashes, instruction
    paragraphs, and persisted configuration keys **including presence as well as
    value**. A resolved `config get` value cannot prove that a key was absent on disk.
    Do not dump configuration or read secrets. Architect already has a pilot
    installation: capture that real prestate, not an assumed empty directory.
-2. At repository revision `2ded0de4529ff65ac4c52cf55d992fd3cf6081d3`, copy the
-   seven files under `integrations/hermes-nexus/`: `plugin.yaml`, `__init__.py`,
+   Current procedure uses an **approved version**, that version's **exact file
+   inventory**, hashes, destinations, and matching config. There is no
+   revision-independent "always seven files" or "always ten files" list.
+   Installed layout is **flat**:
+   `~/.hermes/profiles/<profile>/plugins/hermes-nexus/`. Load happens in an
+   appropriate new run/session; preserve per-profile config. **This
+   documentation update does not authorize recopy or restart.**
+2. Historical inventory at repository revision
+   `2ded0de4529ff65ac4c52cf55d992fd3cf6081d3` listed seven files under
+   `integrations/hermes-nexus/`: `plugin.yaml`, `__init__.py`,
    `schemas.py`, `client.py`, `tools.py`, `effective_task_scope.py` and
-   `collect_forward_log.py` into the flat directory
+   `collect_forward_log.py`, copied into the flat directory
    `/home/dinis/.hermes/profiles/<profile>/plugins/hermes-nexus/`.
    The six-file plugin/caller baseline (`6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`)
    does not contain `collect_forward_log.py` and is not a source for collect; the
    five-file list without `effective_task_scope.py` or `collect_forward_log.py` is
    historical for the service/rollback pin `85e511e7f65061cda861c98cd1acfbe9d79526b1`.
-   Do not copy collect from the six-file baseline. This documentation task
-   does not execute the copy.
+   Dated 2026-09-28 six-profile handoffs recorded nine files matching
+   `28e9815` plus overlay `tools.py` (not a claim that every later Git file
+   is installed). Do not copy collect from the six-file baseline. This
+   documentation task does not execute the copy.
    Verify source and installed hashes individually against the accepted commit.
    Do not use the old nested `project-map/project-map` layout or a symlink to the
    moving writer. Inventory collisions before replacing any existing file.
@@ -170,12 +185,16 @@ requirement is introduced.
 
 ### Pinned runtime and verified configuration
 
-The dedicated checkout exists at `/home/dinis/projects/hermes-nexus-service`,
-linked/detached at **`85e511e7f65061cda861c98cd1acfbe9d79526b1`**, tree
-`6f96db4a43043764f266920872a844825bb59482`. This runtime pin is independent of
+The 2026-09-24 INFRA-1 observations used dedicated checkout
+`/home/dinis/projects/hermes-nexus-service` linked/detached at historical pin
+**`85e511e7f65061cda861c98cd1acfbe9d79526b1`**, tree
+`6f96db4a43043764f266920872a844825bb59482`. That pin is **not** current live
+service. Later accepted live SHA is recorded in
+[CURRENT_STATUS](CURRENT_STATUS.md) (`bc8b52d7280e7adc83f05cb20df97fbb3199804c`
+as of the 2026-09-28 human service move). This runtime evidence is independent of
 subsequent documentation commits; those commits neither update the service nor
 invalidate the observations at the pinned revision. No startup pull or automatic
-source update is implied.
+source update is implied. This documentation does not recopy or restart.
 
 The handoffs verified the operator-supplied configuration, not the old listener's
 unread environment:
@@ -223,8 +242,10 @@ bounded preservation evidence, **not an audit of all storage**.
   domain validations. `default` and `workspace-manager` remain excluded.
   **G1 remains REJECTED**; R1/R2 remain **KNOWN ISSUES — DEFERRED**, HIGH severity,
   LOW priority/non-blocking in this phase. WRITE/WATCH classification exists
-  ([ETS profile exposure](ETS_PROFILE_EXPOSURE.md)); `provides_tools` remains two
-  tools; Step 4 as Guard / conflicts / RESERVED has not been initiated.
+  ([ETS profile exposure](ETS_PROFILE_EXPOSURE.md)) and is not Step 4
+  coordination/enforcement; `provides_tools` remains two tools. Step 4 (Effective
+  Task Scope as coordination/enforcement), Step 5 (Conflict Engine), and Step 6
+  (Guard) have not been initiated.
 
 The original documentation update (`t_e24df21e`) and this acceptance addendum
 (`t_bf703f68`) perform no health/domain requests, Context/Impact evaluation,
@@ -424,9 +445,15 @@ Then verify:
 curl http://localhost:8770/api/health
 ```
 
-## Recommended plugin location
+## Historical nested layout (not current procedure)
 
-Install the plugin per Hermes profile:
+The nested `project-map/project-map` paths and `project-map-*` profile names
+below are **historical**. Current install uses plugin key `hermes-nexus`,
+flat `~/.hermes/profiles/<profile>/plugins/hermes-nexus/`, and the six
+development profile names in DEV-ADOPTION-1. Do not treat the commands in
+this section as mandatory current operations.
+
+Install the plugin per Hermes profile (historical example):
 
 ```txt
 ~/.hermes/profiles/<profile-name>/plugins/project-map/project-map/

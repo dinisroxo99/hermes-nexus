@@ -6,11 +6,21 @@
 
 Snapshot date: **2026-09-17**
 
+This document is a **historical snapshot** (roundtable 2026-09-17 plus later
+dated adoption notes). It is not the live operational summary.
+
+**Current summary:** [CURRENT_STATUS](../CURRENT_STATUS.md) — dated 2026-09-28
+observed `origin/main` `643eb3ab6433389f99264bc2b0a1aff7389ddc5d` (PR #37
+`--merge`); live service `bc8b52d7280e7adc83f05cb20df97fbb3199804c`; candidate
+`4a61aba` not merged. Do not read the 2026-09-24 section below as the current
+publication, fleet-adoption, or INFRA-1 state.
+
 This document distinguishes repository-verified checkpoints from the original
 conversation-derived snapshot. Before editing production code, verify the
-repository again; the tracked active plan remains the implementation authority.
+repository again; the tracked active plan remains the implementation authority,
+and CURRENT_STATUS is the operational checkpoint.
 
-## Current adoption checkpoint — 2026-09-24
+## Historical adoption checkpoint — 2026-09-24
 
 Step 3 is historically accepted at `4d8d23e564e355d84916b93d890762ac0c7498ee`.
 The adoption source baseline is
@@ -19,10 +29,12 @@ tracked `project_task_context` and `project_impact` tools. See
 [DEV-ADOPTION-1](../hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption)
 for the approved six-profile development scope, legacy deferral, configuration
 and rollback. G1 remains REJECTED and R1/R2 open/deferred; the current HIGH
-severity / LOW non-blocking disposition is not a lifecycle fix. Publication,
-fleet adoption and final verified operational docs remain pending. INFRA-1 is
-approved, implementation pending after candidate verification/publication, not
-deployed. **Step 4 is not initiated.**
+severity / LOW non-blocking disposition is not a lifecycle fix.
+As of that 2026-09-24 note, publication, fleet adoption and final verified
+operational docs were still pending and INFRA-1 was approved with
+implementation pending. Those pending claims are **historical**; later
+acceptance is recorded in [CURRENT_STATUS](../CURRENT_STATUS.md). **Step 4 is
+not initiated as coordination/enforcement.**
 
 <a id="repository-verified-impact-v2-implementation-checkpoint"></a>
 
