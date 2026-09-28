@@ -149,6 +149,35 @@ correlation: withhold rejected data, do not call Impact from it, and reconcile
 with the project/service owner. Lifecycle symptoms require stopping affected
 calls and escalation under the known-issue policy, not an automatic correction.
 
+### Collect-forward (current Git on this candidate; not a recopy)
+
+The plugin may append a local JSONL record after an accepted Context/Impact
+result or an accepted ETS compose. This is **not** claimed installed on
+profile copies after the `6152cea` `schemas.py` description change. Semantics
+are documented in
+[CURRENT_STATUS](CURRENT_STATUS.md#collect-forward-semantics-current-code-on-this-candidate-no-code-change).
+Summary of current code:
+
+- Persisted INPUT is exactly `runId`, `profile`, `sha`, `nexusTools`,
+  `writePaths`, `watchPaths`. The count-only collector return is not that
+  record.
+- For Context, `task.paths` must be a **list** to collect. Omission vs `[]`
+  may both be accepted by the tool and have different collection effects.
+- Collection needs resolved identity and a writable destination the collector
+  admits. Tool `ok=true` JSON may be preserved with no persist.
+- Hermes/collector `DATA_DIR` is not the Node service's. The collector does
+  not run `resolveProjectConfig` and does not read `.env`. Prior proofs used
+  explicit `DATA_DIR`.
+- `runId` is a correlation fallback (Kanban run, session, or task); not
+  unique per call. `nexusTools` is boolean (Context/Impact vs ETS), not
+  "with Nexus vs without Nexus". `writePaths`/`watchPaths` are declared call
+  data, not an edit audit or permission grant.
+- Six 2026-09-28 proofs remain historical; they do not prove continuous
+  collection, exactly-once, concurrency, or training-data quality.
+
+Default and workspace-manager exclusion is plugin install/config/exposure,
+not a ban on the workspace-manager role.
+
 ### Delivered versus deferred catalogue
 
 Only the two tools above are delivered by this tracked plugin. All nine
