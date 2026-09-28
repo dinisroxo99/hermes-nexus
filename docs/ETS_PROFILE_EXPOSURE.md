@@ -69,7 +69,10 @@ Hash-gate remaining 5: `t_cd20ab7c` PASS. Architect dest `tools.py`
 **No recopy** of the six profiles. Live service HEAD throughout:
 `bc8b52d7280e7adc83f05cb20df97fbb3199804c` (untouched). Profile-native
 caller tests `t_a2277b22` CallerTests 33/33, test_tools 60/60; review
-`t_56e363fe` PASS. Step 4 / Guard **not** initiated.
+`t_56e363fe` PASS. WRITE/WATCH classification exists and is not Step 4
+coordination/enforcement. Step 4 (Effective Task Scope as
+coordination/enforcement), Step 5 (Conflict Engine), and Step 6 (Guard)
+have not been initiated.
 
 Live-persist PASS (historical; not re-run here; no `HERMES_PROFILE`;
 `DATA_DIR` prefix only; locator `expectedRevision.branch: null`,

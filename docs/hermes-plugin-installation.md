@@ -14,8 +14,10 @@ or operational acceptance. The original documentation checkpoint preceded
 publication and six-profile adoption; the dated INFRA-1 record below distinguishes
 their subsequent acceptance from service operation. Step 3 was accepted at
 `4d8d23e564e355d84916b93d890762ac0c7498ee`. WRITE/WATCH classification exists
-([ETS profile exposure](ETS_PROFILE_EXPOSURE.md)); `provides_tools` remains two
-tools; Step 4 as Guard / conflicts / RESERVED has not been initiated.
+([ETS profile exposure](ETS_PROFILE_EXPOSURE.md)) and is not Step 4
+coordination/enforcement; `provides_tools` remains two tools. Step 4 (Effective
+Task Scope as coordination/enforcement), Step 5 (Conflict Engine), and Step 6
+(Guard) have not been initiated.
 
 DEV-ADOPTION-1 authorizes normal development use, including concurrent workers,
 in exactly **orchestrator, architect, implementer, tester, reviewer, documenter**.
@@ -240,8 +242,10 @@ bounded preservation evidence, **not an audit of all storage**.
   domain validations. `default` and `workspace-manager` remain excluded.
   **G1 remains REJECTED**; R1/R2 remain **KNOWN ISSUES — DEFERRED**, HIGH severity,
   LOW priority/non-blocking in this phase. WRITE/WATCH classification exists
-  ([ETS profile exposure](ETS_PROFILE_EXPOSURE.md)); `provides_tools` remains two
-  tools; Step 4 as Guard / conflicts / RESERVED has not been initiated.
+  ([ETS profile exposure](ETS_PROFILE_EXPOSURE.md)) and is not Step 4
+  coordination/enforcement; `provides_tools` remains two tools. Step 4 (Effective
+  Task Scope as coordination/enforcement), Step 5 (Conflict Engine), and Step 6
+  (Guard) have not been initiated.
 
 The original documentation update (`t_e24df21e`) and this acceptance addendum
 (`t_bf703f68`) perform no health/domain requests, Context/Impact evaluation,
