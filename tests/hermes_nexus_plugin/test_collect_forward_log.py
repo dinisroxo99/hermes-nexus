@@ -621,15 +621,16 @@ class CallerTests(unittest.TestCase):
             mock_inst.request = AsyncMock(return_value=result)
             mock_cls.return_value = mock_inst
             with patch.object(tools, "collect_forward_log") as mock_c:
-                handler = tools.create_handlers("http://127.0.0.1:1")[0]
-                # has task_id etc but no run/profile
-                out = asyncio.run(handler(ctx_args, task_id="t1", session_id="s1", user_task="u"))
-                self.assertEqual(mock_c.call_count, 0)
-                out_d = json.loads(out)
-                self.assertTrue(out_d["ok"])
-                # blank
-                out2 = asyncio.run(handler(ctx_args, runId="   ", profile="p"))
-                self.assertEqual(mock_c.call_count, 0)
+                with patch.dict(os.environ, {}, clear=True):
+                    handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                    # has task_id etc but no run/profile
+                    out = asyncio.run(handler(ctx_args, task_id="t1", session_id="s1", user_task="u"))
+                    self.assertEqual(mock_c.call_count, 0)
+                    out_d = json.loads(out)
+                    self.assertTrue(out_d["ok"])
+                    # blank
+                    out2 = asyncio.run(handler(ctx_args, runId="   ", profile="p"))
+                    self.assertEqual(mock_c.call_count, 0)
 
     def test_6_context_without_task_paths_or_bad_path_skips(self):
         tools = self.tools
@@ -766,6 +767,128 @@ class CallerTests(unittest.TestCase):
                 out_d = json.loads(out)
                 self.assertTrue(out_d["ok"])
                 self.assertEqual(mock_c.call_count, 1)
+
+    # --- mapping cases for ordered runId/profile resolution (hermetic env) ---
+
+    def _mk_ctx(self):
+        return {
+            "projectId": "p",
+            "worktree": {"rootId": "local", "relativePath": "w"},
+            "expectedRevision": {"status": "available", "commitSha": "c" * 40, "branch": "f", "dirty": False, "isLinkedWorktree": True},
+            "task": {"title": "t", "paths": ["a.py"]},
+        }
+
+    def test_mapping_profile_kwargs_wins(self):
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {"HERMES_PROFILE": "env-p", "HERMES_KANBAN_RUN_ID": "env-r"}, clear=True):
+                    handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                    out = asyncio.run(handler(ctx, runId="kw-r", profile="kw-p"))
+                    self.assertEqual(mock_c.call_count, 1)
+                    f = mock_c.call_args[0][0]
+                    self.assertEqual(f["runId"], "kw-r")
+                    self.assertEqual(f["profile"], "kw-p")
+
+    def test_mapping_fallback_to_env(self):
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {"HERMES_PROFILE": "env-prof", "HERMES_KANBAN_RUN_ID": "env-rid"}, clear=True):
+                    handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                    out = asyncio.run(handler(ctx))  # absent in kwargs
+                    self.assertEqual(mock_c.call_count, 1)
+                    f = mock_c.call_args[0][0]
+                    self.assertEqual(f["runId"], "env-rid")
+                    self.assertEqual(f["profile"], "env-prof")
+
+    def test_mapping_runid_from_session_id(self):
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {"HERMES_PROFILE": "p"}, clear=True):
+                    handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                    out = asyncio.run(handler(ctx, profile="p", session_id="sess-123"))
+                    self.assertEqual(mock_c.call_count, 1)
+                    self.assertEqual(mock_c.call_args[0][0]["runId"], "sess-123")
+
+    def test_mapping_runid_from_task_id_fallback(self):
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {"HERMES_PROFILE": "p"}, clear=True):
+                    handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                    out = asyncio.run(handler(ctx, profile="p", task_id="task-456"))
+                    self.assertEqual(mock_c.call_count, 1)
+                    self.assertEqual(mock_c.call_args[0][0]["runId"], "task-456")
+
+    def test_mapping_session_id_wins_over_task_id(self):
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {"HERMES_PROFILE": "p"}, clear=True):
+                    handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                    out = asyncio.run(handler(ctx, profile="p", session_id="s-win", task_id="t-lose"))
+                    self.assertEqual(mock_c.call_count, 1)
+                    self.assertEqual(mock_c.call_args[0][0]["runId"], "s-win")
+
+    def test_mapping_hermes_kanban_run_id_wins(self):
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {"HERMES_PROFILE": "p", "HERMES_KANBAN_RUN_ID": "kan-run"}, clear=True):
+                    handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                    out = asyncio.run(handler(ctx, profile="p", session_id="s", task_id="t"))
+                    self.assertEqual(mock_c.call_count, 1)
+                    self.assertEqual(mock_c.call_args[0][0]["runId"], "kan-run")
+
+    def test_mapping_unresolved_identity_skips_collect(self):
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {}, clear=True):
+                    handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                    # no profile at all
+                    out = asyncio.run(handler(ctx, session_id="s123", task_id="t456"))
+                    self.assertEqual(mock_c.call_count, 0)
+                    # blank runId still skips
+                    out2 = asyncio.run(handler(ctx, runId="   ", profile="p"))
+                    self.assertEqual(mock_c.call_count, 0)
 
 
 if __name__ == "__main__":

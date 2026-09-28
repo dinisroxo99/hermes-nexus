@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from typing import Any
 
 from .client import NexusClient, NexusClientError
@@ -33,7 +34,11 @@ def _collect_forward_after_accepted(result: dict[str, Any], args: Any, **kwargs:
     """Sole call site for collect_forward_log.
 
     Called only on accepted results (c/i after ok+data; ets when v1 accepted incl. incomplete).
-    runId/profile from handler **kwargs (verbatim). Skips rather than invent.
+    runId/profile resolved per ordered sources (eligible = isinstance(str) and strip() != '';
+    forward original verbatim): profile: kwargs.profile → os.environ.get('HERMES_PROFILE') → skip;
+    runId: kwargs.runId → os.environ.get('HERMES_KANBAN_RUN_ID') → kwargs.session_id → kwargs.task_id → skip.
+    (If both session_id and task_id eligible and no earlier run source: session_id wins.)
+    If either identity unresolved: do not call collect_forward_log.
     Exactly 6 keys; fresh dict; list copies only; never mutates inputs.
     try/except Exception wraps ONLY the collect_forward_log(fields) call.
     Any exception or not_evaluated return leaves the caller's JSON result unchanged.
@@ -41,12 +46,28 @@ def _collect_forward_after_accepted(result: dict[str, Any], args: Any, **kwargs:
     try:
         if not isinstance(result, dict) or not isinstance(kwargs, dict):
             return
-        run_id = kwargs.get("runId")
+
+        def _eligible(v: Any) -> bool:
+            return isinstance(v, str) and v.strip() != ""
+
+        # profile: kwargs `profile` → os.environ.get('HERMES_PROFILE') → skip
         profile = kwargs.get("profile")
-        if not isinstance(run_id, str) or run_id.strip() == "":
-            return
-        if not isinstance(profile, str) or profile.strip() == "":
-            return
+        if not _eligible(profile):
+            profile = os.environ.get("HERMES_PROFILE")
+            if not _eligible(profile):
+                return
+
+        # runId: kwargs `runId` → os.environ.get('HERMES_KANBAN_RUN_ID') → kwargs `session_id` → kwargs `task_id` → skip
+        # session wins over task_id when both and no prior source
+        run_id = kwargs.get("runId")
+        if not _eligible(run_id):
+            run_id = os.environ.get("HERMES_KANBAN_RUN_ID")
+            if not _eligible(run_id):
+                run_id = kwargs.get("session_id")
+                if not _eligible(run_id):
+                    run_id = kwargs.get("task_id")
+                    if not _eligible(run_id):
+                        return
 
         # unwrap c/i result or treat ets scope as core
         if result.get("ok") is True and isinstance(result.get("data"), dict):
