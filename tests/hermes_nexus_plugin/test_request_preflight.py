@@ -80,9 +80,12 @@ class InternalValidationTests(unittest.TestCase):
     def test_missing_required_fields_detected(self):
         val = _ctx_valid()
         del val["worktree"]
+        del val["projectId"]
         diags = preflight._shallow_diagnostics(val, "project_task_context")
         fields = {d["field"] for d in diags}
+        # combo listed in one diagnostic response
         self.assertIn("worktree", fields)
+        self.assertIn("projectId", fields)
         status, _ = preflight._validate("project_task_context", val, schemas)
         self.assertEqual(status, "invalid_arguments")
 
@@ -91,9 +94,18 @@ class InternalValidationTests(unittest.TestCase):
         val["expectedRevision"]["branch"] = None
         status, diags = preflight._validate("project_task_context", val, schemas)
         self.assertEqual(status, "input_valid")
-        # warning may be present in shallow
-        wcodes = {d.get("code") for d in preflight._shallow_diagnostics(val, "project_task_context")}
-        self.assertTrue(any("null_branch" in c for c in wcodes) or True)  # optional
+        # warning may be present in shallow; no detached claim
+        shallow = preflight._shallow_diagnostics(val, "project_task_context")
+        wcodes = {d.get("code") for d in shallow}
+        self.assertTrue(any("null_branch" in c for c in wcodes))
+        self.assertFalse(any("detached" in str(d).lower() for d in shallow))
+        # also via report format no detached
+        warnings = []
+        for d in shallow:
+            if d.get("code", "").endswith("_warning"):
+                warnings.append(f"{d['field']}: {d.get('note', '')}")
+        report = preflight._format_report(status, "project_task_context", shallow, warnings, False, None)
+        self.assertNotIn("detached", report.lower())
 
     def test_wrong_dirty_rejected(self):
         val = _ctx_valid()
@@ -111,9 +123,29 @@ class InternalValidationTests(unittest.TestCase):
         diags = preflight._shallow_diagnostics(val, "project_impact")
         self.assertTrue(any("unpaired" in d.get("code", "") for d in diags))
 
+    def test_unpaired_opaque_ids_rejected_for_context(self):
+        # Context unpaired (neither-or-both): exactly one opaque ID is rejected
+        val = _ctx_valid()
+        val["expectedRevision"]["repositoryId"] = "a" * 64
+        # leave no worktreeId
+        diags = preflight._shallow_diagnostics(val, "project_task_context")
+        self.assertTrue(any("unpaired" in d.get("code", "") for d in diags))
+        # validator also rejects (canonical)
+        status, _ = preflight._validate("project_task_context", val, schemas)
+        self.assertEqual(status, "invalid_arguments")
+
     def test_omitted_paths_ok_for_context(self):
         val = _ctx_valid()
         val["task"].pop("paths", None)
+        status, _ = preflight._validate("project_task_context", val, schemas)
+        self.assertEqual(status, "input_valid")
+
+    def test_empty_paths_for_context_warning_not_error(self):
+        # empty Context paths: warning, not error
+        val = _ctx_valid()
+        val["task"]["paths"] = []
+        diags = preflight._shallow_diagnostics(val, "project_task_context")
+        self.assertTrue(any(d.get("code") == "empty_paths_warning" for d in diags))
         status, _ = preflight._validate("project_task_context", val, schemas)
         self.assertEqual(status, "input_valid")
 
@@ -138,8 +170,13 @@ class InternalValidationTests(unittest.TestCase):
         self.assertEqual(status, "invalid_arguments")
 
     def test_malformed_json_handled_by_cli(self):
-        # exercised via subprocess below
-        pass
+        # replaced empty stub; non-finite and other malformed covered by cli tests below
+        # direct parse also raises for non-finite
+        try:
+            preflight._parse_json_bounded(b'{"x": 1e999}')
+            self.fail("expected ValueError for non-finite")
+        except ValueError as e:
+            self.assertIn("non_finite", str(e))
 
 
 class CLITests(unittest.TestCase):
@@ -220,6 +257,22 @@ class CLITests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("invalid_arguments", out)
 
+    def test_cli_null_branch_no_detached_claim(self):
+        val = _ctx_valid()
+        val["expectedRevision"]["branch"] = None
+        data = json.dumps(val)
+        code, out = self._run(["--tool", "project_task_context", "--input", "-"], data)
+        self.assertEqual(code, 0)
+        self.assertIn("input_valid", out)
+        self.assertNotIn("detached", out.lower())
+        self.assertIn("null_branch", out)
+
+    def test_cli_non_finite_nan_inf_rejected_as_invalid_json(self):
+        # NaN and Infinity (via out-of-range float) -> invalid_json
+        data = '{"val": 1e999}'
+        code, out = self._run(["--tool", "project_task_context", "--input", "-"], data)
+        self.assertEqual(code, 1)
+        self.assertIn("invalid_json", out)
 
 if __name__ == "__main__":
     unittest.main()

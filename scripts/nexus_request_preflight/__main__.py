@@ -175,7 +175,7 @@ def _shallow_diagnostics(obj: dict[str, Any], tool: str) -> list[dict[str, str]]
     if "branch" in (obj.get("expectedRevision") or {}):
         br = obj["expectedRevision"]["branch"]
         if br is None:
-            diags.append({"field": "expectedRevision.branch", "code": "null_branch_warning", "note": "explicit detached; schema-valid for Context"})
+            diags.append({"field": "expectedRevision.branch", "code": "null_branch_warning", "note": "schema-valid for Context (no Git observation)"})
 
     # extra top-level (will also be caught by validator)
     allowed = set(required_top) | {"limits"}
