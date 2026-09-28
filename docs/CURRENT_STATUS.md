@@ -9,27 +9,29 @@ implementation plan or a live view of another checkout.
 
 The documentation gate lives in the orchestrator and reviewer SOUL.
 
-Current repository revision / `origin/main` (2026-09-27):
-`75e0079489d3966548f3d70bd571419d4a6b13b7` (merge of PR #27; tree
-`d09d905194a656fd66f5e632ef3538ca1cc2200a`). After accepted human cutover
-(2026-09-27), this SHA is also the live service revision.
+Current repository revision / `origin/main` (2026-09-28):
+`bc8b52d7280e7adc83f05cb20df97fbb3199804c` (merge of PR #30; tree
+`7f1d5c337999e0592c25bfdb9799c31fe0c747c1`). After accepted human service
+move (operator; 2026-09-28), this SHA is also the live service revision.
 Plugin/caller pin remains `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776` (tree
-`8e97d59c406e9a1e195fcff4213c941d4f07f5de`; merge of the gated ETS caller).
-Live service cwd is `/home/dinis/projects/hermes-nexus-service` (not the human
-checkout), detached HEAD `75e0079489d3966548f3d70bd571419d4a6b13b7`, user unit
-`hermes-nexus.service` ActiveState=active (operator record MainPID=16594).
-Operator-accepted GET `http://127.0.0.1:8770/api/health` → 200, `ok`,
-`data.status` ok; `/api/health` still has no SHA field (expected). Revision
-proof is that cwd HEAD, not health. This page does not rerun that probe and
-does not invent `dirty: false`. Untracked `__pycache__` is not Nexus dirty.
+`8e97d59c406e9a1e195fcff4213c941d4f07f5de`; merge of the gated ETS caller);
+no recopy. Live service cwd is `/home/dinis/projects/hermes-nexus-service`
+(not the human checkout), detached HEAD
+`bc8b52d7280e7adc83f05cb20df97fbb3199804c`. `/api/health` historically has
+no SHA field (expected). Revision proof is that cwd HEAD, not health. This
+page does not rerun that probe and does not invent `dirty: false`. Untracked
+`__pycache__` is not Nexus dirty. Rollback pin is now
+`75e0079489d3966548f3d70bd571419d4a6b13b7` (merge of PR #27; tree
+`d09d905194a656fd66f5e632ef3538ca1cc2200a`), the pin that just left: restore
+by `checkout --detach` that SHA in the service worktree plus a human restart.
 `85e511e7f65061cda861c98cd1acfbe9d79526b1` (tree
-`6f96db4a43043764f266920872a844825bb59482`) is the **rollback pin**, not
-current live state: restore by `checkout --detach` that SHA in the service
-worktree plus a human restart. These identities are not interchangeable even
-though `85e511e7f65061cda861c98cd1acfbe9d79526b1` is an ancestor of
-`6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`, that plugin pin is an ancestor of
-`c7aaf44ed2f407b4941b020160ccf1178f36eb69` (PR #24), and PR #24 is an ancestor
-of `75e0079489d3966548f3d70bd571419d4a6b13b7`. Composer `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` and caller
+`6f96db4a43043764f266920872a844825bb59482`) remains **historical** only, not
+current live and not the current rollback pin. These identities are not
+interchangeable even though `85e511e7f65061cda861c98cd1acfbe9d79526b1` is an
+ancestor of `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`, that plugin pin is an
+ancestor of `c7aaf44ed2f407b4941b020160ccf1178f36eb69` (PR #24), PR #24 is an
+ancestor of `75e0079489d3966548f3d70bd571419d4a6b13b7`, and that SHA is an
+ancestor of `bc8b52d7280e7adc83f05cb20df97fbb3199804c`. Composer `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` and caller
 `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb` are ancestors of the plugin pin.
 The previous public-docs checkpoint / closed pipeline
 `44baa8678974614bc6cc4519c71772e6648434e4` (2026-09-26, PR #16) is a historical
@@ -59,7 +61,7 @@ on the install with baseVersion 0.21.5 (commit
 Guard.
 Closed-pipeline Main `44baa8678974614bc6cc4519c71772e6648434e4`. Dispatcher `t_01dc13a8` PASS.
 Pipeline 1 docs · 2 docstring · 3A WRITE∩WRITE · 3B hook gap · 4 inventory is closed.
-Current main is `75e0079489d3966548f3d70bd571419d4a6b13b7`.
+Current main is `bc8b52d7280e7adc83f05cb20df97fbb3199804c`.
 etapa 4 `NO_COMPARABLE_LOGS` (inventory `t_85a6ae43`; Historical Step 7 remains; no comparison table).
 3B stands: Hermes 0.21.5 does not prove a hook.
 Nine legacy Project Map tools remain deferred (LEGACY/DEFERRED), not a blocker
@@ -101,10 +103,11 @@ Operator-authorized implementer, tester, and reviewer SOUL hashes and inspect li
 
 [INFRA-1](hermes-plugin-installation.md#infra-1--approved-implementation-pending)
 current operation is accepted at live service
-`75e0079489d3966548f3d70bd571419d4a6b13b7`, with WSL-restart boot not
-demonstrated and rollback not proved. `85e511e7f65061cda861c98cd1acfbe9d79526b1`
-is the rollback pin only. That acceptance is not liveness, boot PASS, 24/7
-availability, or G1 PASS.
+`bc8b52d7280e7adc83f05cb20df97fbb3199804c`, with WSL-restart boot not
+demonstrated and rollback not proved. Rollback pin is
+`75e0079489d3966548f3d70bd571419d4a6b13b7`.
+`85e511e7f65061cda861c98cd1acfbe9d79526b1` remains historical only. That
+acceptance is not liveness, boot PASS, 24/7 availability, or G1 PASS.
 The old PMW expired at `2026-09-24T11:16:43+01:00`; no extension,
 shutdown or live-state check is demonstrated here.
 
@@ -230,9 +233,11 @@ E0–E7 merged as PRs #17–#24: E0 #17
 `c7aaf44ed2f407b4941b020160ccf1178f36eb69`. E7 `reader_dirty` is plugin Python
 only (`integrations/hermes-nexus/reader_dirty.py` and
 `tests/hermes_nexus_plugin/test_reader_dirty.py` in the PR #24 merge); that merge
-did not by itself change the live process. Accepted cutover 2026-09-27 moved
-live service to `75e0079489d3966548f3d70bd571419d4a6b13b7`; `85e511e` is
-rollback only. B1–B4 remain existing holds, not implemented.
+did not by itself change the live process. Accepted cutover 2026-09-27 moved live service to
+`75e0079489d3966548f3d70bd571419d4a6b13b7`. Accepted human service move
+2026-09-28 moved live service to
+`bc8b52d7280e7adc83f05cb20df97fbb3199804c`; `75e0079` is rollback only;
+`85e511e` remains historical. B1–B4 remain existing holds, not implemented.
 WRITE/WATCH do not dispatch cards.
 
 Context selection and the now separate Impact v2 operation are distinct;
