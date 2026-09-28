@@ -69,6 +69,12 @@ class ReadDirtyTests(unittest.TestCase):
             "?? node_modules/pkg/index.js\0",
             "?? file.pyc.bak\0",
             "?? Foo/__Pycache__/a.txt\0",
+            # D2: normal business.py dirty; leading-space variants (space in pathname) dirty+omitted=false
+            "?? src/business.py\0",
+            "??  __pycache__/business.py\0",
+            "??  mod.pyc\0",
+            "??  mod.pyo\0",
+            "??  foo/__pycache__/bar.pyo\0",
         ]
         for p in cases:
             with self.subTest(p=p):
@@ -83,6 +89,11 @@ class ReadDirtyTests(unittest.TestCase):
             "?? mod.pyc\0",
             "?? foo/__pycache__\0",
             "?? foo\\\\__pycache__\\\\bar.pyc\0",
+            # D2: root __pycache__, .pyo (no leading space) omitted
+            "?? __pycache__/cached.pyc\0",
+            "?? mod.pyo\0",
+            "?? foo/__pycache__/bar.pyo\0",
+            "?? __pycache__/x.pyo\0",
         ]
         for p in cases:
             with self.subTest(p=p):
@@ -112,6 +123,12 @@ class ReadDirtyTests(unittest.TestCase):
         self.assertEqual(res["omittedUntrackedBytecode"], False)
         self.assertIn("serviceFilter", res)
 
+        # D2 additional: tracked .pyo also dirty (not omitted)
+        obs = {"porcelain": " M tracked.pyo\0", "serviceHasPycacheFilter": False, "linkedWorktree": False}
+        res = self.read_dirty(obs)
+        self.assertEqual(res["dirty"], True)
+        self.assertEqual(res["omittedUntrackedBytecode"], False)
+
     def test_empty_porcelain_is_clean(self):
         res = self.read_dirty({"porcelain": "", "serviceHasPycacheFilter": False, "linkedWorktree": False})
         self.assertEqual(res["dirty"], False)
@@ -119,9 +136,9 @@ class ReadDirtyTests(unittest.TestCase):
         self.assertEqual(res["unfilteredLengthDirty"], False)
         self.assertEqual(res["disagreeWithUnfilteredService"], False)
 
+        # D2: malformed like x\0 (and other structural failures) must refuse, not invent clean
         res2 = self.read_dirty({"porcelain": "x\0", "serviceHasPycacheFilter": False, "linkedWorktree": False})
-        self.assertEqual(res2["dirty"], False)
-        self.assertEqual(res2["unfilteredLengthDirty"], True)
+        self._assert_refused(res2)
 
     def test_service_lacks_filter_does_not_invent_clean_or_dirty(self):
         # real dirt stays
@@ -155,12 +172,46 @@ class ReadDirtyTests(unittest.TestCase):
         self.assertIn("serviceFilter", res)
         self.assertEqual(res["disagreeWithUnfilteredService"], False)  # no disagree when service filters
 
+        # D2: leading-space path is dirty (not omitted) even when filter present
+        obs = {"porcelain": "??  __pycache__/business.py\0", "serviceHasPycacheFilter": True, "linkedWorktree": True}
+        res = self.read_dirty(obs)
+        self.assertEqual(res["dirty"], True)
+        self.assertIn("serviceFilter", res)
+        self.assertEqual(res["disagreeWithUnfilteredService"], False)
+
+        # .pyo omitted same with filter
+        obs = {"porcelain": "?? mod.pyo\0", "serviceHasPycacheFilter": True, "linkedWorktree": True}
+        res = self.read_dirty(obs)
+        self.assertEqual(res["dirty"], False)
+        self.assertIn("serviceFilter", res)
+
+        # malformed input refused; filter does not rescue or invent result
+        res = self.read_dirty({"porcelain": "x\0", "serviceHasPycacheFilter": True, "linkedWorktree": False})
+        self._assert_refused(res)
+
     def test_rename_is_dirty(self):
         obs = {"porcelain": "R  old.ts\0new.ts\0", "serviceHasPycacheFilter": False, "linkedWorktree": False}
         res = self.read_dirty(obs)
         self.assertEqual(res["dirty"], True)
 
         obs = {"porcelain": "R  a.ts\0b.ts\0?? foo/__pycache__/x.pyc\0", "serviceHasPycacheFilter": False, "linkedWorktree": False}
+        res = self.read_dirty(obs)
+        self.assertEqual(res["dirty"], True)
+        self.assertEqual(res["omittedUntrackedBytecode"], True)
+
+        # D2: copy also dirty
+        obs = {"porcelain": "C  old.ts\0new.ts\0", "serviceHasPycacheFilter": False, "linkedWorktree": False}
+        res = self.read_dirty(obs)
+        self.assertEqual(res["dirty"], True)
+
+        # paired-path + following omission (rename then omitted pyc)
+        obs = {"porcelain": "R  a.ts\0b.ts\0?? mod.pyo\0", "serviceHasPycacheFilter": False, "linkedWorktree": False}
+        res = self.read_dirty(obs)
+        self.assertEqual(res["dirty"], True)
+        self.assertEqual(res["omittedUntrackedBytecode"], True)
+
+        # omitted then rename (mixed, following dirty keeps dirty, aggregates omitted)
+        obs = {"porcelain": "?? mod.pyo\0R  x\0y\0", "serviceHasPycacheFilter": False, "linkedWorktree": False}
         res = self.read_dirty(obs)
         self.assertEqual(res["dirty"], True)
         self.assertEqual(res["omittedUntrackedBytecode"], True)
@@ -173,6 +224,20 @@ class ReadDirtyTests(unittest.TestCase):
             {"porcelain": " M x\0", "serviceHasPycacheFilter": 1, "linkedWorktree": True},
             {"porcelain": None, "serviceHasPycacheFilter": False, "linkedWorktree": True},
             {"porcelain": " M x\0", "serviceHasPycacheFilter": False, "linkedWorktree": "yes"},
+            # D2 malformed framing / structural (must refuse, no dirty invented)
+            # wrapped as real obs (reach _classify / read_dirty); reuse _assert_refused
+            {"porcelain": "??\0", "serviceHasPycacheFilter": False, "linkedWorktree": False},  # short or empty path
+            {"porcelain": "R  old\0", "serviceHasPycacheFilter": False, "linkedWorktree": False},  # truncated rename/copy paired path
+            {"porcelain": " M foo\0x\0", "serviceHasPycacheFilter": False, "linkedWorktree": False},  # malformed after a dirtying entry
+            {"porcelain": "?? foo", "serviceHasPycacheFilter": False, "linkedWorktree": False},  # missing final NUL
+            {"porcelain": "x\0", "serviceHasPycacheFilter": False, "linkedWorktree": False},  # short record
+            {"porcelain": "?? \0", "serviceHasPycacheFilter": False, "linkedWorktree": False},  # empty pathname
+            # D2-R1: interior empties as wrapped obs (real parse cases)
+            {"porcelain": "\0", "serviceHasPycacheFilter": False, "linkedWorktree": False},
+            {"porcelain": "\0\0", "serviceHasPycacheFilter": False, "linkedWorktree": False},
+            {"porcelain": "?? mod.pyc\0\0", "serviceHasPycacheFilter": False, "linkedWorktree": False},
+            {"porcelain": "?? src/a.py\0\0?? src/b.py\0", "serviceHasPycacheFilter": False, "linkedWorktree": False},
+            {"porcelain": "R  old\0\0?? mod.pyc\0", "serviceHasPycacheFilter": False, "linkedWorktree": False},
         ]
         for c in cases:
             with self.subTest(c=c):
