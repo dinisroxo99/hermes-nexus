@@ -73,6 +73,24 @@ class SchemaShapeTests(unittest.TestCase):
         self.assertIn("repositoryId", required)
         self.assertIn("worktreeId", required)
 
+    def test_ets_description_corrected_no_total_side_effects_claim_and_structural_unchanged(self):
+        ets = schemas.EFFECTIVE_TASK_SCOPE_SCHEMA
+        self.assertEqual(ets["name"], "project_effective_task_scope")
+        self.assertFalse(ets["parameters"]["additionalProperties"])
+        desc = ets["description"]
+        self.assertIn("Read-only local composition of effective-task-scope-v1", desc)
+        self.assertIn("no network", desc)
+        self.assertIn("fail-closed with composer codes", desc)
+        self.assertIn("Composer is pure (no IO)", desc)
+        self.assertIn("handler may append a local collect-forward record", desc)
+        self.assertNotIn("no side-effects", desc.lower())
+        self.assertNotIn("side-effects", desc.lower())
+        # structural equality of schema (except the deliberately changed description text)
+        # parameters and name etc unchanged
+        self.assertIn("pack", ets["parameters"]["properties"])
+        self.assertIn("impact", ets["parameters"]["properties"])
+        self.assertIn("includeTests", ets["parameters"]["properties"])
+
 
 class ValidationTests(unittest.TestCase):
     def assert_context_rejected(self, mutate):
