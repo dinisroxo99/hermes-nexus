@@ -216,6 +216,33 @@ class CLITests(unittest.TestCase):
         self.assertIn("invalid_json", out)
         self.assertIn("duplicate", out.lower())
 
+    def test_cli_cross_object_symbols_and_limits_not_duplicate(self):
+        # regression F1: Context with task.symbols + limits.symbols (synthetic) -> input_valid exit 0
+        val = _ctx_valid()
+        val["task"]["symbols"] = ["s1"]
+        val["limits"] = {"symbols": 3}
+        data = json.dumps(val)
+        code, out = self._run(["--tool", "project_task_context", "--input", "-"], data)
+        self.assertEqual(code, 0)
+        self.assertIn("input_valid", out)
+        self.assertNotIn("duplicate", out.lower())
+
+    def test_cli_sibling_objects_same_key_not_json_duplicate(self):
+        # Sibling objects sharing a key must not be classified as JSON duplicate keys by the helper
+        sibling = '{"a":{"x":1},"b":{"x":2},"projectId":"p","worktree":{"rootId":"l","relativePath":"w"},"expectedRevision":{"status":"available","commitSha":"' + ("a"*40) + '","branch":"f","dirty":false,"isLinkedWorktree":true},"task":{"title":"t"}}'
+        code, out = self._run(["--tool", "project_task_context", "--input", "-"], sibling)
+        self.assertNotIn("duplicate", out.lower())
+        self.assertNotIn("invalid_json", out)
+
+    def test_cli_within_object_dup_still_invalid_json_no_dump(self):
+        # Real within-object duplicate keys still invalid_json without payload/traceback dump
+        raw = '{"x":1,"x":2,"projectId":"p","worktree":{"rootId":"l","relativePath":"w"},"expectedRevision":{"status":"available","commitSha":"' + ("a"*40) + '","branch":"f","dirty":false,"isLinkedWorktree":true},"task":{"title":"t"}}'
+        code, out = self._run(["--tool", "project_task_context", "--input", "-"], raw)
+        self.assertEqual(code, 1)
+        self.assertIn("invalid_json", out)
+        self.assertIn("duplicate", out.lower())
+        self.assertNotIn("Traceback", out)
+
     def test_cli_oversized_rejected(self):
         big = "x" * (1024 * 1024 + 10)
         data = json.dumps({"big": big})

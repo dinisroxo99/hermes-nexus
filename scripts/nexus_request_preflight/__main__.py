@@ -71,10 +71,9 @@ def _parse_json_bounded(raw: bytes) -> Any:
     except UnicodeDecodeError as e:
         raise ValueError(f"invalid_utf8: {e}") from None
 
-    # detect duplicate keys (last-wins in std json)
-    seen: set[str] = set()
-
+    # detect duplicate keys (last-wins in std json) -- per object, not document-global
     def _pairs_hook(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        seen: set[str] = set()
         d: dict[str, Any] = {}
         for k, v in pairs:
             if not isinstance(k, str):
