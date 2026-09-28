@@ -9,30 +9,46 @@ implementation plan or a live view of another checkout.
 
 The documentation gate lives in the orchestrator and reviewer SOUL.
 
-Current repository revision / `origin/main` (2026-09-28):
+Current repository `origin/main` (2026-09-28):
+`167293d72fef9fb3d2c8b82328ebefd8c81c4d3d` (docs merge PR #31; tree
+`8dfef5cd6703fcad29306a7efe16f3d33d4b62f9`). That SHA is **not** live
+service. Live service (untouched; cwd
+`/home/dinis/projects/hermes-nexus-service`, not the human checkout,
+detached HEAD) remains
 `bc8b52d7280e7adc83f05cb20df97fbb3199804c` (merge of PR #30; tree
-`7f1d5c337999e0592c25bfdb9799c31fe0c747c1`). After accepted human service
-move (operator; 2026-09-28), this SHA is also the live service revision.
-Plugin/caller pin remains `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776` (tree
-`8e97d59c406e9a1e195fcff4213c941d4f07f5de`; merge of the gated ETS caller);
-no recopy. Live service cwd is `/home/dinis/projects/hermes-nexus-service`
-(not the human checkout), detached HEAD
-`bc8b52d7280e7adc83f05cb20df97fbb3199804c`. `/api/health` historically has
+`7f1d5c337999e0592c25bfdb9799c31fe0c747c1`) after accepted human service
+move (operator; 2026-09-28). Do not treat `origin/main` as live.
+
+plugin instalado = misto
+- reader_dirty.py = blob bc8b52d
+  sha256 318816d62156c81c9133029a943f706f35e5e2a82821340ab7855556daf33a61
+- resto do plugin = 6ebb7aaa
+provides_tools continua 2 nomes.
+
+Full SHAs for that mixed identity (not a second unique pin): `reader_dirty.py`
+blob from
+`bc8b52d7280e7adc83f05cb20df97fbb3199804c:integrations/hermes-nexus/reader_dirty.py`;
+resto `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776` (tree
+`8e97d59c406e9a1e195fcff4213c941d4f07f5de`; merge of the gated ETS caller).
+`provides_tools` still exactly two names (`project_task_context`,
+`project_impact`). The installed plugin is not a single homogeneous
+`6ebb7aaa` pin. No recopy. `/api/health` historically has
 no SHA field (expected). Revision proof is that cwd HEAD, not health. This
 page does not rerun that probe and does not invent `dirty: false`. Untracked
-`__pycache__` is not Nexus dirty. Rollback pin is now
+`__pycache__` is not Nexus dirty. Rollback pin is
 `75e0079489d3966548f3d70bd571419d4a6b13b7` (merge of PR #27; tree
-`d09d905194a656fd66f5e632ef3538ca1cc2200a`), the pin that just left: restore
+`d09d905194a656fd66f5e632ef3538ca1cc2200a`): restore
 by `checkout --detach` that SHA in the service worktree plus a human restart.
 `85e511e7f65061cda861c98cd1acfbe9d79526b1` (tree
 `6f96db4a43043764f266920872a844825bb59482`) remains **historical** only, not
 current live and not the current rollback pin. These identities are not
 interchangeable even though `85e511e7f65061cda861c98cd1acfbe9d79526b1` is an
-ancestor of `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`, that plugin pin is an
+ancestor of resto `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`, that resto SHA is an
 ancestor of `c7aaf44ed2f407b4941b020160ccf1178f36eb69` (PR #24), PR #24 is an
 ancestor of `75e0079489d3966548f3d70bd571419d4a6b13b7`, and that SHA is an
-ancestor of `bc8b52d7280e7adc83f05cb20df97fbb3199804c`. Composer `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` and caller
-`cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb` are ancestors of the plugin pin.
+ancestor of live `bc8b52d7280e7adc83f05cb20df97fbb3199804c`, which is an
+ancestor of `origin/main` `167293d72fef9fb3d2c8b82328ebefd8c81c4d3d`. Composer `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` and caller
+`cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb` are ancestors of resto `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`.
 The previous public-docs checkpoint / closed pipeline
 `44baa8678974614bc6cc4519c71772e6648434e4` (2026-09-26, PR #16) is a historical
 ancestor of this checkout, not current main. The earlier public-docs checkpoint
@@ -61,7 +77,7 @@ on the install with baseVersion 0.21.5 (commit
 Guard.
 Closed-pipeline Main `44baa8678974614bc6cc4519c71772e6648434e4`. Dispatcher `t_01dc13a8` PASS.
 Pipeline 1 docs · 2 docstring · 3A WRITE∩WRITE · 3B hook gap · 4 inventory is closed.
-Current main is `bc8b52d7280e7adc83f05cb20df97fbb3199804c`.
+Current `origin/main` is `167293d72fef9fb3d2c8b82328ebefd8c81c4d3d`; live service remains `bc8b52d7280e7adc83f05cb20df97fbb3199804c`.
 etapa 4 `NO_COMPARABLE_LOGS` (inventory `t_85a6ae43`; Historical Step 7 remains; no comparison table).
 3B stands: Hermes 0.21.5 does not prove a hook.
 Nine legacy Project Map tools remain deferred (LEGACY/DEFERRED), not a blocker
