@@ -71,26 +71,25 @@ WRITE / RESERVED / WATCH / IMPACT · Conflict Intelligence · Project Expert.
 ## Current status
 
 Implementation checkpoint: [current verified status](docs/CURRENT_STATUS.md)
-records `origin/main`
-`167293d72fef9fb3d2c8b82328ebefd8c81c4d3d` (docs merge PR #31; **not** live)
-and live service still
+is the primary summary of current code, reported install, executed proofs, and
+limitations. This README is not a personal operational inventory.
+
+Dated 2026-09-28: code on `origin/main` was observed as
+`643eb3ab6433389f99264bc2b0a1aff7389ddc5d` (PR #37 `--merge`; **not** live).
+This document does not auto-track HEAD. Live service remains
 `bc8b52d7280e7adc83f05cb20df97fbb3199804c` after accepted human service move
-2026-09-28 (cwd `/home/dinis/projects/hermes-nexus-service`). Installed plugin
-is mixed, not a homogeneous `6ebb7aaa` pin:
-
-plugin instalado = misto
-- reader_dirty.py = blob bc8b52d
-  sha256 318816d62156c81c9133029a943f706f35e5e2a82821340ab7855556daf33a61
-- resto do plugin = 6ebb7aaa
-provides_tools continua 2 nomes.
-
-Full SHAs (not a second unique pin): `reader_dirty.py` blob from
-`bc8b52d7280e7adc83f05cb20df97fbb3199804c:integrations/hermes-nexus/reader_dirty.py`;
-resto `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`; `provides_tools` still exactly
-two names (`project_task_context`, `project_impact`). No recopy. Rollback pin
-`75e0079489d3966548f3d70bd571419d4a6b13b7` (not current
-live), and historical pin `85e511e7f65061cda861c98cd1acfbe9d79526b1` (not
-current rollback, not live). Step 3 was historically accepted at `4d8d23e564e355d84916b93d890762ac0c7498ee`
+2026-09-28 (cwd `/home/dinis/projects/hermes-nexus-service`). Candidate
+`4a61aba14bc73d2b6d3b44a710e5fb33d49798ed` (docs/code delta on
+`fix/post-canonicalization-reconciliation`) is recorded in CURRENT_STATUS and
+is **not merged**. Canonical Git `tools.py` overlay sha256 `5dabeda0…` is on
+that observed main; content equality ≠ ancestry of historical `e62463e` and ≠
+every installed file. `provides_tools` still exactly two names
+(`project_task_context`, `project_impact`). No recopy. Rollback pin
+`75e0079489d3966548f3d70bd571419d4a6b13b7` (not current live). Historical pins
+including `85e511e7f65061cda861c98cd1acfbe9d79526b1`, mixed-install
+`6ebb7aaa…`, and earlier docs `origin/main` claims (`35474766`, `167293d`)
+are checkpoints only — see CURRENT_STATUS. Step 3 was historically accepted at
+`4d8d23e564e355d84916b93d890762ac0c7498ee`
 and composer at `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` (main merge ff1093e7cfaf447bc063a22b8edaa3feed1e1b6d; legacy feat/787f662 not included).
 Those identities are not interchangeable. Live cwd is
 `/home/dinis/projects/hermes-nexus-service` (detached HEAD at the live SHA);

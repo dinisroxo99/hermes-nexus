@@ -2,23 +2,39 @@
 
 ## Current checkpoint
 
-2026-09-27: Step 3 is historically accepted at
-`4d8d23e564e355d84916b93d890762ac0c7498ee`. This checkout is
-`c7aaf44ed2f407b4941b020160ccf1178f36eb69`. Plugin/caller pin
-`6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`. Service pin
-`85e511e7f65061cda861c98cd1acfbe9d79526b1`. Current adoption source baseline is
-`feat/nexus-profile-integration@10d1f348fd4c6ddbb5319d972c71b426e51e574a`.
+Operational status (current code vs reported install vs executed proofs vs
+limitations) is recorded in
+[CURRENT_STATUS](../../docs/CURRENT_STATUS.md). This plan is not a rival pin
+list and does not auto-track `origin/main` HEAD.
+
+Dated 2026-09-28: observed `origin/main`
+`643eb3ab6433389f99264bc2b0a1aff7389ddc5d` (PR #37 `--merge`). Candidate
+`4a61aba14bc73d2b6d3b44a710e5fb33d49798ed` on
+`fix/post-canonicalization-reconciliation` is **not merged**. Live service
+remains `bc8b52d7280e7adc83f05cb20df97fbb3199804c`. Native caller `tools.py`
+overlay sha256 `5dabeda0…` is on that observed main; content equality ≠
+ancestry of historical `e62463e`. Step 3 is historically accepted at
+`4d8d23e564e355d84916b93d890762ac0c7498ee`.
 [DEV-ADOPTION-1](../../docs/hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption)
 approves the tracked Context/Impact plugin for six development profiles, including
 concurrent workers. Two-tool publication and six-profile H-only offline adoption
 are accepted in
 [plugin installation](../../docs/hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption).
-INFRA-1 current operation is accepted at the service pin, with WSL-restart boot
+INFRA-1 current operation is accepted at the live service SHA above, with WSL-restart boot
 not demonstrated and rollback not proved; that is not a boot, 24/7, G1 PASS, or
 unit-runs-this-HEAD claim. G1 remains REJECTED; R1/R2 remain open/deferred, HIGH
 severity and LOW/non-blocking development priority. Nine legacy tools remain
 deferred. ETS WRITE/WATCH classification exists and is not Step 4, Conflict
 Engine, or Guard. **Step 4 is not initiated as coordination/enforcement.**
+
+### Historical pin list (not current)
+
+2026-09-27 text previously said this checkout is
+`c7aaf44ed2f407b4941b020160ccf1178f36eb69`, plugin/caller pin
+`6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`, service pin
+`85e511e7f65061cda861c98cd1acfbe9d79526b1`, and adoption source baseline
+`feat/nexus-profile-integration@10d1f348fd4c6ddbb5319d972c71b426e51e574a`.
+Those remain historical checkpoints. See CURRENT_STATUS.
 
 ### Next pipeline (distinct from Steps 1–9)
 
@@ -28,7 +44,7 @@ product queue.
 
 Closed: Pipeline 1 docs · 2 docstring · 3A WRITE∩WRITE · 3B hook gap · 4 inventory.
 Closed-pipeline Main `44baa8678974614bc6cc4519c71772e6648434e4`. Dispatcher `t_01dc13a8` PASS.
-Current main is `c7aaf44ed2f407b4941b020160ccf1178f36eb69`.
+Historical (not current) main pin in this plan was `c7aaf44ed2f407b4941b020160ccf1178f36eb69`.
 etapa 4 `NO_COMPARABLE_LOGS` (inventory `t_85a6ae43`; Historical Step 7 remains; no comparison table).
 3B stands: Hermes 0.21.5 does not prove a hook.
 
@@ -42,7 +58,8 @@ PROJECT.md+CURRENT_STATUS @ 44baa86 (PR #22
 `a86ac94fbdf0e8c1c28c52011f4c30bc8743f781`) → E6 CI leve (`t_a329b8c3`, PR #23
 `1ed21b597136cd15cc26359ff4af51ae01a17df0`) → E7 reader dirty (PR #24
 `c7aaf44ed2f407b4941b020160ccf1178f36eb69`): plugin Python only; live service
-still `85e511e7f65061cda861c98cd1acfbe9d79526b1`, out of scope.
+at that historical note was still `85e511e7f65061cda861c98cd1acfbe9d79526b1`,
+out of scope. Later accepted live pin is recorded in CURRENT_STATUS.
 
 - **B1** Guard / Step 6 — waits proven Hermes hook. FORA until hook: Guard, lock, lease, pre_tool_call, Step 6 enforcement
 - **B2** RESERVED / full Conflict Engine (11) — waits E1 accepted + change semantics; RESERVED stays not_emitted

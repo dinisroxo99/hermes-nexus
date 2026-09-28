@@ -5,47 +5,172 @@
 ## Verification boundary
 
 This is a linked public summary of the implementation checkpoint, not a separate
-implementation plan or a live view of another checkout.
+implementation plan or a live view of another checkout. A versioned document
+does **not** automatically track `origin/main` HEAD. Use dated checkpoints and
+named handoffs.
 
 The documentation gate lives in the orchestrator and reviewer SOUL.
 
-Current repository `origin/main` (2026-09-28):
-`354747661839f374d0b0e5bd811731a332666b54` (merge of PR #36; tree
-`f7b5704358cb93039a121e7f8de07fd9a998618f`). That SHA is **not** live
-service. Live service (untouched; cwd
-`/home/dinis/projects/hermes-nexus-service`, not the human checkout,
-detached HEAD) remains
+Keep evidence categories separate:
+
+- **Current code:** observed Git revision, contracts, tests.
+- **Reported install:** dated inventories/hashes/handoffs; not a new machine
+  inspection. This documentation mission did **not** recopy plugins or restart
+  Hermes/Nexus.
+- **Executed proof:** command/session, revision, relevant config, observed
+  result. The six controlled collect-persist proofs remain historical; they
+  were **not** re-run here.
+- **Intent/authorization:** operator decisions, task contract, roadmap; they
+  do not prove implementation.
+
+Merge is not deployment. Installed files are not loaded modules. Collector
+success is not all tools. Tool `ok=true` is not a persistence receipt. Six
+controlled proofs are not continuous collection on CLI, gateway, or workers.
+Acceptance-with-limitations is not production, no-leaks, or 24/7.
+
+Git proves content, not ancestry of a different commit, and does not authorize
+operations. This page does not invent `dirty: false` or opaque IDs. Untracked
+`__pycache__` is not Nexus dirty. Other untracked paths and all tracked dirt
+still count.
+
+## Checkpoint 2026-09-28
+
+### Current code
+
+Dated **2026-09-28**, code on `origin/main` was observed as
+`643eb3ab6433389f99264bc2b0a1aff7389ddc5d` (merge of PR #37 `--merge`).
+That SHA is **not** live service.
+
+This documentation branch candidate is
+`4a61aba14bc73d2b6d3b44a710e5fb33d49798ed` on
+`fix/post-canonicalization-reconciliation` (descendant of `643eb3ab`, **not
+merged**). Do not guess a future merge SHA.
+
+Live service (untouched; cwd `/home/dinis/projects/hermes-nexus-service`,
+not the human checkout, detached HEAD) remains
 `bc8b52d7280e7adc83f05cb20df97fbb3199804c` (merge of PR #30; tree
 `7f1d5c337999e0592c25bfdb9799c31fe0c747c1`) after accepted human service
 move (operator; 2026-09-28). Do not treat `origin/main` as live.
-Canonical Git `integrations/hermes-nexus/tools.py` **is** overlay sha256
-`5dabeda0c30dd742e2b463fe1959d1cd133790e7a5a37e28422543a8ab5349e0`
-(same bytes as local `e62463eba49640448e42425b9e500497c4f02af0` and as
-the six-profile install). Runtime (six profiles, live-persist 6/6 already
-proven) and Git are aligned on those bytes. **No recopy** of the six
-profiles. Code gates: implementer `t_3110d536`, tester `t_9ec8c071`,
-reviewer `t_463c224e` (live-persist/hash-gate already used: `t_f8a1aba6` /
-`t_cd20ab7c` / `t_defcbfd1` / `t_d215eea4`).
-PR #33 (merge `003a5ed1b73bd9b82f36f6b462fdf132e96a1bc5`) integrou a persistência source-local de `collect_forward_log` em `<dataDir>/collect-forward-log.jsonl`, com o INPUT de seis chaves (`runId`, `profile`, `sha`, `nexusTools`, `writePaths`, `watchPaths`) e o retorno count-only preservado, sem alteração do serviço live, recopy do plugin ou restart.
+`/api/health` 200 has no SHA field; revision proof is that cwd HEAD, not
+health.
 
-plugin instalado (local `~/.hermes/profiles/<name>/plugins/hermes-nexus`) =
-10 files total (Kanban `t_f8a1aba6` / `t_cd20ab7c` / `t_defcbfd1` /
-`t_d215eea4`; not a personal dest-hash inspection)
-- nine match `28e9815b1a6efed8bae41f0d513d9856c8a44858`
-- `tools.py` is overlay sha256
+**Steps 1, 2, 2.5 and 3 are complete. Step 4 is NOT INITIATED as
+coordination/enforcement.** Step 4 = Effective Task Scope as
+coordination/enforcement; Step 5 = Conflict Engine; Step 6 = Guard
+integration. WRITE/WATCH classification is not a complete
+coordination/enforcement system. Historical local names (Step 4.0/4.1)
+identify earlier slices; they do not renumber the roadmap or mark those
+phases complete. `787f662` / adapter 1A do **not** enter this delta.
+
+### Canonicalization of the native caller (RESOLVIDO as Git on main)
+
+At `643eb3ab` (and still at candidate `4a61aba`), canonical Git
+`integrations/hermes-nexus/tools.py` is overlay sha256
+`5dabeda0c30dd742e2b463fe1959d1cd133790e7a5a37e28422543a8ab5349e0`.
+
+Historical content origin (**not** a proven ancestor of main):
+`e62463eba49640448e42425b9e500497c4f02af0` on
+`feat/caller-profile-native-context`. Architect `t_f32991a5` CLASSIFIED on
+`643eb3ab`. **Do not present the native caller as code absent from main.**
+
+Content equality of `tools.py` ≠ commit ancestry of `e62463e` on main, and
+≠ byte equality of every installed file.
+
+### Candidate-only Git delta (not on origin/main; not recopied)
+
+Implementer `t_ff92494d` on this writer:
+
+- `6152cea409589561852d2fd4c9b112ec3797c35c` — ETS handler description
+  qualified: composer is pure (no IO); the handler may append a local
+  collect-forward record. **Not recopied** to profile plugin copies. Do
+  **not** declare Git/runtime byte equality. The new `schemas.py` text is
+  **not** claimed installed.
+- `4a61aba14bc73d2b6d3b44a710e5fb33d49798ed` — `.gitignore` rule exactly
+  `/data/collect-forward-log.jsonl`. That rule is this repo's **default
+  destination only**, not every `DATA_DIR`. Isolated real collector+Git
+  unittest is **not** a live Hermes session. JSONL was not tracked.
+
+Do not recopy. Do not restart.
+
+### Reported install (dated 2026-09-28 handoffs)
+
+Copied from named Kanban cards, not a personal dest-hash inspection and not
+repeated by this documentation mission. File counts are **that handoff's
+inventory**, not "always ten files" or "always seven files".
+
+plugin instalado (local `~/.hermes/profiles/<name>/plugins/hermes-nexus`)
+at those handoffs:
+
+- nine files match `28e9815b1a6efed8bae41f0d513d9856c8a44858`
+- `tools.py` overlay sha256
   `5dabeda0c30dd742e2b463fe1959d1cd133790e7a5a37e28422543a8ab5349e0`
-  (same bytes as local `e62463eba49640448e42425b9e500497c4f02af0` and as
-  the six-profile install). Canonical Git
-  `integrations/hermes-nexus/tools.py` **is** that overlay blob, **not**
-  the `28e9815` `tools.py` blob (`54c0fdcf9547cb8f6d98a52a13d5cbb937f0759b`)
-provides_tools continua 2 nomes.
-`default` and `workspace-manager` were **not** installed.
+  (same **tools.py** bytes as `e62463e` content and as the six-profile
+  install at that date). Canonical Git `integrations/hermes-nexus/tools.py`
+  **is** that overlay blob, **not** the `28e9815` `tools.py` blob
+  (`54c0fdcf9547cb8f6d98a52a13d5cbb937f0759b`)
+- `default` and `workspace-manager` were **not** installed (plugin
+  install/config/exposure exclusion). That does **not** forbid using the
+  workspace-manager **role**.
 
 `provides_tools` still exactly two names (`project_task_context`,
-`project_impact`). `nexusTools` is **bool**. Payload collect is exactly the
-six keys above. This page does not inspect live runs, JSONL files, or
-sessions; the 2026-09-28 six-profile persist facts are copied from named
-Kanban handoffs (see [ETS profile exposure](ETS_PROFILE_EXPOSURE.md)).
+`project_impact`). Two names are compatible with ETS gated by
+`scope_enabled`. Do not add a third name to the manifest.
+
+Local copies do **not** include the new `schemas.py` handler description
+from `6152cea`. This documentation update does not authorize recopy or
+restart.
+
+The previous mixed install (`reader_dirty.py` blob from
+`bc8b52d7280e7adc83f05cb20df97fbb3199804c:integrations/hermes-nexus/reader_dirty.py`;
+resto `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`, tree
+`8e97d59c406e9a1e195fcff4213c941d4f07f5de`) is **historical**, not the
+2026-09-28 six-profile install handoff.
+
+Hash-gate remaining 5: `t_cd20ab7c` PASS. Architect dest `tools.py`
+`5dabeda0…` (`t_d215eea4` / `t_defcbfd1`). Recopy remaining 5:
+`t_f8a1aba6`. **No recopy** of the six profiles in this mission. Profile-native
+caller tests `t_a2277b22` CallerTests 33/33, test_tools 60/60; review
+`t_56e363fe` PASS. Code gates: implementer `t_3110d536`, tester
+`t_9ec8c071`, reviewer `t_463c224e`.
+
+### Collect-forward semantics (current code on this candidate; no code change)
+
+Confirmed read-only against canonicalized plugin on this candidate:
+
+- Persisted INPUT contains **exactly** `runId`, `profile`, `sha`,
+  `nexusTools`, `writePaths`, `watchPaths`.
+- The collector's count-only return is **not** the persisted JSONL record.
+- For Context, the caller requires `task.paths` to be a **list** to
+  collect. Omission vs `[]` may be accepted by the tool and have
+  **different** collection effects (omission skips persist; `[]` may
+  persist empty `writePaths`).
+- Collection depends on resolved identity (profile and `runId`) and a
+  valid writable destination. The tool JSON result may be preserved even
+  when there is no persistence.
+- Hermes/collector process `DATA_DIR` is **not** automatically the Node
+  service's. The collector does **not** run `resolveProjectConfig` and does
+  **not** read `.env` directly.
+- Installed copies need config the collector admits. Prior proofs used
+  **explicit `DATA_DIR`**.
+- `runId` is a correlation field with fallback (`kwargs.runId` →
+  `HERMES_KANBAN_RUN_ID` → `session_id` → `task_id`). It may carry a
+  Kanban run, a session, or a task. It does **not** necessarily identify a
+  Kanban attempt and is **not** unique per call.
+- `nexusTools` is boolean (`true` for accepted Context/Impact; `false` for
+  accepted ETS). Mapping to Context/Impact/ETS does **not** mean "with
+  Nexus vs without Nexus" in an experiment.
+- `writePaths` / `watchPaths` are declared/derived call data, **not** an
+  audit of edits made and **not** a permission grant.
+- Minimal JSONL does **not** prove exactly-once, idempotence, concurrency,
+  retention, coverage of all hooks, cross-run comparability, or
+  training-data quality.
+
+PR #33 (merge `003a5ed1b73bd9b82f36f6b462fdf132e96a1bc5`) integrated
+source-local persist of `collect_forward_log` to
+`<dataDir>/collect-forward-log.jsonl` with the six-key INPUT and count-only
+return, without live-service change, recopy, or restart.
+
+### Executed proofs (historical; not re-run)
 
 Six-profile live collect persist (2026-09-28; no `HERMES_PROFILE`; `DATA_DIR`
 prefix only; locator `expectedRevision.branch: null`, `task.paths: []`;
@@ -53,14 +178,8 @@ stored `runId` = kwargs.session_id; JSONL +1). Native profile from
 `HERMES_HOME` exact `.../profiles/<name>` and/or `__file__`
 `.../profiles/<name>/plugins/hermes-nexus/tools.py`. Fail-closed if neither;
 HOME/`__file__` conflict skips persist. Hermes 0.21.5 `-p` does not export
-`HERMES_PROFILE`. Hash-gate remaining 5: `t_cd20ab7c` PASS. Architect dest
-`tools.py` `5dabeda0…` (`t_d215eea4` / `t_defcbfd1`). Recopy remaining 5:
-`t_f8a1aba6`. **No recopy** of the six profiles. Live service HEAD throughout:
-`bc8b52d7280e7adc83f05cb20df97fbb3199804c` (untouched). Canonical Git
-`integrations/hermes-nexus/tools.py` is that overlay blob (implementer
-`t_3110d536`, tester `t_9ec8c071`, reviewer `t_463c224e`). Profile-native
-caller tests `t_a2277b22` CallerTests 33/33, test_tools
-60/60; review `t_56e363fe` PASS.
+`HERMES_PROFILE`. Live service HEAD throughout:
+`bc8b52d7280e7adc83f05cb20df97fbb3199804c` (untouched).
 
 | profile | card | session / stored runId | jsonl_after sha256 |
 |---|---|---|---|
@@ -71,39 +190,10 @@ caller tests `t_a2277b22` CallerTests 33/33, test_tools
 | documenter | `t_2c324855` | `20260928_172518_08cdc7` | `0d26d286ff37094e71c262abb85cb389a052366cb3d56938d2877a881f7b0af2` |
 | orchestrator | `t_29a66ff6` | `20260928_172918_30fdb4` | `ad48a803f2d579c0ab22becdcb4dae67f2750308c468c822972db0d1ecdf66de` |
 
-The previous mixed install (`reader_dirty.py` blob from
-`bc8b52d7280e7adc83f05cb20df97fbb3199804c:integrations/hermes-nexus/reader_dirty.py`;
-resto `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`, tree
-`8e97d59c406e9a1e195fcff4213c941d4f07f5de`) is **historical**, not the
-current six-profile install. `/api/health` historically has
-no SHA field (expected). Revision proof is that cwd HEAD, not health. This
-page does not rerun that probe and does not invent `dirty: false`. Untracked
-`__pycache__` is not Nexus dirty. Rollback pin is
-`75e0079489d3966548f3d70bd571419d4a6b13b7` (merge of PR #27; tree
-`d09d905194a656fd66f5e632ef3538ca1cc2200a`): restore
-by `checkout --detach` that SHA in the service worktree plus a human restart.
-`85e511e7f65061cda861c98cd1acfbe9d79526b1` (tree
-`6f96db4a43043764f266920872a844825bb59482`) remains **historical** only, not
-current live and not the current rollback pin. These identities are not
-interchangeable even though `85e511e7f65061cda861c98cd1acfbe9d79526b1` is an
-ancestor of resto `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`, that resto SHA is an
-ancestor of `c7aaf44ed2f407b4941b020160ccf1178f36eb69` (PR #24), PR #24 is an
-ancestor of `75e0079489d3966548f3d70bd571419d4a6b13b7`, and that SHA is an
-ancestor of live `bc8b52d7280e7adc83f05cb20df97fbb3199804c`, which is an
-ancestor of `167293d72fef9fb3d2c8b82328ebefd8c81c4d3d` (docs PR #31), which is an
-ancestor of `28e9815b1a6efed8bae41f0d513d9856c8a44858` (historical ancestor, not current `origin/main`), which is an ancestor of current `origin/main` `354747661839f374d0b0e5bd811731a332666b54`. Composer `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` and caller
-`cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb` are ancestors of resto `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`.
-The previous public-docs checkpoint / closed pipeline
-`44baa8678974614bc6cc4519c71772e6648434e4` (2026-09-26, PR #16) is a historical
-ancestor of this checkout, not current main. The earlier public-docs checkpoint
-`725729f4d9d78e669dcd74d7cdb08210c8828b14` (main merge
-`ef32c8c9c721e251a53240c264e315ab42817bb7`) is also an ancestor. The E8
-recenter `c7aaf44ed2f407b4941b020160ccf1178f36eb69` is likewise an ancestor,
-not current main.
-Step 3 was independently accepted at historical SHA
-`4d8d23e564e355d84916b93d890762ac0c7498ee`, an ancestor of this candidate.
-**Steps 1, 2, 2.5 and 3 are complete. Step 4 is NOT INITIATED as coordination/enforcement.**
-`787f662` / adapter 1A do **not** enter this delta.
+Those six records do not declare continuous collection on CLI, gateway, or
+workers. Empty lists and controlled trials do not automatically demonstrate
+comparable logs, concurrency, or validated training data. Do not unblock
+cards because six proof records exist.
 
 The tracked `hermes-nexus` plugin delivers `project_task_context` and
 `project_impact` in `project_intelligence`. `provides_tools` remains exactly
@@ -111,17 +201,25 @@ those two names; `project_effective_task_scope` does **not** enter the global ya
 [DEV-ADOPTION-1](hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption)
 approves normal development adoption, including concurrent workers, for
 orchestrator, architect, implementer, tester, reviewer and documenter; default
-and workspace-manager are excluded. Two-tool publication and six-profile H-only
-offline adoption are accepted as recorded in that installation contract. ETS is
-read-only classification, not Step 4, Conflict Engine or Guard.
-At repository revision `2ded0de4529ff65ac4c52cf55d992fd3cf6081d3`, the [installation guide](hermes-plugin-installation.md#revision-pinned-installation-and-configuration) specifies seven plugin files including `collect_forward_log.py`, while historical rollback pin `85e511e7f65061cda861c98cd1acfbe9d79526b1` retains five without `effective_task_scope.py` or `collect_forward_log.py`; this documentation alignment performs no profile copy or service change.
+and workspace-manager are excluded from plugin install/config/exposure.
+Two-tool publication and six-profile H-only offline adoption are accepted as
+recorded in that installation contract. ETS is read-only classification, not
+Step 4, Conflict Engine or Guard.
+
+At repository revision `2ded0de4529ff65ac4c52cf55d992fd3cf6081d3`, the
+[installation guide](hermes-plugin-installation.md#revision-pinned-installation-and-configuration)
+listed **seven** plugin files including `collect_forward_log.py`. That is
+**that revision's inventory**, not "always seven files". Historical rollback
+pin `85e511e7f65061cda861c98cd1acfbe9d79526b1` retained five without
+`effective_task_scope.py` or `collect_forward_log.py`. This documentation
+alignment performs no profile copy or service change.
+
 Etapa 3B: SOUL, installed hermes-nexus plugin.yaml, Hermes skills, and gateway
 on the install with baseVersion 0.21.5 (commit
 903a57c540917cedd30c7d971938f1af7bdf60e2, tag null) do not prove a hook for
 Guard.
 Closed-pipeline Main `44baa8678974614bc6cc4519c71772e6648434e4`. Dispatcher `t_01dc13a8` PASS.
 Pipeline 1 docs · 2 docstring · 3A WRITE∩WRITE · 3B hook gap · 4 inventory is closed.
-Current `origin/main` is `354747661839f374d0b0e5bd811731a332666b54`; live service remains `bc8b52d7280e7adc83f05cb20df97fbb3199804c`.
 etapa 4 `NO_COMPARABLE_LOGS` (inventory `t_85a6ae43`; Historical Step 7 remains; no comparison table).
 3B stands: Hermes 0.21.5 does not prove a hook.
 Nine legacy Project Map tools remain deferred (LEGACY/DEFERRED), not a blocker
@@ -131,23 +229,22 @@ LOW/non-blocking development priority, with original R2 MEDIUM retained in
 [known issues](KNOWN_ISSUES.md). This is not production readiness, G1 PASS,
 or a lifecycle fix. This documentation does not claim boot after WSL restart
 or 24/7 availability. The live unit's WorkingDirectory is
-`/home/dinis/projects/hermes-nexus-service`, not the human checkout. Health has
-no SHA field; do not treat health as revision proof.
+`/home/dinis/projects/hermes-nexus-service`, not the human checkout.
 
 Dated 2026-09-25 handoffs (not live probes in this documentation task) record
 ETS caller exposure on independent pinned plugin copies, not symlinks, with
 `scope_enabled: true` for orchestrator, architect, implementer, tester,
 reviewer and documenter. Pin, `scope_enabled`, SOUL (instructions, not a
 wrapper) and proofs: [ETS profile exposure](ETS_PROFILE_EXPOSURE.md).
-`default` and `workspace-manager` remain excluded;
-workspace-manager has no flag. Hide-by-omit: `register()` adds
-`project_effective_task_scope` only when `scope_enabled` is exactly true
-(omitted or false ≠ true). `includeTests` omitted in the plugin ≠ true; SOUL
-paragraphs are instructions, not a wrapper. ETS is read-only classification;
-WRITE does not authorize edit, lock, dispatch or new cards, and does not open
-Step 4, Conflict Engine, Guard, legacy tools or extra documentation work.
-Incomplete / partial / unsupported / unavailable / `not_evaluated` ≠ safety.
-Test candidates ≠ results. Do not invent `dirty: false` or opaque IDs.
+`default` and `workspace-manager` remain excluded from plugin
+install/config/exposure; workspace-manager has no flag. Hide-by-omit:
+`register()` adds `project_effective_task_scope` only when `scope_enabled`
+is exactly true (omitted or false ≠ true). `includeTests` omitted in the
+plugin ≠ true; SOUL paragraphs are instructions, not a wrapper. ETS is
+read-only classification; WRITE does not authorize edit, lock, dispatch or
+new cards, and does not open Step 4, Conflict Engine, Guard, legacy tools or
+extra documentation work. Incomplete / partial / unsupported / unavailable /
+`not_evaluated` ≠ safety. Test candidates ≠ results.
 The service revision reader no longer treats untracked `__pycache__/` and `*.pyc` as dirty; other untracked paths and all tracked dirt still count; `dirty: false` is never invented.
 D2 aligns the repository JavaScript and Python dirty readers to keep leading-space paths dirty, omit only eligible untracked exact `__pycache__` segments or `*.pyc`/`*.pyo` basenames, and reject malformed porcelain without inventing a clean result (JavaScript `dirty: null`; Python `not_evaluated` without `dirty`), without updating the live service.
 When obtaining ETS: Context, then Impact and ETS with `includeTests` true;
@@ -170,6 +267,43 @@ demonstrated and rollback not proved. Rollback pin is
 acceptance is not liveness, boot PASS, 24/7 availability, or G1 PASS.
 The old PMW expired at `2026-09-24T11:16:43+01:00`; no extension,
 shutdown or live-state check is demonstrated here.
+
+### Historical repository checkpoints
+
+These SHAs are ancestors or earlier docs pins, **not** the 2026-09-28
+`origin/main` observation `643eb3ab`:
+
+- Docs previously named current `origin/main` as
+  `354747661839f374d0b0e5bd811731a332666b54` (merge of PR #36; tree
+  `f7b5704358cb93039a121e7f8de07fd9a998618f`) — historical checkpoint.
+- `167293d72fef9fb3d2c8b82328ebefd8c81c4d3d` (docs PR #31) — historical.
+- `28e9815b1a6efed8bae41f0d513d9856c8a44858` — historical install-set
+  ancestor used in the dated nine-file match, not current `origin/main`.
+- E8 recenter `c7aaf44ed2f407b4941b020160ccf1178f36eb69` (PR #24) —
+  historical; not "this checkout".
+- Rollback pin `75e0079489d3966548f3d70bd571419d4a6b13b7` (merge of PR #27;
+  tree `d09d905194a656fd66f5e632ef3538ca1cc2200a`): restore by
+  `checkout --detach` that SHA in the service worktree plus a human restart.
+- `85e511e7f65061cda861c98cd1acfbe9d79526b1` (tree
+  `6f96db4a43043764f266920872a844825bb59482`) — historical service pin
+  only, not current live and not the current rollback pin.
+- Composer `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` and caller
+  `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb` are ancestors of resto
+  `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`.
+- Public-docs checkpoint / closed pipeline
+  `44baa8678974614bc6cc4519c71772e6648434e4` (2026-09-26, PR #16) and
+  `725729f4d9d78e669dcd74d7cdb08210c8828b14` (main merge
+  `ef32c8c9c721e251a53240c264e315ab42817bb7`) are historical ancestors.
+- Step 3 independently accepted at
+  `4d8d23e564e355d84916b93d890762ac0c7498ee`.
+
+These identities are not interchangeable even though `85e511e` is an
+ancestor of resto `6ebb7aaa`, that resto SHA is an ancestor of `c7aaf44`
+(PR #24), PR #24 is an ancestor of `75e0079`, that SHA is an ancestor of
+live `bc8b52d`, which is an ancestor of `167293d` (docs PR #31), which is
+an ancestor of `28e9815`, which is an ancestor of historical docs pin
+`35474766`, which is an ancestor of observed 2026-09-28 `origin/main`
+`643eb3ab`.
 
 ### Historical Serena/mainline consolidation evidence
 
@@ -209,8 +343,8 @@ candidate verification or plugin lifecycle acceptance.
 | Step 2.5 — Analyzer Provider Layer | Normalized contract and native adapters; deterministic selection/fallback; provider/version/capability/language metadata; bounded snapshot-scoped external evidence validation; polyglot symbol-name normalization. Node.js projects remain classified as `nodejs` while resolving to the existing JavaScript-capable native TypeScript analyzer. Task Context Pack consumes normalized providers and exposes partial/not_analyzed coverage. | [Provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md), [provider selection](../src/analyzers/common/analyzer-providers.js), [data validator](../src/analyzers/external/snapshot-provider.js), [pack/provider tests](../tests/task-context-providers.test.js), [Node.js routing tests](../tests/nodejs-analyzer-routing.test.js) |
 | Existing graph impact | Bounded node-based impact, symbol context and graph insights. This is not Step 3 Impact v2. | [Graph intelligence](../src/lib/graph-intelligence.js), [analyzer service tests](../tests/analyzer-service.test.js) |
 | Step 3 — Impact v2 | Bounded file/multi-file reverse-impact evidence and optional affected-test candidates, resolved against persisted project/worktree/revision, with reobservation and independent output caps. | [Impact contract](project-intelligence/06_SCOPE_IMPACT_CONFLICTS.md), [HTTP route](../src/routes/project-impact.routes.js), [service tests](../tests/project-impact-service.test.js) |
-| Hermes thin plugin | Exactly two tracked read-only tools (`project_task_context`, `project_impact`); `compose_effective_task_scope` exists in plugin at `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5`, read-only local, sem tool/rota/schemas; labels only WRITE e WATCH; RESERVED/IMPACT `not_emitted`. `feat/legacy-project-map-t_d032c9fe@787f662df941ea8461efeb0db86f51ad569a461c` / adapter 1A do not enter this delta. Two-tool publication is accepted as recorded in the installation contract, not automatic installation or Guard. | [Usage contract](hermes-tool-integration.md#dev-adoption-1--two-tool-usage-contract), [open limitations](KNOWN_ISSUES.md), [composer](../integrations/hermes-nexus/effective_task_scope.py) |
-| Gated ETS caller | `project_effective_task_scope` (local compose from accepted pack+impact) exists at ancestor `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb` on pin `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`. Hidden via `register_tool` omission unless `scope_enabled` is exactly true. `provides_tools` lists exactly the two core tools. Six development profiles have independent installed copies (10 files total: nine match `28e9815b1a6efed8bae41f0d513d9856c8a44858`; `tools.py` overlay sha256 `5dabeda0c30dd742e2b463fe1959d1cd133790e7a5a37e28422543a8ab5349e0` (same bytes as local `e62463eba49640448e42425b9e500497c4f02af0` and as the six-profile install). Canonical Git `integrations/hermes-nexus/tools.py` **is** that overlay blob, **not** the `28e9815` `tools.py` blob `54c0fdcf9547cb8f6d98a52a13d5cbb937f0759b`; Kanban `t_3110d536` / `t_9ec8c071` / `t_463c224e` plus `t_f8a1aba6` / `t_cd20ab7c` / `t_defcbfd1` / `t_d215eea4`) with `scope_enabled: true`; `default` and `workspace-manager` excluded (not installed). Read-only classification, not Step 4 coordination/enforcement. | pin 6ebb7aaa; [effective_task_scope](../integrations/hermes-nexus/effective_task_scope.py) |
+| Hermes thin plugin | Exactly two tracked read-only tools (`project_task_context`, `project_impact`); `compose_effective_task_scope` exists in plugin at historical `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5`, read-only local, without HTTP tool/route/schemas; labels only WRITE and WATCH; RESERVED/IMPACT `not_emitted`. `feat/legacy-project-map-t_d032c9fe@787f662df941ea8461efeb0db86f51ad569a461c` / adapter 1A do not enter this delta. Two-tool publication is accepted as recorded in the installation contract, not automatic installation or Guard. | [Usage contract](hermes-tool-integration.md#dev-adoption-1--two-tool-usage-contract), [open limitations](KNOWN_ISSUES.md), [composer](../integrations/hermes-nexus/effective_task_scope.py) |
+| Gated ETS caller | `project_effective_task_scope` (local compose from accepted pack+impact) exists at ancestor `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb`. Hidden via `register_tool` omission unless `scope_enabled` is exactly true. `provides_tools` lists exactly the two core tools. Dated 2026-09-28 six-profile install handoff: independent copies with `scope_enabled: true`; `default` and `workspace-manager` excluded from install/config/exposure (not a ban on the workspace-manager role). Canonical Git `tools.py` overlay is on main at `643eb3ab`; that is not byte equality of every installed file, and the `6152cea` `schemas.py` text is not claimed installed. Read-only classification, not Step 4 coordination/enforcement. | [ETS profile exposure](ETS_PROFILE_EXPOSURE.md); [effective_task_scope](../integrations/hermes-nexus/effective_task_scope.py) |
 | Optional Serena/Python | Real semantic symbols, definitions and references through a pinned offline snapshot-only Docker worker; mounted-source binding, strict validation, bounded cleanup and explicit fallback. | [Runtime guide](../docker/serena-python/README.md), [provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md), [real semantic tests](../tests/serena-python-docker.test.js), [real sandbox tests](../tests/serena-sandbox-docker.test.js) |
 
 ### Current intelligence endpoints
@@ -278,8 +412,8 @@ See [the full matrix](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md#languag
 
 Following the [active implementation plan](../.hermes/plans/2026-09-17_002050-project-intelligence-service-active.md):
 
-**Effective Task Scope (Step 4, not initiated as coordination/enforcement)** → Conflict Engine →
-Hermes Guard integration → Telemetry / validated project history → Project Expert
+**Effective Task Scope (Step 4, not initiated as coordination/enforcement)** → Conflict Engine (Step 5) →
+Hermes Guard integration (Step 6) → Telemetry / validated project history → Project Expert
 → Learning / evaluation.
 
 E0–E7 merged as PRs #17–#24: E0 #17
@@ -329,12 +463,13 @@ analysis remains explicit. Other language integrations are deferred.
 ## Keeping this summary current
 
 For a later checkpoint, inspect its source/routes and active plan, rerun the
-existing checks and update this revision and the README together. Preserve the
-distinction between completed contracts, unstarted layers and optional proposals.
-The earlier post-Step-2.5 refresh is now reflected here; no pending completion
-claim remains for that step.
+existing checks and update this dated checkpoint and the README together.
+Do not write `origin/main atual = X` as if this file auto-tracks HEAD.
+Preserve the distinction between completed contracts, unstarted layers and
+optional proposals. The earlier post-Step-2.5 refresh is now reflected here;
+no pending completion claim remains for that step.
 
 Historical records in [current-state checkpoints](project-intelligence/01_CURRENT_STATE.md)
 and phase-design documents retain their original context. Consult their explicit
-checkpoint and the current active plan rather than equating every older phase
-number or test count with the current implementation.
+checkpoint and [this page](CURRENT_STATUS.md) rather than equating every older
+phase number or test count with the current implementation.
