@@ -18,8 +18,14 @@ detached HEAD) remains
 `bc8b52d7280e7adc83f05cb20df97fbb3199804c` (merge of PR #30; tree
 `7f1d5c337999e0592c25bfdb9799c31fe0c747c1`) after accepted human service
 move (operator; 2026-09-28). Do not treat `origin/main` as live.
-The overlay `tools.py` @ `e62463eba49640448e42425b9e500497c4f02af0` is **not**
-on `origin/main`. Main remains `28e9815b1a6efed8bae41f0d513d9856c8a44858`.
+Canonical Git `integrations/hermes-nexus/tools.py` **is** overlay sha256
+`5dabeda0c30dd742e2b463fe1959d1cd133790e7a5a37e28422543a8ab5349e0`
+(same bytes as local `e62463eba49640448e42425b9e500497c4f02af0` and as
+the six-profile install). Runtime (six profiles, live-persist 6/6 already
+proven) and Git are aligned on those bytes. **No recopy** of the six
+profiles. Code gates: implementer `t_3110d536`, tester `t_9ec8c071`,
+reviewer `t_463c224e` (live-persist/hash-gate already used: `t_f8a1aba6` /
+`t_cd20ab7c` / `t_defcbfd1` / `t_d215eea4`).
 PR #33 (merge `003a5ed1b73bd9b82f36f6b462fdf132e96a1bc5`) integrou a persistência source-local de `collect_forward_log` em `<dataDir>/collect-forward-log.jsonl`, com o INPUT de seis chaves (`runId`, `profile`, `sha`, `nexusTools`, `writePaths`, `watchPaths`) e o retorno count-only preservado, sem alteração do serviço live, recopy do plugin ou restart.
 
 plugin instalado (local `~/.hermes/profiles/<name>/plugins/hermes-nexus`) =
@@ -28,10 +34,10 @@ plugin instalado (local `~/.hermes/profiles/<name>/plugins/hermes-nexus`) =
 - nine match `28e9815b1a6efed8bae41f0d513d9856c8a44858`
 - `tools.py` is overlay sha256
   `5dabeda0c30dd742e2b463fe1959d1cd133790e7a5a37e28422543a8ab5349e0`
-  from `e62463eba49640448e42425b9e500497c4f02af0` on
-  `feat/caller-profile-native-context` (local overlay source only), **not**
-  the `28e9815` `tools.py` blob (`54c0fdcf9547cb8f6d98a52a13d5cbb937f0759b`),
-  **not** on `origin/main`
+  (same bytes as local `e62463eba49640448e42425b9e500497c4f02af0` and as
+  the six-profile install). Canonical Git
+  `integrations/hermes-nexus/tools.py` **is** that overlay blob, **not**
+  the `28e9815` `tools.py` blob (`54c0fdcf9547cb8f6d98a52a13d5cbb937f0759b`)
 provides_tools continua 2 nomes.
 `default` and `workspace-manager` were **not** installed.
 
@@ -49,9 +55,11 @@ stored `runId` = kwargs.session_id; JSONL +1). Native profile from
 HOME/`__file__` conflict skips persist. Hermes 0.21.5 `-p` does not export
 `HERMES_PROFILE`. Hash-gate remaining 5: `t_cd20ab7c` PASS. Architect dest
 `tools.py` `5dabeda0…` (`t_d215eea4` / `t_defcbfd1`). Recopy remaining 5:
-`t_f8a1aba6`. Live service HEAD throughout:
-`bc8b52d7280e7adc83f05cb20df97fbb3199804c` (untouched). Profile-native
-caller (not in this PR): tests `t_a2277b22` CallerTests 33/33, test_tools
+`t_f8a1aba6`. **No recopy** of the six profiles. Live service HEAD throughout:
+`bc8b52d7280e7adc83f05cb20df97fbb3199804c` (untouched). Canonical Git
+`integrations/hermes-nexus/tools.py` is that overlay blob (implementer
+`t_3110d536`, tester `t_9ec8c071`, reviewer `t_463c224e`). Profile-native
+caller tests `t_a2277b22` CallerTests 33/33, test_tools
 60/60; review `t_56e363fe` PASS.
 
 | profile | card | session / stored runId | jsonl_after sha256 |
@@ -202,7 +210,7 @@ candidate verification or plugin lifecycle acceptance.
 | Existing graph impact | Bounded node-based impact, symbol context and graph insights. This is not Step 3 Impact v2. | [Graph intelligence](../src/lib/graph-intelligence.js), [analyzer service tests](../tests/analyzer-service.test.js) |
 | Step 3 — Impact v2 | Bounded file/multi-file reverse-impact evidence and optional affected-test candidates, resolved against persisted project/worktree/revision, with reobservation and independent output caps. | [Impact contract](project-intelligence/06_SCOPE_IMPACT_CONFLICTS.md), [HTTP route](../src/routes/project-impact.routes.js), [service tests](../tests/project-impact-service.test.js) |
 | Hermes thin plugin | Exactly two tracked read-only tools (`project_task_context`, `project_impact`); `compose_effective_task_scope` exists in plugin at `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5`, read-only local, sem tool/rota/schemas; labels only WRITE e WATCH; RESERVED/IMPACT `not_emitted`. `feat/legacy-project-map-t_d032c9fe@787f662df941ea8461efeb0db86f51ad569a461c` / adapter 1A do not enter this delta. Two-tool publication is accepted as recorded in the installation contract, not automatic installation or Guard. | [Usage contract](hermes-tool-integration.md#dev-adoption-1--two-tool-usage-contract), [open limitations](KNOWN_ISSUES.md), [composer](../integrations/hermes-nexus/effective_task_scope.py) |
-| Gated ETS caller | `project_effective_task_scope` (local compose from accepted pack+impact) exists at ancestor `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb` on pin `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`. Hidden via `register_tool` omission unless `scope_enabled` is exactly true. `provides_tools` lists exactly the two core tools. Six development profiles have independent installed copies (10 files total: nine match `28e9815b1a6efed8bae41f0d513d9856c8a44858`; `tools.py` overlay sha256 `5dabeda0c30dd742e2b463fe1959d1cd133790e7a5a37e28422543a8ab5349e0` from `e62463eba49640448e42425b9e500497c4f02af0`, **not** the `28e9815` `tools.py` blob `54c0fdcf9547cb8f6d98a52a13d5cbb937f0759b`, **not** on `origin/main`; Kanban `t_f8a1aba6` / `t_cd20ab7c` / `t_defcbfd1` / `t_d215eea4`) with `scope_enabled: true`; `default` and `workspace-manager` excluded (not installed). Read-only classification, not Step 4 coordination/enforcement. | pin 6ebb7aaa; [effective_task_scope](../integrations/hermes-nexus/effective_task_scope.py) |
+| Gated ETS caller | `project_effective_task_scope` (local compose from accepted pack+impact) exists at ancestor `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb` on pin `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`. Hidden via `register_tool` omission unless `scope_enabled` is exactly true. `provides_tools` lists exactly the two core tools. Six development profiles have independent installed copies (10 files total: nine match `28e9815b1a6efed8bae41f0d513d9856c8a44858`; `tools.py` overlay sha256 `5dabeda0c30dd742e2b463fe1959d1cd133790e7a5a37e28422543a8ab5349e0` (same bytes as local `e62463eba49640448e42425b9e500497c4f02af0` and as the six-profile install). Canonical Git `integrations/hermes-nexus/tools.py` **is** that overlay blob, **not** the `28e9815` `tools.py` blob `54c0fdcf9547cb8f6d98a52a13d5cbb937f0759b`; Kanban `t_3110d536` / `t_9ec8c071` / `t_463c224e` plus `t_f8a1aba6` / `t_cd20ab7c` / `t_defcbfd1` / `t_d215eea4`) with `scope_enabled: true`; `default` and `workspace-manager` excluded (not installed). Read-only classification, not Step 4 coordination/enforcement. | pin 6ebb7aaa; [effective_task_scope](../integrations/hermes-nexus/effective_task_scope.py) |
 | Optional Serena/Python | Real semantic symbols, definitions and references through a pinned offline snapshot-only Docker worker; mounted-source binding, strict validation, bounded cleanup and explicit fallback. | [Runtime guide](../docker/serena-python/README.md), [provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md), [real semantic tests](../tests/serena-python-docker.test.js), [real sandbox tests](../tests/serena-sandbox-docker.test.js) |
 
 ### Current intelligence endpoints

@@ -37,25 +37,33 @@ WATCH 5.
 ## Six-profile live collect persist (2026-09-28)
 
 Copied from Kanban handoffs. Not a personal live-run, JSONL, or session
-inspection. Overlay `tools.py` @ `e62463e` is **not** on `origin/main`.
-Main remains `28e9815b1a6efed8bae41f0d513d9856c8a44858`.
+inspection. Canonical Git `integrations/hermes-nexus/tools.py` **is**
+overlay sha256
+`5dabeda0c30dd742e2b463fe1959d1cd133790e7a5a37e28422543a8ab5349e0`
+(same bytes as local `e62463eba49640448e42425b9e500497c4f02af0` and as
+the six-profile install). Runtime (six profiles, live-persist 6/6 already
+proven) and Git are aligned on those bytes. **No recopy** of the six
+profiles. Code gates: implementer `t_3110d536`, tester `t_9ec8c071`,
+reviewer `t_463c224e`.
 
 Installed copies (local `~/.hermes/profiles/<name>/plugins/hermes-nexus`) are
 10 files total: nine match `28e9815b1a6efed8bae41f0d513d9856c8a44858`;
 `tools.py` is overlay sha256
 `5dabeda0c30dd742e2b463fe1959d1cd133790e7a5a37e28422543a8ab5349e0`
-from `e62463eba49640448e42425b9e500497c4f02af0` on
-`feat/caller-profile-native-context` (local overlay source only), **not**
-the `28e9815` `tools.py` blob (`54c0fdcf9547cb8f6d98a52a13d5cbb937f0759b`),
-**not** on `origin/main` (Kanban `t_f8a1aba6` / `t_cd20ab7c` /
-`t_defcbfd1` / `t_d215eea4`; not a personal dest-hash inspection). `default`
-and `workspace-manager` were **not** installed.
+(same bytes as local `e62463eba49640448e42425b9e500497c4f02af0` and as
+the six-profile install). Canonical Git
+`integrations/hermes-nexus/tools.py` **is** that overlay blob, **not**
+the `28e9815` `tools.py` blob (`54c0fdcf9547cb8f6d98a52a13d5cbb937f0759b`)
+(Kanban `t_3110d536` / `t_9ec8c071` / `t_463c224e` plus `t_f8a1aba6` /
+`t_cd20ab7c` / `t_defcbfd1` / `t_d215eea4`; not a personal dest-hash
+inspection). `default` and `workspace-manager` were **not** installed.
 
 Hash-gate remaining 5: `t_cd20ab7c` PASS. Architect dest `tools.py`
 `5dabeda0…` (`t_d215eea4` / `t_defcbfd1`). Recopy remaining 5: `t_f8a1aba6`.
-Live service HEAD throughout: `bc8b52d7280e7adc83f05cb20df97fbb3199804c`
-(untouched). Profile-native caller (not in this PR): tests `t_a2277b22`
-CallerTests 33/33, test_tools 60/60; review `t_56e363fe` PASS.
+**No recopy** of the six profiles. Live service HEAD throughout:
+`bc8b52d7280e7adc83f05cb20df97fbb3199804c` (untouched). Profile-native
+caller tests `t_a2277b22` CallerTests 33/33, test_tools 60/60; review
+`t_56e363fe` PASS. Step 4 / Guard **not** initiated.
 
 Live-persist PASS (no `HERMES_PROFILE`; `DATA_DIR` prefix only; locator
 `expectedRevision.branch: null`, `task.paths: []`; stored `runId` =
