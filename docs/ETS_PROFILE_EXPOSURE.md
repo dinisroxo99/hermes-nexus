@@ -44,8 +44,10 @@ inspection. Dated 2026-09-28 observed `origin/main`
 Historical content origin (not proven ancestor of main):
 `e62463eba49640448e42425b9e500497c4f02af0`. Content equality of `tools.py`
 ≠ ancestry of `e62463e` and ≠ every installed file. **Do not present the
-native caller as absent from main.** Candidate `6152cea` qualified the ETS
-handler description; that `schemas.py` text is **not** claimed installed.
+native caller as absent from main.** `6152cea` (now an ancestor of
+checkpoint `050540d0`) qualified the ETS handler description; that
+`schemas.py` text is included in this revision and is **not copied into
+local installations**.
 This mission did **not** recopy. Code gates: implementer `t_3110d536`,
 tester `t_9ec8c071`, reviewer `t_463c224e`.
 

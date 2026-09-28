@@ -8,11 +8,13 @@ limitations) is recorded in
 list and does not auto-track `origin/main` HEAD.
 
 Dated 2026-09-28: observed `origin/main`
-`643eb3ab6433389f99264bc2b0a1aff7389ddc5d` (PR #37 `--merge`). Candidate
-`4a61aba14bc73d2b6d3b44a710e5fb33d49798ed` on
-`fix/post-canonicalization-reconciliation` is **not merged**. Live service
+`643eb3ab6433389f99264bc2b0a1aff7389ddc5d` (PR #37 `--merge`) is a dated
+observation, now an ancestor of public checkpoint
+`050540d0ebb3899198a5695eaec913de59cb1b8d` (PR #38 merge), included in this
+revision and **not copied into local installations**. Live service
 remains `bc8b52d7280e7adc83f05cb20df97fbb3199804c`. Native caller `tools.py`
-overlay sha256 `5dabeda0…` is on that observed main; content equality ≠
+overlay sha256 `5dabeda0…` is on that observed main and remains at this
+checkpoint; content equality ≠
 ancestry of historical `e62463e`. Step 3 is historically accepted at
 `4d8d23e564e355d84916b93d890762ac0c7498ee`.
 [DEV-ADOPTION-1](../../docs/hermes-plugin-installation.md#dev-adoption-1--approved-development-adoption)

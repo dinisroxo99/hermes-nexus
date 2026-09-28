@@ -9,10 +9,12 @@ Snapshot date: **2026-09-17**
 This document is a **historical snapshot** (roundtable 2026-09-17 plus later
 dated adoption notes). It is not the live operational summary.
 
-**Current summary:** [CURRENT_STATUS](../CURRENT_STATUS.md) — dated 2026-09-28
-observed `origin/main` `643eb3ab6433389f99264bc2b0a1aff7389ddc5d` (PR #37
-`--merge`); live service `bc8b52d7280e7adc83f05cb20df97fbb3199804c`; candidate
-`4a61aba` not merged. Do not read the 2026-09-24 section below as the current
+**Current summary:** [CURRENT_STATUS](../CURRENT_STATUS.md) — public checkpoint
+`050540d0ebb3899198a5695eaec913de59cb1b8d` (PR #38, included in this revision,
+**not copied into local installations**). Dated 2026-09-28 observed
+`origin/main` `643eb3ab6433389f99264bc2b0a1aff7389ddc5d` (PR #37
+`--merge`) is an ancestor of that checkpoint; live service
+`bc8b52d7280e7adc83f05cb20df97fbb3199804c`. Do not read the 2026-09-24 section below as the current
 publication, fleet-adoption, or INFRA-1 state.
 
 This document distinguishes repository-verified checkpoints from the original
