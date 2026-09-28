@@ -10,8 +10,8 @@ implementation plan or a live view of another checkout.
 The documentation gate lives in the orchestrator and reviewer SOUL.
 
 Current repository `origin/main` (2026-09-28):
-`28e9815b1a6efed8bae41f0d513d9856c8a44858` (merge of PR #35; tree
-`6d032c1acb888112eba72562db6c6befee387c88`). That SHA is **not** live
+`354747661839f374d0b0e5bd811731a332666b54` (merge of PR #36; tree
+`f7b5704358cb93039a121e7f8de07fd9a998618f`). That SHA is **not** live
 service. Live service (untouched; cwd
 `/home/dinis/projects/hermes-nexus-service`, not the human checkout,
 detached HEAD) remains
@@ -91,7 +91,7 @@ ancestor of `c7aaf44ed2f407b4941b020160ccf1178f36eb69` (PR #24), PR #24 is an
 ancestor of `75e0079489d3966548f3d70bd571419d4a6b13b7`, and that SHA is an
 ancestor of live `bc8b52d7280e7adc83f05cb20df97fbb3199804c`, which is an
 ancestor of `167293d72fef9fb3d2c8b82328ebefd8c81c4d3d` (docs PR #31), which is an
-ancestor of `origin/main` `28e9815b1a6efed8bae41f0d513d9856c8a44858`. Composer `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` and caller
+ancestor of `28e9815b1a6efed8bae41f0d513d9856c8a44858` (historical ancestor, not current `origin/main`), which is an ancestor of current `origin/main` `354747661839f374d0b0e5bd811731a332666b54`. Composer `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` and caller
 `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb` are ancestors of resto `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`.
 The previous public-docs checkpoint / closed pipeline
 `44baa8678974614bc6cc4519c71772e6648434e4` (2026-09-26, PR #16) is a historical
@@ -121,7 +121,7 @@ on the install with baseVersion 0.21.5 (commit
 Guard.
 Closed-pipeline Main `44baa8678974614bc6cc4519c71772e6648434e4`. Dispatcher `t_01dc13a8` PASS.
 Pipeline 1 docs · 2 docstring · 3A WRITE∩WRITE · 3B hook gap · 4 inventory is closed.
-Current `origin/main` is `28e9815b1a6efed8bae41f0d513d9856c8a44858`; live service remains `bc8b52d7280e7adc83f05cb20df97fbb3199804c`.
+Current `origin/main` is `354747661839f374d0b0e5bd811731a332666b54`; live service remains `bc8b52d7280e7adc83f05cb20df97fbb3199804c`.
 etapa 4 `NO_COMPARABLE_LOGS` (inventory `t_85a6ae43`; Historical Step 7 remains; no comparison table).
 3B stands: Hermes 0.21.5 does not prove a hook.
 Nine legacy Project Map tools remain deferred (LEGACY/DEFERRED), not a blocker
