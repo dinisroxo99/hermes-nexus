@@ -13,6 +13,10 @@ import unittest
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
+import json
+import os
+import tempfile
+from unittest.mock import patch
 
 PLUGIN_DIR = Path(__file__).parents[2] / "integrations" / "hermes-nexus"
 
@@ -79,6 +83,15 @@ class CollectForwardLogTests(unittest.TestCase):
         for k in ("runId", "profile", "sha", "nexusTools", "writePathCount", "watchPathCount"):
             self.assertNotIn(k, res)
 
+    def _collect_isolated(self, fields: dict[str, Any]) -> dict[str, Any]:
+        """Every valid collect call uses its own temp DATA_DIR.
+        Never writes the checkout data/ or ~/.hermes.
+        Use explicit /tmp dir to avoid env TMPDIR under .hermes (which would trigger forbidden-sink).
+        """
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            with patch.dict(os.environ, {"DATA_DIR": tmp}):
+                return self.collect(fields)
+
     def test_missing_run_id_refuses_without_tokens(self):
         f = _base_fields()
         del f["runId"]
@@ -93,11 +106,11 @@ class CollectForwardLogTests(unittest.TestCase):
 
     def test_nexus_tools_true_and_false_without_probe(self):
         # True
-        res = self.collect(_base_fields(nexus_tools=True))
+        res = self._collect_isolated(_base_fields(nexus_tools=True))
         self.assertEqual(res["status"], "collected")
         self.assertEqual(res["nexusTools"], True)
         # False
-        res = self.collect(_base_fields(nexus_tools=False))
+        res = self._collect_isolated(_base_fields(nexus_tools=False))
         self.assertEqual(res["status"], "collected")
         self.assertEqual(res["nexusTools"], False)
         # non-bool refuses (no probe)
@@ -114,13 +127,13 @@ class CollectForwardLogTests(unittest.TestCase):
             write_paths=["src/a.py", "src/a.py", "src/b.py"],
             watch_paths=["x/y.js"],
         )
-        res = self.collect(f)
+        res = self._collect_isolated(f)
         self.assertEqual(res["status"], "collected")
         self.assertEqual(res["writePathCount"], 3)
         self.assertEqual(res["watchPathCount"], 1)
 
         f2 = _base_fields(write_paths=[], watch_paths=[])
-        res2 = self.collect(f2)
+        res2 = self._collect_isolated(f2)
         self.assertEqual(res2["status"], "collected")
         self.assertEqual(res2["writePathCount"], 0)
         self.assertEqual(res2["watchPathCount"], 0)
@@ -164,7 +177,7 @@ class CollectForwardLogTests(unittest.TestCase):
         f["dispatch"] = True
         f["conflict"] = "engine"
         fcopy = deepcopy(f)
-        res = self.collect(f)
+        res = self._collect_isolated(f)
         self.assertEqual(res["status"], "collected")
         for bad in ("honcho", "logPath", "dispatch", "conflict", "token", "secret"):
             self.assertNotIn(bad, res)
@@ -179,7 +192,7 @@ class CollectForwardLogTests(unittest.TestCase):
             write_paths=["~/.hermes/kanban.db", "src/a.py", "src/a.py", "src/b.py"],
             watch_paths=[],
         )
-        res = self.collect(f)
+        res = self._collect_isolated(f)
         self.assertEqual(res["status"], "collected")
         self.assertEqual(res["schemaVersion"], 1)
         self.assertEqual(res["analysisVersion"], ANALYSIS)
@@ -215,6 +228,178 @@ class CollectForwardLogTests(unittest.TestCase):
             "notConflictEngine",
         }
         self.assertEqual(set(res.keys()), expected)
+
+    # D3 semantic coverage tests (replaces historical byte-hash pin at former :530)
+    # All valid calls use isolated temp DATA_DIR.
+
+    def test_persist_appends_exact_six_input_keys_as_jsonl(self):
+        fields = _base_fields(
+            run_id="run-42",
+            profile="d3-tester",
+            sha="cafef00d" * 5,
+            nexus_tools=False,
+            write_paths=["a/b/c.py", "a/b/c.py"],
+            watch_paths=[],
+        )
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            with patch.dict(os.environ, {"DATA_DIR": tmp}):
+                res = self.collect(fields)
+                self.assertEqual(res["status"], "collected")
+                log_path = Path(tmp) / "collect-forward-log.jsonl"
+                self.assertTrue(log_path.is_file())
+                content = log_path.read_text(encoding="utf-8")
+                lines = [ln for ln in content.splitlines() if ln.strip()]
+                self.assertEqual(len(lines), 1)
+                rec = json.loads(lines[0])
+                self.assertEqual(
+                    set(rec.keys()),
+                    {"runId", "profile", "sha", "nexusTools", "writePaths", "watchPaths"},
+                )
+                self.assertEqual(rec["runId"], "run-42")
+                self.assertEqual(rec["profile"], "d3-tester")
+                self.assertEqual(rec["sha"], "cafef00d" * 5)
+                self.assertIs(rec["nexusTools"], False)
+                self.assertEqual(rec["writePaths"], ["a/b/c.py", "a/b/c.py"])
+                self.assertEqual(rec["watchPaths"], [])
+                # repeated calls append
+                fields2 = _base_fields(
+                    run_id="r2", profile="p2", sha="s2", nexus_tools=True, write_paths=[], watch_paths=["w"]
+                )
+                res2 = self.collect(fields2)
+                self.assertEqual(res2["status"], "collected")
+                lines2 = [ln for ln in log_path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+                self.assertEqual(len(lines2), 2)
+                rec2 = json.loads(lines2[1])
+                self.assertEqual(rec2["runId"], "r2")
+                self.assertEqual(rec2["writePaths"], [])
+                self.assertEqual(rec2["watchPaths"], ["w"])
+
+    def test_persist_preserves_closed_count_only_return(self):
+        fields = _base_fields(write_paths=["p1", "p2"], watch_paths=["w"])
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            with patch.dict(os.environ, {"DATA_DIR": tmp}):
+                res = self.collect(fields)
+                self.assertEqual(res["status"], "collected")
+                expected_keys = {
+                    "status",
+                    "schemaVersion",
+                    "analysisVersion",
+                    "runId",
+                    "profile",
+                    "sha",
+                    "nexusTools",
+                    "writePathCount",
+                    "watchPathCount",
+                    "notIngest",
+                    "notHoncho",
+                    "notDispatch",
+                    "notConflictEngine",
+                }
+                self.assertEqual(set(res.keys()), expected_keys)
+                self.assertNotIn("writePaths", res)
+                self.assertNotIn("watchPaths", res)
+                self.assertEqual(res["writePathCount"], 2)
+                self.assertEqual(res["watchPathCount"], 1)
+
+    def test_invalid_input_performs_no_persist_io(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            with patch.dict(os.environ, {"DATA_DIR": tmp}):
+                log_path = Path(tmp) / "collect-forward-log.jsonl"
+                self.assertFalse(log_path.exists())
+                self._assert_refused(self.collect(None))
+                self.assertFalse(log_path.exists())
+                self._assert_refused(self.collect({"runId": "r"}))
+                self.assertFalse(log_path.exists())
+                f = _base_fields()
+                f["writePaths"] = ["ok", ""]
+                self._assert_refused(self.collect(f))
+                self.assertFalse(log_path.exists())
+                f = _base_fields(nexus_tools="yes")
+                self._assert_refused(self.collect(f))
+                self.assertFalse(log_path.exists())
+
+    def _make_source_layout_fixture(self, *, pkg_name: str = "hermes-nexus", with_cfg: bool = True):
+        """Temp source layout fixture for testing root resolution and unbound cases.
+        Never touches real checkout data or ~/.hermes.
+        """
+        td = tempfile.TemporaryDirectory(dir="/tmp")
+        root = Path(td.name)
+        integ = root / "integrations" / "hermes-nexus"
+        integ.mkdir(parents=True)
+        fake_coll = integ / "collect_forward_log.py"
+        fake_coll.write_text("# marker for __file__ only\n", encoding="utf-8")
+        pkg = root / "package.json"
+        pkg.write_text(json.dumps({"name": pkg_name}), encoding="utf-8")
+        if with_cfg:
+            cfgp = root / "src" / "lib" / "project-config.js"
+            cfgp.parent.mkdir(parents=True, exist_ok=True)
+            cfgp.write_text("// config marker\n", encoding="utf-8")
+        return td, root, fake_coll
+
+    def test_data_dir_override_and_source_root_default(self):
+        # absolute override
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            abs_dd = str(Path(tmp) / "abs_d3")
+            with patch.dict(os.environ, {"DATA_DIR": abs_dd}):
+                res = self.collect(_base_fields(run_id="absd"))
+                self.assertEqual(res["status"], "collected")
+                self.assertTrue((Path(abs_dd) / "collect-forward-log.jsonl").exists())
+        # relative + default via temp source layout fixture (avoids real data/)
+        td, root, fake_coll = self._make_source_layout_fixture()
+        try:
+            coll_mod = importlib.import_module(self.plugin.__name__ + ".collect_forward_log")
+            with patch.dict(os.environ, {"DATA_DIR": "relsub"}):
+                with patch.object(coll_mod, "__file__", str(fake_coll)):
+                    res = self.collect(_base_fields(run_id="reld"))
+                    self.assertEqual(res["status"], "collected")
+                    self.assertTrue((root / "relsub" / "collect-forward-log.jsonl").exists())
+            # default (no DATA_DIR)
+            with patch.dict(os.environ, {}, clear=True):
+                with patch.object(coll_mod, "__file__", str(fake_coll)):
+                    res = self.collect(_base_fields(run_id="defd"))
+                    self.assertEqual(res["status"], "collected")
+                    self.assertTrue((root / "data" / "collect-forward-log.jsonl").exists())
+        finally:
+            td.cleanup()
+
+    def test_unbound_copy_and_forbidden_sink_fail_closed(self):
+        # unbound layout without abs DATA_DIR -> raise (fail closed), no IO
+        td, root, fake_coll = self._make_source_layout_fixture(pkg_name="not-hermes-nexus")
+        try:
+            coll_mod = importlib.import_module(self.plugin.__name__ + ".collect_forward_log")
+            with patch.dict(os.environ, {}, clear=True):
+                with patch.object(coll_mod, "__file__", str(fake_coll)):
+                    with self.assertRaises(RuntimeError) as cm:
+                        self.collect(_base_fields())
+                    self.assertIn("unbound", str(cm.exception).lower())
+        finally:
+            td.cleanup()
+        # abs DATA_DIR allows even unbound copy (no root guess)
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            abs_dd = str(Path(tmp) / "abs_unb")
+            coll_mod = importlib.import_module(self.plugin.__name__ + ".collect_forward_log")
+            with patch.dict(os.environ, {"DATA_DIR": abs_dd}):
+                with patch.object(coll_mod, "__file__", "/fake/unbound/collect_forward_log.py"):
+                    res = self.collect(_base_fields(run_id="unba"))
+                    self.assertEqual(res["status"], "collected")
+                    self.assertTrue((Path(abs_dd) / "collect-forward-log.jsonl").exists())
+        # forbidden sink through .hermes raises before any write
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            bad = str(Path(tmp) / ".hermes" / "d3" / "data")
+            with patch.dict(os.environ, {"DATA_DIR": bad}):
+                with self.assertRaises(RuntimeError) as cm:
+                    self.collect(_base_fields())
+                self.assertIn("hermes", str(cm.exception).lower())
+
+    def test_disk_failures_do_not_return_collected(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            with patch.dict(os.environ, {"DATA_DIR": tmp}):
+                with patch("pathlib.Path.mkdir", side_effect=PermissionError("disk mkdir")):
+                    with self.assertRaises(PermissionError):
+                        self.collect(_base_fields())
+                with patch("builtins.open", side_effect=OSError("disk full")):
+                    with self.assertRaises(OSError):
+                        self.collect(_base_fields())
 
 
 import asyncio
@@ -527,13 +712,9 @@ class CallerTests(unittest.TestCase):
                     self.assertEqual(mock_open.call_count, 0)
                     self.assertEqual(mock_c.call_count, 1)
 
-    def test_10_shas_and_provides_tools_unchanged(self):
-        # verify pins after all caller work (run via named cmd which also runs test_tools)
-        import hashlib
-        coll_path = PLUGIN_DIR / "collect_forward_log.py"
-        with open(coll_path, "rb") as f:
-            csha = hashlib.sha256(f.read()).hexdigest()
-        self.assertEqual(csha, "deba50d7418ccd520655fca1d7e06c75953a8fd30b4961bcdb55174f2949f94f")
+    def test_10_provides_tools_unchanged(self):
+        # collector byte-hash replaced by semantic D3 coverage (the named tests below).
+        # provides_tools pin retained exactly.
         plug_path = PLUGIN_DIR / "plugin.yaml"
         with open(plug_path) as f:
             lines = f.readlines()
@@ -553,6 +734,40 @@ class CallerTests(unittest.TestCase):
         self.assertEqual(prov, ["project_task_context", "project_impact"])
         self.assertEqual(len(prov), 2)
 
+    def test_disk_failure_preserves_exact_accepted_tool_json(self):
+        # disk failure inside collect must still let caller return the exact accepted tool result
+        # (existing isolation in tools.py; this named test adds explicit disk case)
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log", side_effect=OSError("disk full on jsonl append")) as mock_c:
+                handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                out = asyncio.run(
+                    handler(
+                        {
+                            "projectId": "p",
+                            "worktree": {"rootId": "local", "relativePath": "w"},
+                            "expectedRevision": {
+                                "status": "available",
+                                "commitSha": "c" * 40,
+                                "branch": "f",
+                                "dirty": False,
+                                "isLinkedWorktree": True,
+                            },
+                            "task": {"title": "t", "paths": ["a.py"]},
+                        },
+                        runId="r",
+                        profile="p",
+                    )
+                )
+                out_d = json.loads(out)
+                self.assertTrue(out_d["ok"])
+                self.assertEqual(mock_c.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
+
