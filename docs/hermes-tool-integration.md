@@ -74,6 +74,33 @@ the server, not an atomic snapshot or server-side compare-and-swap.
 
 ### Context first, then Impact at the same identity
 
+Coordinator / worker handoff (not an automatic hook, not a guarantee that every
+worker loads or calls the tools, and not a parallel schema). Live worker
+Context → Impact → ETS use is not demonstrated in this documentation batch.
+Do not invent `projectId`, `rootId`, or opaque IDs.
+
+1. Coordinator puts the real persisted project identity, source, `rootId` and
+   task locator on the card. Do not copy old example IDs from this guide or
+   from historical proofs.
+2. Worker confirms the current worktree and revision and the real tool catalog
+   of **this** session (available ≠ called).
+3. Read the tool schema and build the full Context payload before the first
+   call. `task.paths` must be explicit and pertinent; an empty list from an
+   old proof is not the pattern for all development. Literal `branch: null`
+   only when detached was observed.
+4. Use opaque IDs returned by **accepted** Context for Impact on the same
+   identity. Call ETS only with compatible Context and Impact inputs.
+   `includeTests`: when obtaining ETS, pass `includeTests` true on Impact and
+   ETS; standalone Impact keeps the tool default (omitted ≠ true).
+5. Distinguish tool available vs called vs accepted vs used vs observed
+   persistence. `ok=true` does not confirm persistence. Authorized
+   read/grep/tests remain required.
+6. Without identity or authorization: explicit fallback; do not invent
+   `dirty: false`; do not register projects; do not restart the service.
+   Hermes/collector `DATA_DIR` is not the Node service config.
+
+Call sequence after that card identity exists:
+
 1. Establish the real persisted project, configured-root locator and current clean
    linked revision from authorized evidence. Do not transfer canonical-checkout
    results to a different worktree. If prerequisites are absent, do not call using
@@ -112,10 +139,11 @@ IMPACT_ARGUMENTS = {
     worktreeId: CONTEXT_RESULT.data.revision.worktreeId
   },
   paths: RELEVANT_PROJECT_RELATIVE_PATHS,
-  includeTests: true
+  includeTests: true   // when obtaining ETS; omit for standalone Impact
 }
 IMPACT_RESULT = PARSE_JSON(project_impact(IMPACT_ARGUMENTS))
 // Consume only after its own ok=true and accepted identity/provenance.
+// ETS only with compatible accepted Context + Impact; includeTests true then.
 ```
 
 The prior pilot's pinned JSON examples are
@@ -149,12 +177,12 @@ correlation: withhold rejected data, do not call Impact from it, and reconcile
 with the project/service owner. Lifecycle symptoms require stopping affected
 calls and escalation under the known-issue policy, not an automatic correction.
 
-### Collect-forward (current Git on this candidate; not a recopy)
+### Collect-forward (current Git on this revision; not a recopy)
 
 The plugin may append a local JSONL record after an accepted Context/Impact
-result or an accepted ETS compose. This is **not** claimed installed on
-profile copies after the `6152cea` `schemas.py` description change. Semantics
-are documented in
+result or an accepted ETS compose. The `6152cea` `schemas.py` description
+change is included in checkpoint `050540d0` and is **not copied into local
+installations**. Semantics are documented in
 [CURRENT_STATUS](CURRENT_STATUS.md#collect-forward-semantics-current-code-on-this-candidate-no-code-change).
 Summary of current code:
 

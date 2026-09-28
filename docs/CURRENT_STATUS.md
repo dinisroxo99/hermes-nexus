@@ -37,14 +37,16 @@ still count.
 
 ### Current code
 
+Public code checkpoint **`050540d0ebb3899198a5695eaec913de59cb1b8d`**
+(merge of PR #38; parents `643eb3ab` and `66262a83`) is included in this
+revision. The PR #38 docs/code delta is implemented at that checkpoint
+and is **not copied into local installations**. Git presence is not
+profile installation. Live worker Context → Impact → ETS use is not
+demonstrated in this documentation batch.
+
 Dated **2026-09-28**, code on `origin/main` was observed as
 `643eb3ab6433389f99264bc2b0a1aff7389ddc5d` (merge of PR #37 `--merge`).
-That SHA is **not** live service.
-
-This documentation branch candidate is
-`4a61aba14bc73d2b6d3b44a710e5fb33d49798ed` on
-`fix/post-canonicalization-reconciliation` (descendant of `643eb3ab`, **not
-merged**). Do not guess a future merge SHA.
+That SHA is **not** live service and is now an ancestor of `050540d0`.
 
 Live service (untouched; cwd `/home/dinis/projects/hermes-nexus-service`,
 not the human checkout, detached HEAD) remains
@@ -64,7 +66,7 @@ phases complete. `787f662` / adapter 1A do **not** enter this delta.
 
 ### Canonicalization of the native caller (RESOLVIDO as Git on main)
 
-At `643eb3ab` (and still at candidate `4a61aba`), canonical Git
+At `643eb3ab` and still at checkpoint `050540d0`, canonical Git
 `integrations/hermes-nexus/tools.py` is overlay sha256
 `5dabeda0c30dd742e2b463fe1959d1cd133790e7a5a37e28422543a8ab5349e0`.
 
@@ -76,15 +78,20 @@ Historical content origin (**not** a proven ancestor of main):
 Content equality of `tools.py` ≠ commit ancestry of `e62463e` on main, and
 ≠ byte equality of every installed file.
 
-### Candidate-only Git delta (not on origin/main; not recopied)
+### PR #38 Git delta (included in this revision; not recopied)
 
-Implementer `t_ff92494d` on this writer:
+<a id="candidate-only-git-delta-not-on-originmain-not-recopied"></a>
+
+Implementer `t_ff92494d` recorded these commits on
+`fix/post-canonicalization-reconciliation`; both are ancestors of
+checkpoint `050540d0` (included in this revision, **not copied into local
+installations**):
 
 - `6152cea409589561852d2fd4c9b112ec3797c35c` — ETS handler description
   qualified: composer is pure (no IO); the handler may append a local
   collect-forward record. **Not recopied** to profile plugin copies. Do
   **not** declare Git/runtime byte equality. The new `schemas.py` text is
-  **not** claimed installed.
+  in this revision and is **not** claimed installed.
 - `4a61aba14bc73d2b6d3b44a710e5fb33d49798ed` — `.gitignore` rule exactly
   `/data/collect-forward-log.jsonl`. That rule is this repo's **default
   destination only**, not every `DATA_DIR`. Isolated real collector+Git
@@ -117,7 +124,8 @@ at those handoffs:
 `scope_enabled`. Do not add a third name to the manifest.
 
 Local copies do **not** include the new `schemas.py` handler description
-from `6152cea`. This documentation update does not authorize recopy or
+from `6152cea` (that text is in Git at `050540d0` and is **not copied
+into local installations**). This documentation update does not authorize recopy or
 restart.
 
 The previous mixed install (`reader_dirty.py` blob from
@@ -133,9 +141,11 @@ caller tests `t_a2277b22` CallerTests 33/33, test_tools 60/60; review
 `t_56e363fe` PASS. Code gates: implementer `t_3110d536`, tester
 `t_9ec8c071`, reviewer `t_463c224e`.
 
-### Collect-forward semantics (current code on this candidate; no code change)
+### Collect-forward semantics (current code on this revision; no code change)
 
-Confirmed read-only against canonicalized plugin on this candidate:
+<a id="collect-forward-semantics-current-code-on-this-candidate-no-code-change"></a>
+
+Confirmed read-only against canonicalized plugin on this revision:
 
 - Persisted INPUT contains **exactly** `runId`, `profile`, `sha`,
   `nexusTools`, `writePaths`, `watchPaths`.
@@ -270,7 +280,8 @@ shutdown or live-state check is demonstrated here.
 
 ### Historical repository checkpoints
 
-These SHAs are ancestors or earlier docs pins, **not** the 2026-09-28
+These SHAs are ancestors or earlier docs pins, **not** the public
+checkpoint `050540d0` (PR #38) and **not** the dated 2026-09-28
 `origin/main` observation `643eb3ab`:
 
 - Docs previously named current `origin/main` as
@@ -303,7 +314,7 @@ ancestor of resto `6ebb7aaa`, that resto SHA is an ancestor of `c7aaf44`
 live `bc8b52d`, which is an ancestor of `167293d` (docs PR #31), which is
 an ancestor of `28e9815`, which is an ancestor of historical docs pin
 `35474766`, which is an ancestor of observed 2026-09-28 `origin/main`
-`643eb3ab`.
+`643eb3ab`, which is an ancestor of public checkpoint `050540d0` (PR #38).
 
 ### Historical Serena/mainline consolidation evidence
 
@@ -344,7 +355,7 @@ candidate verification or plugin lifecycle acceptance.
 | Existing graph impact | Bounded node-based impact, symbol context and graph insights. This is not Step 3 Impact v2. | [Graph intelligence](../src/lib/graph-intelligence.js), [analyzer service tests](../tests/analyzer-service.test.js) |
 | Step 3 — Impact v2 | Bounded file/multi-file reverse-impact evidence and optional affected-test candidates, resolved against persisted project/worktree/revision, with reobservation and independent output caps. | [Impact contract](project-intelligence/06_SCOPE_IMPACT_CONFLICTS.md), [HTTP route](../src/routes/project-impact.routes.js), [service tests](../tests/project-impact-service.test.js) |
 | Hermes thin plugin | Exactly two tracked read-only tools (`project_task_context`, `project_impact`); `compose_effective_task_scope` exists in plugin at historical `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5`, read-only local, without HTTP tool/route/schemas; labels only WRITE and WATCH; RESERVED/IMPACT `not_emitted`. `feat/legacy-project-map-t_d032c9fe@787f662df941ea8461efeb0db86f51ad569a461c` / adapter 1A do not enter this delta. Two-tool publication is accepted as recorded in the installation contract, not automatic installation or Guard. | [Usage contract](hermes-tool-integration.md#dev-adoption-1--two-tool-usage-contract), [open limitations](KNOWN_ISSUES.md), [composer](../integrations/hermes-nexus/effective_task_scope.py) |
-| Gated ETS caller | `project_effective_task_scope` (local compose from accepted pack+impact) exists at ancestor `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb`. Hidden via `register_tool` omission unless `scope_enabled` is exactly true. `provides_tools` lists exactly the two core tools. Dated 2026-09-28 six-profile install handoff: independent copies with `scope_enabled: true`; `default` and `workspace-manager` excluded from install/config/exposure (not a ban on the workspace-manager role). Canonical Git `tools.py` overlay is on main at `643eb3ab`; that is not byte equality of every installed file, and the `6152cea` `schemas.py` text is not claimed installed. Read-only classification, not Step 4 coordination/enforcement. | [ETS profile exposure](ETS_PROFILE_EXPOSURE.md); [effective_task_scope](../integrations/hermes-nexus/effective_task_scope.py) |
+| Gated ETS caller | `project_effective_task_scope` (local compose from accepted pack+impact) exists at ancestor `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb`. Hidden via `register_tool` omission unless `scope_enabled` is exactly true. `provides_tools` lists exactly the two core tools. Dated 2026-09-28 six-profile install handoff: independent copies with `scope_enabled: true`; `default` and `workspace-manager` excluded from install/config/exposure (not a ban on the workspace-manager role). Canonical Git `tools.py` overlay is on main at `643eb3ab` and remains at checkpoint `050540d0`; that is not byte equality of every installed file, and the `6152cea` `schemas.py` text is in this revision and is **not copied into local installations**. Read-only classification, not Step 4 coordination/enforcement. | [ETS profile exposure](ETS_PROFILE_EXPOSURE.md); [effective_task_scope](../integrations/hermes-nexus/effective_task_scope.py) |
 | Optional Serena/Python | Real semantic symbols, definitions and references through a pinned offline snapshot-only Docker worker; mounted-source binding, strict validation, bounded cleanup and explicit fallback. | [Runtime guide](../docker/serena-python/README.md), [provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md), [real semantic tests](../tests/serena-python-docker.test.js), [real sandbox tests](../tests/serena-sandbox-docker.test.js) |
 
 ### Current intelligence endpoints

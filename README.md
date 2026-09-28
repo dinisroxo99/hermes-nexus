@@ -74,27 +74,21 @@ Implementation checkpoint: [current verified status](docs/CURRENT_STATUS.md)
 is the primary summary of current code, reported install, executed proofs, and
 limitations. This README is not a personal operational inventory.
 
-Dated 2026-09-28: code on `origin/main` was observed as
-`643eb3ab6433389f99264bc2b0a1aff7389ddc5d` (PR #37 `--merge`; **not** live).
-This document does not auto-track HEAD. Live service remains
-`bc8b52d7280e7adc83f05cb20df97fbb3199804c` after accepted human service move
-2026-09-28 (cwd `/home/dinis/projects/hermes-nexus-service`). Candidate
-`4a61aba14bc73d2b6d3b44a710e5fb33d49798ed` (docs/code delta on
-`fix/post-canonicalization-reconciliation`) is recorded in CURRENT_STATUS and
-is **not merged**. Canonical Git `tools.py` overlay sha256 `5dabeda0…` is on
-that observed main; content equality ≠ ancestry of historical `e62463e` and ≠
-every installed file. `provides_tools` still exactly two names
-(`project_task_context`, `project_impact`). No recopy. Rollback pin
-`75e0079489d3966548f3d70bd571419d4a6b13b7` (not current live). Historical pins
-including `85e511e7f65061cda861c98cd1acfbe9d79526b1`, mixed-install
-`6ebb7aaa…`, and earlier docs `origin/main` claims (`35474766`, `167293d`)
-are checkpoints only — see CURRENT_STATUS. Step 3 was historically accepted at
+Public code checkpoint `050540d0ebb3899198a5695eaec913de59cb1b8d` (merge of
+PR #38) is included in this revision; the PR #38 docs/code delta is **not
+copied into local installations**. Git presence is not profile installation.
+This document does not auto-track HEAD. Dated 2026-09-28, `origin/main` was
+observed as `643eb3ab6433389f99264bc2b0a1aff7389ddc5d` (PR #37 `--merge`;
+**not** live); that SHA is now an ancestor of `050540d0`. Canonical Git
+`tools.py` overlay sha256 `5dabeda0…` is on that observed main and remains
+at this checkpoint (historical PR #37); content equality ≠ ancestry of
+historical `e62463e` and ≠ every installed file. `provides_tools` still
+exactly two names (`project_task_context`, `project_impact`). No recopy.
+Live service, rollback pin, and earlier SHA inventories are in
+[CURRENT_STATUS](docs/CURRENT_STATUS.md). Step 3 was historically accepted at
 `4d8d23e564e355d84916b93d890762ac0c7498ee`
 and composer at `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` (main merge ff1093e7cfaf447bc063a22b8edaa3feed1e1b6d; legacy feat/787f662 not included).
-Those identities are not interchangeable. Live cwd is
-`/home/dinis/projects/hermes-nexus-service` (detached HEAD at the live SHA);
-user unit `hermes-nexus.service` is active; `/api/health` 200 has no SHA field,
-so revision proof is cwd HEAD, not health. E0–E7 merged as PRs #17–#24; E7 is
+Those identities are not interchangeable. E0–E7 merged as PRs #17–#24; E7 is
 plugin Python; Step 4 enforcement is not started.
 
 - **Complete:** project foundation; Step 1 Project Identity / Revision; Step 2
