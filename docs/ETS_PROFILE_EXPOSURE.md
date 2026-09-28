@@ -41,10 +41,14 @@ inspection. Overlay `tools.py` @ `e62463e` is **not** on `origin/main`.
 Main remains `28e9815b1a6efed8bae41f0d513d9856c8a44858`.
 
 Installed copies (local `~/.hermes/profiles/<name>/plugins/hermes-nexus`) are
-10 files @ `28e9815b1a6efed8bae41f0d513d9856c8a44858` plus overlay `tools.py`
-sha256 `5dabeda0c30dd742e2b463fe1959d1cd133790e7a5a37e28422543a8ab5349e0`
+10 files total: nine match `28e9815b1a6efed8bae41f0d513d9856c8a44858`;
+`tools.py` is overlay sha256
+`5dabeda0c30dd742e2b463fe1959d1cd133790e7a5a37e28422543a8ab5349e0`
 from `e62463eba49640448e42425b9e500497c4f02af0` on
-`feat/caller-profile-native-context` (local overlay source only). `default`
+`feat/caller-profile-native-context` (local overlay source only), **not**
+the `28e9815` `tools.py` blob (`54c0fdcf9547cb8f6d98a52a13d5cbb937f0759b`),
+**not** on `origin/main` (Kanban `t_f8a1aba6` / `t_cd20ab7c` /
+`t_defcbfd1` / `t_d215eea4`; not a personal dest-hash inspection). `default`
 and `workspace-manager` were **not** installed.
 
 Hash-gate remaining 5: `t_cd20ab7c` PASS. Architect dest `tools.py`
