@@ -890,6 +890,270 @@ class CallerTests(unittest.TestCase):
                     out2 = asyncio.run(handler(ctx, runId="   ", profile="p"))
                     self.assertEqual(mock_c.call_count, 0)
 
+    # --- native profile resolution via HOME / __file__ (exact layouts only) ---
+
+    def _assert_six_keys(self, fields):
+        self.assertEqual(set(fields.keys()), {"runId", "profile", "sha", "nexusTools", "writePaths", "watchPaths"})
+
+    def test_profile_via_kwargs_wins_over_env_and_inferences(self):
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {"HERMES_PROFILE": "env-p", "HERMES_HOME": "/x/profiles/inf-p", "HERMES_KANBAN_RUN_ID": "r"}, clear=True):
+                    with patch.dict(tools.__dict__, {"__file__": "/x/profiles/inf-p/plugins/hermes-nexus/integrations/hermes-nexus/tools.py"}):
+                        handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                        out = asyncio.run(handler(ctx, profile="kw-p"))
+                        self.assertEqual(mock_c.call_count, 1)
+                        f = mock_c.call_args[0][0]
+                        self.assertEqual(f["profile"], "kw-p")
+                        self._assert_six_keys(f)
+
+    def test_profile_via_HERMES_PROFILE(self):
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {"HERMES_PROFILE": "env-prof", "HERMES_KANBAN_RUN_ID": "r"}, clear=True):
+                    with patch.dict(tools.__dict__, {"__file__": "/tmp/unrelated/tools.py"}):
+                        handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                        out = asyncio.run(handler(ctx))
+                        self.assertEqual(mock_c.call_count, 1)
+                        f = mock_c.call_args[0][0]
+                        self.assertEqual(f["profile"], "env-prof")
+                        self._assert_six_keys(f)
+
+    def test_profile_via_HERMES_HOME_exact_layout(self):
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {"HERMES_HOME": "/home/dinis/.hermes/profiles/home-prof", "HERMES_KANBAN_RUN_ID": "r"}, clear=True):
+                    with patch.dict(tools.__dict__, {"__file__": "/tmp/unrelated/tools.py"}):
+                        handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                        out = asyncio.run(handler(ctx))
+                        self.assertEqual(mock_c.call_count, 1)
+                        f = mock_c.call_args[0][0]
+                        self.assertEqual(f["profile"], "home-prof")
+                        self._assert_six_keys(f)
+
+    def test_profile_via___file___exact_layout(self):
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {"HERMES_KANBAN_RUN_ID": "r"}, clear=True):
+                    with patch.dict(tools.__dict__, {"__file__": "/home/dinis/.hermes/profiles/file-prof/plugins/hermes-nexus/integrations/hermes-nexus/tools.py"}):
+                        handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                        out = asyncio.run(handler(ctx))
+                        self.assertEqual(mock_c.call_count, 1)
+                        f = mock_c.call_args[0][0]
+                        self.assertEqual(f["profile"], "file-prof")
+                        self._assert_six_keys(f)
+
+    def test_profile_via___file___flat_installed_layout(self):
+        """Flat contract layout: .../profiles/<name>/plugins/hermes-nexus/tools.py (no nested integrations)
+        must succeed with runId present, no other profile sources.
+        """
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {"HERMES_KANBAN_RUN_ID": "r"}, clear=True):
+                    with patch.dict(tools.__dict__, {"__file__": "/home/dinis/.hermes/profiles/flat-prof/plugins/hermes-nexus/tools.py"}):
+                        handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                        out = asyncio.run(handler(ctx))
+                        self.assertEqual(mock_c.call_count, 1)
+                        f = mock_c.call_args[0][0]
+                        self.assertEqual(f["profile"], "flat-prof")
+                        self._assert_six_keys(f)
+
+    def test_kwargs_profile_wins_despite_HOME___file___conflict(self):
+        """kwargs.profile (and runId) must win and collect even if HOME and __file__ conflict."""
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {"HERMES_HOME": "/x/profiles/home-p", "HERMES_KANBAN_RUN_ID": "r"}, clear=True):
+                    with patch.dict(tools.__dict__, {"__file__": "/x/profiles/file-p/plugins/hermes-nexus/integrations/hermes-nexus/tools.py"}):
+                        handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                        out = asyncio.run(handler(ctx, profile="kw-p"))
+                        self.assertEqual(mock_c.call_count, 1)
+                        f = mock_c.call_args[0][0]
+                        self.assertEqual(f["profile"], "kw-p")
+                        self._assert_six_keys(f)
+
+    def test_HERMES_PROFILE_wins_despite_HOME___file___conflict(self):
+        """HERMES_PROFILE (and runId) must win and collect even if HOME and __file__ conflict."""
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {"HERMES_PROFILE": "env-p", "HERMES_HOME": "/x/profiles/home-p", "HERMES_KANBAN_RUN_ID": "r"}, clear=True):
+                    with patch.dict(tools.__dict__, {"__file__": "/x/profiles/file-p/plugins/hermes-nexus/integrations/hermes-nexus/tools.py"}):
+                        handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                        out = asyncio.run(handler(ctx))
+                        self.assertEqual(mock_c.call_count, 1)
+                        f = mock_c.call_args[0][0]
+                        self.assertEqual(f["profile"], "env-p")
+                        self._assert_six_keys(f)
+
+    def test_HOME___file___conflict_skips_when_no_kwargs_or_HERMES_PROFILE(self):
+        """With runId present but no kwargs.profile and no HERMES_PROFILE, conflicting HOME/__file__ must skip."""
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {"HERMES_HOME": "/x/profiles/home-p", "HERMES_KANBAN_RUN_ID": "r"}, clear=True):
+                    with patch.dict(tools.__dict__, {"__file__": "/x/profiles/file-p/plugins/hermes-nexus/integrations/hermes-nexus/tools.py"}):
+                        handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                        out = asyncio.run(handler(ctx))
+                        self.assertEqual(mock_c.call_count, 0)
+
+    def test_relative_HERMES_HOME_literal_parent_not_profiles_skips(self):
+        """Relative HERMES_HOME whose .parent.name != 'profiles' must skip (no cwd inference, no resolve).
+        Even if cwd basename looks like profiles.
+        """
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {"HERMES_HOME": "rel-prof", "HERMES_KANBAN_RUN_ID": "r"}, clear=True):
+                    with patch("os.getcwd", return_value="/tmp/some/profiles"):
+                        handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                        out = asyncio.run(handler(ctx))
+                        self.assertEqual(mock_c.call_count, 0)
+
+    def test_absolute_symlink_literal_parent_not_profiles_skips(self):
+        """Absolute path whose literal parent.name != 'profiles' (e.g. symlink path) must skip;
+        do not follow to target or persist target name.
+        """
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {"HERMES_HOME": "/tmp/symlink-to-profiles/prof", "HERMES_KANBAN_RUN_ID": "r"}, clear=True):
+                    handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                    out = asyncio.run(handler(ctx))
+                    self.assertEqual(mock_c.call_count, 0)
+
+    def test_HERMES_HOME_vs___file___conflict_skips_collect(self):
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {"HERMES_HOME": "/x/profiles/home-p"}, clear=True):
+                    with patch.dict(tools.__dict__, {"__file__": "/x/profiles/file-p/plugins/hermes-nexus/integrations/hermes-nexus/tools.py"}):
+                        handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                        out = asyncio.run(handler(ctx))
+                        self.assertEqual(mock_c.call_count, 0)
+
+    def test_invalid_HERMES_HOME_layout_skips(self):
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {"HERMES_HOME": "/not/profiles/layout"}, clear=True):
+                    handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                    out = asyncio.run(handler(ctx))
+                    self.assertEqual(mock_c.call_count, 0)
+
+    def test_invalid___file___layout_skips(self):
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {}, clear=True):
+                    with patch.dict(tools.__dict__, {"__file__": "/wrong/layout/tools.py"}):
+                        handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                        out = asyncio.run(handler(ctx))
+                        self.assertEqual(mock_c.call_count, 0)
+
+    def test_no_profile_source_skips_collect(self):
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {}, clear=True):
+                    with patch.dict(tools.__dict__, {"__file__": "/tmp/other/tools.py"}):
+                        handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                        out = asyncio.run(handler(ctx))
+                        self.assertEqual(mock_c.call_count, 0)
+
+    def test_runId_precedence_preserved_and_six_keys(self):
+        tools = self.tools
+        result = self._mk_accepted_context_result()
+        ctx = self._mk_ctx()
+        with patch.object(tools, "NexusClient") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.request = AsyncMock(return_value=result)
+            mock_cls.return_value = mock_inst
+            with patch.object(tools, "collect_forward_log") as mock_c:
+                with patch.dict(os.environ, {"HERMES_PROFILE": "p", "HERMES_KANBAN_RUN_ID": "kan-run"}, clear=True):
+                    handler = tools.create_handlers("http://127.0.0.1:1")[0]
+                    out = asyncio.run(handler(ctx, session_id="s", task_id="t"))
+                    self.assertEqual(mock_c.call_count, 1)
+                    f = mock_c.call_args[0][0]
+                    self.assertEqual(f["runId"], "kan-run")
+                    self.assertEqual(f["profile"], "p")
+                    self._assert_six_keys(f)
+
 
 if __name__ == "__main__":
     unittest.main()
