@@ -188,6 +188,28 @@ class TestLogInspector(unittest.TestCase):
         finally:
             p.unlink()
 
+    def test_duplicate_keys_are_invalid(self):
+        """Named regression for O2-DUP-KEYS: duplicate top-level keys must be invalid (not last-wins valid)."""
+        # Construct with two runId keys; json.loads default would last-win and pass key-set check.
+        dup_line = '{"runId":"r1","runId":"r2","profile":"p","sha":"s","nexusTools":true,"writePaths":[],"watchPaths":[]}'
+        p = self._write_temp_jsonl([dup_line])
+        try:
+            rep = self.inspector.inspect_jsonl_log(p)
+            self.assertEqual(rep["examined"], 1)
+            self.assertEqual(rep["valid"], 0)
+            self.assertEqual(rep["invalid"], 1)
+            codes = [d.get("code") for d in rep.get("invalid_records", [])]
+            self.assertIn("duplicate_keys", codes)
+            dups = [d for d in rep.get("invalid_records", []) if d.get("code") == "duplicate_keys"]
+            self.assertTrue(dups, "must report a duplicate_keys diagnostic")
+            self.assertEqual(dups[0].get("field"), "runId")
+            self.assertEqual(dups[0].get("line"), 1)
+            # no raw value or full line in diag
+            self.assertNotIn("r1", str(dups[0]))
+            self.assertNotIn("r2", str(dups[0]))
+        finally:
+            p.unlink()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -28,6 +28,27 @@ from typing import Any
 REQUIRED_KEYS = frozenset({"runId", "profile", "sha", "nexusTools", "writePaths", "watchPaths"})
 
 
+class _DuplicateKeyError(ValueError):
+    """Raised from object_pairs_hook when a JSON object has duplicate keys."""
+
+    def __init__(self, key: str) -> None:
+        self.key = key
+        super().__init__(f"duplicate key: {key}")
+
+
+def _object_pairs_hook(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Stdlib-only hook: detect duplicate keys so json.loads last-wins cannot hide them.
+
+    Returns normal dict if no dups; raises _DuplicateKeyError with .key on first dup.
+    """
+    d: dict[str, Any] = {}
+    for k, v in pairs:
+        if k in d:
+            raise _DuplicateKeyError(str(k))
+        d[k] = v
+    return d
+
+
 def _is_regular_file(p: Path) -> bool:
     try:
         st = os.lstat(p)
@@ -140,11 +161,15 @@ def inspect_jsonl_log(
                     continue
 
                 try:
-                    rec = json.loads(stripped)
+                    rec = json.loads(stripped, object_pairs_hook=_object_pairs_hook)
                 except json.JSONDecodeError:
                     invalids.append({"line": lineno, "code": "invalid_json"})
                     report["invalid"] += 1
                     # if this is last and no \n originally? but since rstrip, check later
+                    continue
+                except _DuplicateKeyError as e:
+                    invalids.append({"line": lineno, "code": "duplicate_keys", "field": e.key})
+                    report["invalid"] += 1
                     continue
 
                 if not isinstance(rec, dict):
