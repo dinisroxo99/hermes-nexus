@@ -18,6 +18,7 @@ detached HEAD) remains
 `bc8b52d7280e7adc83f05cb20df97fbb3199804c` (merge of PR #30; tree
 `7f1d5c337999e0592c25bfdb9799c31fe0c747c1`) after accepted human service
 move (operator; 2026-09-28). Do not treat `origin/main` as live.
+PR #33 (merge `003a5ed1b73bd9b82f36f6b462fdf132e96a1bc5`) integrou a persistência source-local de `collect_forward_log` em `<dataDir>/collect-forward-log.jsonl`, com o INPUT de seis chaves (`runId`, `profile`, `sha`, `nexusTools`, `writePaths`, `watchPaths`) e o retorno count-only preservado, sem alteração do serviço live, recopy do plugin ou restart.
 
 plugin instalado = misto
 - reader_dirty.py = blob bc8b52d
