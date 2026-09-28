@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from pathlib import Path
 from typing import Any
 
 from .client import NexusClient, NexusClientError
@@ -35,7 +36,13 @@ def _collect_forward_after_accepted(result: dict[str, Any], args: Any, **kwargs:
 
     Called only on accepted results (c/i after ok+data; ets when v1 accepted incl. incomplete).
     runId/profile resolved per ordered sources (eligible = isinstance(str) and strip() != '';
-    forward original verbatim): profile: kwargs.profile → os.environ.get('HERMES_PROFILE') → skip;
+    forward original verbatim):
+      profile: kwargs.profile → HERMES_PROFILE → HERMES_HOME (exact .../profiles/<name> only) →
+               __file__ (exact .../profiles/<name>/plugins/hermes-nexus/tools.py or
+                         .../plugins/hermes-nexus/integrations/hermes-nexus/tools.py) → skip.
+      If HERMES_HOME and __file__ both yield names and they differ → fail-closed, do not persist
+      (conflict check applied only when falling through to HOME/__file__ sources).
+      Never default to "architect"; never infer from cwd or invent names.
     runId: kwargs.runId → os.environ.get('HERMES_KANBAN_RUN_ID') → kwargs.session_id → kwargs.task_id → skip.
     (If both session_id and task_id eligible and no earlier run source: session_id wins.)
     If either identity unresolved: do not call collect_forward_log.
@@ -50,12 +57,63 @@ def _collect_forward_after_accepted(result: dict[str, Any], args: Any, **kwargs:
         def _eligible(v: Any) -> bool:
             return isinstance(v, str) and v.strip() != ""
 
-        # profile: kwargs `profile` → os.environ.get('HERMES_PROFILE') → skip
+        # profile resolution (fail-closed on HOME vs __file__ conflict)
+        home_name = None
+        home = os.environ.get("HERMES_HOME") or ""
+        if _eligible(home):
+            try:
+                hp = Path(home)  # as-given; no .resolve() (no cwd join, no symlink follow)
+                if hp.parent.name == "profiles":
+                    n = hp.name
+                    if _eligible(n):
+                        home_name = n
+            except Exception:
+                pass
+
+        file_name = None
+        try:
+            fp = Path(__file__)  # as-given; no .resolve() before layout check
+            # contract/flat installed layout: .../profiles/<name>/plugins/hermes-nexus/tools.py
+            if (
+                fp.name == "tools.py"
+                and fp.parent.name == "hermes-nexus"
+                and fp.parent.parent.name == "plugins"
+                and fp.parent.parent.parent.parent.name == "profiles"
+            ):
+                n = fp.parent.parent.parent.name
+                if _eligible(n):
+                    file_name = n
+            # nested dev layout (still supported): .../profiles/<name>/plugins/hermes-nexus/integrations/hermes-nexus/tools.py
+            elif (
+                fp.name == "tools.py"
+                and fp.parent.name == "hermes-nexus"
+                and fp.parent.parent.name == "integrations"
+                and fp.parent.parent.parent.name == "hermes-nexus"
+                and fp.parent.parent.parent.parent.name == "plugins"
+                and fp.parent.parent.parent.parent.parent.parent.name == "profiles"
+            ):
+                n = fp.parent.parent.parent.parent.parent.name
+                if _eligible(n):
+                    file_name = n
+        except Exception:
+            pass
+
+        # profile: kwargs.profile → HERMES_PROFILE → HOME exact → __file__ exact → skip
+        # HOME vs __file__ conflict skip only applied when falling through (no higher source)
         profile = kwargs.get("profile")
         if not _eligible(profile):
             profile = os.environ.get("HERMES_PROFILE")
             if not _eligible(profile):
-                return
+                if home_name and file_name and home_name != file_name:
+                    return  # fail-closed, do not persist
+                profile = home_name
+                if not _eligible(profile):
+                    profile = file_name
+                    if not _eligible(profile):
+                        return
+        profile = str(profile).strip() if _eligible(profile) else None
+        if not _eligible(profile):
+            return
 
         # runId: kwargs `runId` → os.environ.get('HERMES_KANBAN_RUN_ID') → kwargs `session_id` → kwargs `task_id` → skip
         # session wins over task_id when both and no prior source
