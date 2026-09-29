@@ -28,6 +28,14 @@ unit-runs-this-HEAD claim. G1 remains REJECTED; R1/R2 remain open/deferred, HIGH
 severity and LOW/non-blocking development priority. Nine legacy tools remain
 deferred. ETS WRITE/WATCH classification exists and is not Step 4, Conflict
 Engine, or Guard. **Step 4 is not initiated as coordination/enforcement.**
+The Step 4 entry contract is **PREPARED** / **NOT IMPLEMENTED** at
+contract baseline observation
+`ef3df8d36561d56b90c535e1b8ad85993200a674` (not a future merge SHA).
+First slice **SPECIFIED_NOT_STARTED**. Step 4 code is not started. G1
+remains REJECTED; R1/R2 remain OPEN/DEFERRED.
+`STEP4_CORE_DEV_ALLOWED_WITH_EXISTING_DEFERRED_RISKS`;
+`RUNTIME_EXPOSURE_REQUIRES_SEPARATE_RISK_GATE`. Canonical:
+[38_STEP4_ENTRY_CONTRACT.md](../../docs/project-intelligence/38_STEP4_ENTRY_CONTRACT.md).
 
 ### Historical pin list (not current)
 
@@ -472,7 +480,16 @@ Git-diff impact remains deferred. Step 4 is not authorized by this checkpoint.
 
 **NOT INITIATED as coordination/enforcement.** Two-tool publication and
 six-profile H-only offline adoption are accepted. ETS WRITE/WATCH classification
-is not this step. The following remains target work.
+is not this step.
+
+Entry contract: **PREPARED** / **NOT IMPLEMENTED**. First slice
+**SPECIFIED_NOT_STARTED**. Step 4 code is not started. See
+[38_STEP4_ENTRY_CONTRACT.md](../../docs/project-intelligence/38_STEP4_ENTRY_CONTRACT.md).
+G1 REJECTED; R1/R2 OPEN/DEFERRED.
+`STEP4_CORE_DEV_ALLOWED_WITH_EXISTING_DEFERRED_RISKS`;
+`RUNTIME_EXPOSURE_REQUIRES_SEPARATE_RISK_GATE`.
+
+The following remains target work (not started by the prepared contract):
 
 Derive:
 
