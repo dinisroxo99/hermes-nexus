@@ -96,6 +96,33 @@ coordination/enforcement system. Historical local names (Step 4.0/4.1)
 identify earlier slices; they do not renumber the roadmap or mark those
 phases complete. `787f662` / adapter 1A do **not** enter this delta.
 
+### Step 4 entry contract (documentation delta)
+
+Dated **2026-09-29**, this page records a documentation delta on contract
+baseline observation
+**`ef3df8d36561d56b90c535e1b8ad85993200a674`** (tree
+`c9c89b1568ffc06c243b7169ef1251f71aea684d`; merge of PR #42). That SHA
+is the contract baseline **observation**, not a future merge SHA, not
+live service, and not a claim that this documentation checkout is
+deployed. Helper-CLI inventory above remains the `4d6a786` code
+baseline; this delta does not recopy that inventory into this SHA.
+
+Canonical contract:
+[38_STEP4_ENTRY_CONTRACT.md](project-intelligence/38_STEP4_ENTRY_CONTRACT.md).
+
+- Status: **PREPARED** / **NOT IMPLEMENTED**.
+- First slice: **SPECIFIED_NOT_STARTED**.
+- Step 4 **code is not started**. This is not Step 4 complete, not
+  runtime exposure, and not a plugin/service/install recopy.
+- Risk-entry disposition unchanged as operational facts: **G1 REJECTED**;
+  **R1/R2 OPEN / DEFERRED**. Architectural notes:
+  `STEP4_CORE_DEV_ALLOWED_WITH_EXISTING_DEFERRED_RISKS`;
+  `RUNTIME_EXPOSURE_REQUIRES_SEPARATE_RISK_GATE`. Neither green tests nor
+  this prepared document closes G1/R1/R2.
+- This documentation mission did **not** recopy plugins, restart
+  Hermes/Nexus, implement Step 4 modules, or change `provides_tools` /
+  `scope_enabled`.
+
 ### Canonicalization of the native caller (RESOLVIDO as Git on main)
 
 At `643eb3ab` and still at checkpoint `050540d0`, canonical Git
@@ -460,6 +487,13 @@ Following the [active implementation plan](../.hermes/plans/2026-09-17_002050-pr
 **Effective Task Scope (Step 4, not initiated as coordination/enforcement)** → Conflict Engine (Step 5) →
 Hermes Guard integration (Step 6) → Telemetry / validated project history → Project Expert
 → Learning / evaluation.
+
+The Step 4 entry contract is **PREPARED** /
+**NOT IMPLEMENTED**; first slice **SPECIFIED_NOT_STARTED**. See
+[38_STEP4_ENTRY_CONTRACT.md](project-intelligence/38_STEP4_ENTRY_CONTRACT.md).
+Step 4 code is not started. G1 remains REJECTED; R1/R2 remain OPEN /
+DEFERRED. Core-dev of an isolated later slice is allowed with those
+deferred risks; runtime exposure needs a separate risk gate.
 
 E0–E7 merged as PRs #17–#24: E0 #17
 `d929a125b6a975c16c5630984c9bc8b835f1d02d`; E1 #18

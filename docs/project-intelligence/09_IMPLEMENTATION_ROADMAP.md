@@ -10,6 +10,25 @@ Do not start by building more orchestration.
 
 Strengthen the Project Intelligence path and integrate it with the orchestration Hermes already provides.
 
+## Current roadmap terminology
+
+The numbered list below is the broader historical phase order. It is not
+the active-plan step numbering.
+
+```
+Current roadmap terminology:
+Step 4 = Effective Task Scope
+Step 5 = Conflict Engine
+Step 6 = Hermes Guard integration
+```
+
+Former “Phase 2 — Scope/Conflict Engine” spans more than one Roadmap Step:
+impact normalization is largely Roadmap Step 3 (implemented); scope
+resolution is Roadmap Step 4; task-to-task overlap detection is Roadmap
+Step 5. Historical Phase 3 Hermes Guard maps to Roadmap Step 6. This
+mapping does not implement any of those steps. See
+[38_STEP4_ENTRY_CONTRACT.md](38_STEP4_ENTRY_CONTRACT.md).
+
 ## Phase order
 
 ```text

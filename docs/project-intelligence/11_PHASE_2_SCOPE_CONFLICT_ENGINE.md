@@ -6,6 +6,22 @@
 
 Status: **PLANNED**
 
+## Roadmap mapping (not implementation)
+
+This document is historical Phase-2 design. It does not implement Roadmap
+Step 4 or Step 5.
+
+- Scope resolution (this document's “Step 3 — Resolve scope”) corresponds
+  to current **Roadmap Step 4** (Effective Task Scope).
+- This document's **“Step 4 — Detect task conflicts”** is an internal
+  Phase-2 substep and corresponds to current **Roadmap Step 5** (Conflict
+  Engine), not Roadmap Step 4.
+- Historical “Step 6 — Expose tool/API” is not Roadmap Step 6 (Hermes Guard
+  integration) and is not authorized by the Step 4 entry contract.
+
+See [38_STEP4_ENTRY_CONTRACT.md](38_STEP4_ENTRY_CONTRACT.md)
+(PREPARED / NOT IMPLEMENTED).
+
 ## Objective
 
 Convert Project Intelligence impact into enforceable task coordination metadata.

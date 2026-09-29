@@ -34,7 +34,11 @@ are an audit trail, not required context for normal implementation work.
    additive Step 2.5 provider metadata and longer-term designs.
 5. [Hermes integration](05_HERMES_INTEGRATION.md) — client/guard boundary.
 6. [Scope, impact and conflicts](06_SCOPE_IMPACT_CONFLICTS.md) — planned coordination
-   semantics: WRITE / RESERVED / WATCH / IMPACT.
+   semantics: WRITE / RESERVED / WATCH / IMPACT. Historical target design;
+   the current Step 4 entry contract is item 6a.
+6a. [Step 4 entry contract](38_STEP4_ENTRY_CONTRACT.md) — PREPARED / NOT
+   IMPLEMENTED Effective Task Scope first-slice contract
+   (`effective-task-scope-v2`). Code is not started.
 7. [Memory and Project Expert](07_MEMORY_HONCHO_AND_PROJECT_EXPERT.md) — separate
    current project evidence, experiential memory and a future read-only expert.
 8. [Observability and learning](08_OBSERVABILITY_AND_LEARNING.md) — target telemetry

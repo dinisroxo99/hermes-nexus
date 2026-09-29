@@ -269,6 +269,30 @@ WRITE∩WRITE (`write-write-intersection-v1`) and WRITE×WATCH
 (`write-watch-intersection-v1`) are observation, an observed result sets
 `emptyIsNotNoConflict` to true, and they are not the Conflict Engine.
 
+## Roadmap mapping and current contract authority
+
+The sections after the implemented Impact v2 boundary are **target design /
+historical planned material**. They are not a claim of implementation and
+are not the current Step 4 entry contract.
+
+Current roadmap terminology:
+
+- Roadmap Step 4 = Effective Task Scope (one-task classification). WRITE in
+  Step 4 is mutation-intent / scope classification, not runtime
+  authorization.
+- Roadmap Step 5 = Conflict Engine. Conflict rules, pairwise overlap,
+  severity, and recommendedAction belong to Step 5.
+- Roadmap Step 6 = Hermes Guard integration. Final-diff enforcement, hooks,
+  locks, and ALLOW/BLOCK belong to Step 6.
+
+The current entry contract is
+[38_STEP4_ENTRY_CONTRACT.md](38_STEP4_ENTRY_CONTRACT.md) (**PREPARED** /
+**NOT IMPLEMENTED**; first slice **SPECIFIED_NOT_STARTED**). Historical
+“authorized to mutate” wording below is target-design language, not Step 4
+operational authorization. The illustrative schema below (including
+`confidence: 0.0`) is proposed/historical shape, not the current
+`effective-task-scope-v2` contract.
+
 ## Scope levels
 
 ### WRITE
