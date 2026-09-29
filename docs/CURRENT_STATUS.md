@@ -145,6 +145,10 @@ documentation commit is a status delta on top of that code; it does
 - This documentation mission did **not** recopy plugins, restart
   Hermes/Nexus, or change `provides_tools` / `scope_enabled`.
 
+Subsequent Git checkpoint: Slice 1 is IMPLEMENTED + VERIFIED + MERGED at
+bc0e4eaa71efb92f47f159770e240010d8b7f87a. The candidate record above is
+historical; Step 4 remains INCOMPLETE and v2 runtime exposure remains NO.
+
 ### Canonicalization of the native caller (RESOLVIDO as Git on main)
 
 At `643eb3ab` and still at checkpoint `050540d0`, canonical Git
@@ -346,7 +350,8 @@ those six copies recorded APPROVE with 0 material findings. Orchestrator card
 session that ran the tools. After that TUI quit, a new session ran the
 orchestrator live proof. Operator-authorized record only: `evidence_found`;
 ETS `incomplete`; WRITE 1; WATCH 5. Incomplete ≠ safety; WRITE does not
-authorize; not G1 PASS; Step 4 not initiated.
+authorize; not G1 PASS; Step 4 was not initiated by that historical v1 proof;
+the current foundation state is recorded above.
 Operator-authorized implementer, tester, and reviewer SOUL hashes and inspect live proofs for ETS profile exposure are recorded in [ETS profile exposure](ETS_PROFILE_EXPOSURE.md).
 
 [INFRA-1](hermes-plugin-installation.md#infra-1--approved-implementation-pending)
