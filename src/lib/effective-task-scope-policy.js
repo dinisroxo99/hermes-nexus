@@ -69,6 +69,7 @@ function compareStrings(left, right) {
 }
 
 export function normalizeEffectiveTaskScopeRequest(input) {
+  input = materializeBoundedJsonData(input);
   const invalid = () => effectiveTaskScopeError("invalid_effective_task_scope_request", "Invalid bounded effective task scope request.");
   assertRecord(input);
 
@@ -246,6 +247,7 @@ function inferFromPaths(paths) {
 }
 
 export function normalizeEffectiveTaskScopeEvidence(pack, impact) {
+  ({ pack, impact } = materializeBoundedJsonData({ pack, impact }));
   // basic shape checks; full binding later in composer
   if (!pack || typeof pack !== "object" || Array.isArray(pack)) {
     throw effectiveTaskScopeError("invalid_pack", "Pack must be accepted task-context-v1");
@@ -253,22 +255,13 @@ export function normalizeEffectiveTaskScopeEvidence(pack, impact) {
   if (!impact || typeof impact !== "object" || Array.isArray(impact)) {
     throw effectiveTaskScopeError("invalid_impact", "Impact must be accepted impact-v2");
   }
-  // F-NESTING-ACCESSOR fix (attempt 4): reject getters/setters via descriptors (no value read, no invoke)
-  // BEFORE any prop access, clone, or serialization. checkBoundedStructure already does descriptor
-  // inspection without reading accessor values and preserves nesting/depth.
-  checkBoundedStructure(pack);
-  checkBoundedStructure(impact);
   if (pack.schemaVersion !== 1 || pack.analysisVersion !== "task-context-v1") {
     throw effectiveTaskScopeError("invalid_pack", "Pack must be accepted task-context-v1");
   }
   if (impact.schemaVersion !== 1 || impact.analysisVersion !== "impact-v2") {
     throw effectiveTaskScopeError("invalid_impact", "Impact must be accepted impact-v2");
   }
-  return { pack: deepClone(pack), impact: deepClone(impact) };
-}
-
-function deepClone(o) {
-  return JSON.parse(JSON.stringify(o));
+  return { pack, impact };
 }
 
 export const MAX_RAW_PATHS_BEFORE_DEDUPE = 32;
@@ -282,39 +275,58 @@ export const MAX_COMPACT_INPUT = 327680;
 export const MAX_COMPACT_OUTPUT = 131072;
 
 export function checkInputBudget(request, pack, impact) {
-  // F-NESTING-ACCESSOR: check (descriptors, no invoke) BEFORE any serialization/JSON on inputs
+  // Callers pass materialized data. Reapply the same boundary for direct callers.
   const inputObj = { request, pack, impact };
-  checkBoundedStructure(inputObj);
+  const safe = materializeBoundedJsonData(inputObj);
   // pack and impact each <=131072
-  const packBytes = Buffer.byteLength(JSON.stringify(pack), "utf8");
-  const impactBytes = Buffer.byteLength(JSON.stringify(impact), "utf8");
+  const packBytes = Buffer.byteLength(JSON.stringify(safe.pack), "utf8");
+  const impactBytes = Buffer.byteLength(JSON.stringify(safe.impact), "utf8");
   if (packBytes > 131072 || impactBytes > 131072) {
     throw effectiveTaskScopeError("scope_budget_exceeded", "Pack or Impact exceeds 131072 compact bytes.");
   }
-  const reqStr = JSON.stringify(inputObj);
+  const reqStr = JSON.stringify(safe);
   if (Buffer.byteLength(reqStr, "utf8") > MAX_COMPACT_INPUT) {
     throw effectiveTaskScopeError("scope_budget_exceeded", "Input exceeds compactBytes budget.");
   }
 }
 
-function checkBoundedStructure(root, maxDepth = MAX_NESTING, maxCount = MAX_VISITED_VALUES) {
+export function materializeBoundedJsonData(root) {
   let count = 0;
+  const ancestors = new Set();
   function walk(node, depth) {
-    if (depth > maxDepth) throw effectiveTaskScopeError("scope_budget_exceeded");
-    if (++count > maxCount) throw effectiveTaskScopeError("scope_budget_exceeded");
-    if (node == null || typeof node !== "object") return;
-    // Inspect every own descriptor (including array indices) before visiting any value.
+    if (depth > MAX_NESTING) throw effectiveTaskScopeError("scope_budget_exceeded");
+    if (++count > MAX_VISITED_VALUES) throw effectiveTaskScopeError("scope_budget_exceeded");
+    if (node === null || typeof node === "string" || typeof node === "boolean" ||
+        (typeof node === "number" && Number.isFinite(node))) return node;
+    if (typeof node !== "object") throw effectiveTaskScopeError("invalid_record");
+    const array = Array.isArray(node);
+    const prototype = Object.getPrototypeOf(node);
+    if (array ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null) {
+      throw effectiveTaskScopeError("invalid_record");
+    }
+    if (ancestors.has(node)) throw effectiveTaskScopeError("invalid_record");
+    ancestors.add(node);
     const descriptors = Object.getOwnPropertyDescriptors(node);
-    for (const desc of Object.values(descriptors)) {
-      if (desc.get || desc.set) throw effectiveTaskScopeError("invalid_record");
+    // Null prototype prevents inherited fields from becoming required-field data.
+    const result = array ? [] : Object.create(null);
+    for (const key of Reflect.ownKeys(descriptors)) {
+      if (typeof key === "symbol") throw effectiveTaskScopeError("invalid_record");
+      const desc = descriptors[key];
+      if (!Object.hasOwn(desc, "value")) throw effectiveTaskScopeError("invalid_record");
+      if (array && key === "length") continue;
+      if (!desc.enumerable) throw effectiveTaskScopeError("invalid_record");
+      if (array && (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= descriptors.length.value)) {
+        throw effectiveTaskScopeError("invalid_record");
+      }
+      Object.defineProperty(result, key, { value: walk(desc.value, depth + 1), enumerable: true, writable: true, configurable: true });
     }
-    if (Array.isArray(node)) {
-      for (let i = 0; i < descriptors.length.value; i++) walk(descriptors[i]?.value, depth + 1);
-    } else {
-      for (const k of Object.keys(node)) walk(descriptors[k].value, depth + 1);
+    if (array && (Reflect.ownKeys(descriptors).length - 1 !== descriptors.length.value)) {
+      throw effectiveTaskScopeError("invalid_record");
     }
+    ancestors.delete(node);
+    return result;
   }
-  walk(root, 0);
+  return walk(root, 0);
 }
 
 export function buildEmptyCategory(status = "not_evaluated", reasons = []) {

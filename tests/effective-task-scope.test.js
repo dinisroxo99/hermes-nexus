@@ -456,3 +456,65 @@ test("composer: deep nesting >32 rejects with budget (bounded walk before norm)"
   assert.equal(res.status, "rejected");
   assert.ok(res.reasons && res.reasons.some(r => r.code === "scope_budget_exceeded"));
 });
+
+function assertIngressRejected(request, evidence, hits) {
+  const result = composeEffectiveTaskScope(request, evidence);
+  assert.equal(result.status, "rejected");
+  assert.equal(Object.hasOwn(result, "write"), false);
+  assert.equal(hits(), 0, "untrusted code must never execute");
+}
+
+for (const field of ["pack", "impact"]) {
+  test(`composer: evidence.${field} entry getter rejects with hits==0`, () => {
+    let hits = 0;
+    const evidence = { pack: MIN_PACK, impact: MIN_IMPACT };
+    Object.defineProperty(evidence, field, { enumerable: true, get() { hits++; return field === "pack" ? MIN_PACK : MIN_IMPACT; } });
+    assertIngressRejected(BASE_REQ, evidence, () => hits);
+  });
+}
+
+test("composer: request.includeTests entry getter rejects with hits==0", () => {
+  let hits = 0;
+  const request = { ...BASE_REQ };
+  Object.defineProperty(request, "includeTests", { enumerable: true, get() { hits++; return true; } });
+  assertIngressRejected(request, { pack: MIN_PACK, impact: MIN_IMPACT }, () => hits);
+});
+
+for (const [field, original, key] of [["pack", MIN_PACK, "schemaVersion"], ["impact", MIN_IMPACT, "analysisVersion"]]) {
+  test(`composer: inherited ${key} getter on ${field} rejects with hits==0`, () => {
+    let hits = 0;
+    const inherited = { ...original };
+    delete inherited[key];
+    const prototype = Object.create(Object.prototype);
+    Object.defineProperty(prototype, key, { get() { hits++; return original[key]; } });
+    Object.setPrototypeOf(inherited, prototype);
+    assertIngressRejected(BASE_REQ, { pack: field === "pack" ? inherited : MIN_PACK, impact: field === "impact" ? inherited : MIN_IMPACT }, () => hits);
+  });
+}
+
+for (const [label, target] of [["legitimate", MIN_IMPACT.targets[0]], ["hostile", { originPath: "hostile.js" }]]) {
+  test(`composer: inherited array index ${label} target rejects with hits==0`, () => {
+    let hits = 0;
+    const targets = [...MIN_IMPACT.targets];
+    delete targets[0];
+    const prototype = Object.create(Array.prototype);
+    Object.defineProperty(prototype, "0", { get() { hits++; return target; } });
+    Object.setPrototypeOf(targets, prototype);
+    assertIngressRejected(BASE_REQ, { pack: MIN_PACK, impact: { ...MIN_IMPACT, targets } }, () => hits);
+  });
+}
+
+for (const place of ["pack", "nested"]) {
+  test(`composer: own callable toJSON on ${place} rejects with hits==0`, () => {
+    let hits = 0;
+    const malicious = { toJSON() { hits++; return MIN_PACK; } };
+    const pack = place === "pack" ? { ...MIN_PACK, ...malicious } : { ...MIN_PACK, extra: malicious };
+    assertIngressRejected(BASE_REQ, { pack, impact: MIN_IMPACT }, () => hits);
+  });
+}
+
+test("composer: nested ordinary callable rejects without execution", () => {
+  let hits = 0;
+  const callable = () => { hits++; return "safe"; };
+  assertIngressRejected(BASE_REQ, { pack: { ...MIN_PACK, extra: { callable } }, impact: MIN_IMPACT }, () => hits);
+});

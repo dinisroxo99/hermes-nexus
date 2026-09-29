@@ -9,6 +9,7 @@ import {
   normalizeEffectiveTaskScopeRequest,
   resolveChangeSemantics,
   normalizeEffectiveTaskScopeEvidence,
+  materializeBoundedJsonData,
   checkInputBudget,
   buildEmptyCategory,
   MAX_CLASSIFIED_TARGETS,
@@ -106,6 +107,12 @@ function classifyFromImpact(affectedItem, semantics, includeTests, isWrite) {
  * Receives validated request + {pack, impact} evidence. No IO.
  */
 export function composeEffectiveTaskScope(request, evidence) {
+  // Cross the structural ingress boundary before reading either raw argument.
+  try {
+    ({ request, evidence } = materializeBoundedJsonData({ request, evidence }));
+  } catch (e) {
+    return buildRejected(e.code || "invalid_record");
+  }
   let normalizedRequest;
   try {
     normalizedRequest = normalizeEffectiveTaskScopeRequest(request);

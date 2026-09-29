@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   normalizeEffectiveTaskScopeRequest,
+  materializeBoundedJsonData,
   resolveChangeSemantics,
   EFFECTIVE_TASK_SCOPE_SCHEMA_VERSION,
   EFFECTIVE_TASK_SCOPE_ANALYSIS_VERSION,
@@ -134,4 +135,39 @@ test("policy: compactBytes must be finite safe 1..131072", () => {
   const badFloat = { ...BASE_REQUEST, limits: { compactBytes: 10.5 } };
   let err3; try { normalizeEffectiveTaskScopeRequest(badFloat); assert.fail("should throw"); } catch(e){err3=e;}
   assert.ok(err3 && ((err3.code||"").includes("invalid") || (err3.message||"").includes("Invalid") || (err3.message||"").includes("bounded")));
+});
+
+test("policy: materializer copies canonical data without sharing containers", () => {
+  const input = { values: [{ name: "file.js", active: true, amount: 0, absent: null }] };
+  const copy = materializeBoundedJsonData(input);
+  assert.equal(JSON.stringify(copy), JSON.stringify(input));
+  assert.notEqual(copy, input);
+  assert.notEqual(copy.values[0], input.values[0]);
+});
+
+test("policy: materializer rejects cycles, holes and non-JSON values", () => {
+  const cyclic = {};
+  cyclic.self = cyclic;
+  for (const invalid of [cyclic, [ , "value" ], { value: undefined }, { value: NaN },
+    { value: Infinity }, { value: 1n }, { value: Symbol("s") }, { value: new Date() }]) {
+    assert.throws(() => materializeBoundedJsonData(invalid));
+  }
+});
+
+test("policy: materializer rejects hidden and symbol payloads without invoking getters", () => {
+  let hits = 0;
+  const hidden = {};
+  Object.defineProperty(hidden, "hidden", { get() { hits++; return "data"; } });
+  assert.throws(() => materializeBoundedJsonData(hidden));
+  assert.equal(hits, 0);
+  assert.throws(() => materializeBoundedJsonData({ [Symbol("hidden")]: "data" }));
+  assert.throws(() => materializeBoundedJsonData({ hidden: Object.defineProperty({}, "value", { value: 1 }) }));
+});
+
+test("policy: direct request normalization rejects getter before reading it", () => {
+  let hits = 0;
+  const request = { ...BASE_REQUEST };
+  Object.defineProperty(request, "includeTests", { enumerable: true, get() { hits++; return true; } });
+  assert.throws(() => normalizeEffectiveTaskScopeRequest(request));
+  assert.equal(hits, 0);
 });
