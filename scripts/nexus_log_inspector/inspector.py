@@ -153,13 +153,14 @@ def inspect_jsonl_log(
                 report["records_observed"] = rec_obs
                 report["examined"] = rec_obs
 
+                last_line_was_invalid_json = False  # clear at start of each examined line; set true ONLY on JSONDecodeError (O2-INCOMPLETE-HEURISTIC fix)
+
                 stripped = raw_line.rstrip("\n\r")
                 if not stripped:
                     # blank line: treat as examined but invalid? per contract, skip or invalid
                     # contract expects records, blank is invalid json context
                     invalids.append({"line": lineno, "code": "blank_line"})
                     report["invalid"] += 1
-                    last_line_was_invalid_json = False
                     continue
 
                 try:
@@ -173,7 +174,6 @@ def inspect_jsonl_log(
                 except _DuplicateKeyError as e:
                     invalids.append({"line": lineno, "code": "duplicate_keys", "field": e.key})
                     report["invalid"] += 1
-                    last_line_was_invalid_json = False
                     continue
 
                 if not isinstance(rec, dict):
@@ -236,8 +236,6 @@ def inspect_jsonl_log(
 
                 report["declared_write_path_entries"] += len(write_paths)
                 report["declared_watch_path_entries"] += len(watch_paths)
-
-                last_line_was_invalid_json = False
 
                 # do not abort read on diagnostic cap (invalids already truncated on report);
                 # continue so later valids are counted (O2-READ-CAP)

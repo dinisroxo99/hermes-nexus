@@ -301,6 +301,33 @@ class TestLogInspector(unittest.TestCase):
         finally:
             p2.unlink()
 
+        # residual (O2-R2 attempt 2): invalid_json first + not_object last (final parses but not dict), no nl -> incomplete=false (clear at start of line; set true ONLY in JSONDecodeError)
+        content3 = inv + chr(10) + "[]"
+        p3 = self._write_temp_no_nl(content3)
+        try:
+            rep3 = self.inspector.inspect_jsonl_log(p3)
+            self.assertEqual(rep3["examined"], 2)
+            self.assertEqual(rep3["valid"], 0)
+            self.assertEqual(rep3["invalid"], 2)
+            codes3 = [d.get("code") for d in rep3.get("invalid_records", [])]
+            self.assertIn("invalid_json", codes3)
+            self.assertIn("not_object", codes3)
+            self.assertFalse(rep3.get("incomplete_last_line", False))
+        finally:
+            p3.unlink()
+
+        # residual: invalid_json first + missing/extra keys last (parses ok but key check fails), no nl -> incomplete=false
+        bad_keys = json.dumps({"foo": "bar"})
+        content4 = inv + chr(10) + bad_keys
+        p4 = self._write_temp_no_nl(content4)
+        try:
+            rep4 = self.inspector.inspect_jsonl_log(p4)
+            self.assertEqual(rep4["examined"], 2)
+            self.assertEqual(rep4["valid"], 0)
+            self.assertEqual(rep4["invalid"], 2)
+            self.assertFalse(rep4.get("incomplete_last_line", False))
+        finally:
+            p4.unlink()
 
 if __name__ == "__main__":
     unittest.main()
