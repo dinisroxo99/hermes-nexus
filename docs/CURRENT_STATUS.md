@@ -33,16 +33,48 @@ operations. This page does not invent `dirty: false` or opaque IDs. Untracked
 `__pycache__` is not Nexus dirty. Other untracked paths and all tracked dirt
 still count.
 
-## Checkpoint 2026-09-28
+## Checkpoint 2026-09-29
 
 ### Current code
 
-Public code checkpoint **`050540d0ebb3899198a5695eaec913de59cb1b8d`**
-(merge of PR #38; parents `643eb3ab` and `66262a83`) is included in this
-revision. The PR #38 docs/code delta is implemented at that checkpoint
-and is **not copied into local installations**. Git presence is not
-profile installation. Live worker Context → Impact → ETS use is not
-demonstrated in this documentation batch.
+Dated **2026-09-29**, helper CLIs
+`python3 -B -m scripts.nexus_request_preflight` and
+`python3 -B -m scripts.nexus_log_inspector` are present in the code
+baseline **`4d6a78632e772e7ca43fadf37b287213d6f9ea93`** (merge of PR #41;
+tree `6e31798f3bf5b334fa94183714c6bfcb43b9df12`). They are **not**
+pending merge, **not** Hermes tools, and **not** Roadmap Step 4. The
+helper classification on this page is a documentation delta on top of
+that baseline and is **not** contained in that baseline commit.
+Roadmap Step 4 remains Effective Task Scope as
+coordination/enforcement and is **not started**.
+
+Present here (verified in this worktree; invocation from repo root):
+
+- **Request-preflight helper CLI** (PR #39 merge
+  `07845ba0fc86440a080f81ffe4ad3fe125ec726d`, ancestor of the code
+  baseline):
+  `python3 -B -m scripts.nexus_request_preflight`
+  (`scripts/nexus_request_preflight/__main__.py`). Local syntax-only
+  validator for `project_task_context` / `project_impact` argument JSON.
+  Not a Hermes tool, not an HTTP endpoint, not Context/Impact/ETS, and
+  not Step 4 coordination/enforcement. Guide:
+  [request-preflight](development/request-preflight.md).
+- **Log-inspector helper CLI** (PR #41, code baseline merge):
+  `python3 -B -m scripts.nexus_log_inspector`
+  (`scripts/nexus_log_inspector/__main__.py`,
+  `scripts/nexus_log_inspector/inspector.py`). Offline stdlib reader for
+  an explicit `collect-forward-log.jsonl` path. Not a Hermes tool, not
+  live collection, and not Step 4. Guide:
+  [log-inspector](development/log-inspector.md).
+
+Public checkpoint **`050540d0ebb3899198a5695eaec913de59cb1b8d`**
+(merge of PR #38; parents `643eb3ab` and `66262a83`) is an ancestor
+included in this revision. The PR #38 docs/code delta is implemented at
+that checkpoint and is **not copied into local installations**. Git
+presence is not profile installation. Live worker Context → Impact →
+ETS use is not demonstrated in this documentation batch. `050540d0` does
+**not** inventory the PR #39 / PR #41 helper CLIs; those exist on the
+code baseline.
 
 Dated **2026-09-28**, code on `origin/main` was observed as
 `643eb3ab6433389f99264bc2b0a1aff7389ddc5d` (merge of PR #37 `--merge`).
@@ -356,6 +388,8 @@ candidate verification or plugin lifecycle acceptance.
 | Step 3 — Impact v2 | Bounded file/multi-file reverse-impact evidence and optional affected-test candidates, resolved against persisted project/worktree/revision, with reobservation and independent output caps. | [Impact contract](project-intelligence/06_SCOPE_IMPACT_CONFLICTS.md), [HTTP route](../src/routes/project-impact.routes.js), [service tests](../tests/project-impact-service.test.js) |
 | Hermes thin plugin | Exactly two tracked read-only tools (`project_task_context`, `project_impact`); `compose_effective_task_scope` exists in plugin at historical `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5`, read-only local, without HTTP tool/route/schemas; labels only WRITE and WATCH; RESERVED/IMPACT `not_emitted`. `feat/legacy-project-map-t_d032c9fe@787f662df941ea8461efeb0db86f51ad569a461c` / adapter 1A do not enter this delta. Two-tool publication is accepted as recorded in the installation contract, not automatic installation or Guard. | [Usage contract](hermes-tool-integration.md#dev-adoption-1--two-tool-usage-contract), [open limitations](KNOWN_ISSUES.md), [composer](../integrations/hermes-nexus/effective_task_scope.py) |
 | Gated ETS caller | `project_effective_task_scope` (local compose from accepted pack+impact) exists at ancestor `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb`. Hidden via `register_tool` omission unless `scope_enabled` is exactly true. `provides_tools` lists exactly the two core tools. Dated 2026-09-28 six-profile install handoff: independent copies with `scope_enabled: true`; `default` and `workspace-manager` excluded from install/config/exposure (not a ban on the workspace-manager role). Canonical Git `tools.py` overlay is on main at `643eb3ab` and remains at checkpoint `050540d0`; that is not byte equality of every installed file, and the `6152cea` `schemas.py` text is in this revision and is **not copied into local installations**. Read-only classification, not Step 4 coordination/enforcement. | [ETS profile exposure](ETS_PROFILE_EXPOSURE.md); [effective_task_scope](../integrations/hermes-nexus/effective_task_scope.py) |
+| Request-preflight helper CLI | Present in the code baseline (`4d6a78632e772e7ca43fadf37b287213d6f9ea93`) via PR #39 merge `07845ba0fc86440a080f81ffe4ad3fe125ec726d`. Invoke `python3 -B -m scripts.nexus_request_preflight`. Syntax-only local helper; not a Hermes tool; not pending merge; not Step 4. Helper classification is a documentation delta, not content of that baseline commit. | [request-preflight](development/request-preflight.md), [`scripts/nexus_request_preflight/__main__.py`](../scripts/nexus_request_preflight/__main__.py) |
+| Log-inspector helper CLI | Present in the code baseline via PR #41 (merge `4d6a78632e772e7ca43fadf37b287213d6f9ea93`). Invoke `python3 -B -m scripts.nexus_log_inspector`. Offline JSONL observer; not a Hermes tool; not pending merge; not Step 4. Helper classification is a documentation delta, not content of that baseline commit. | [log-inspector](development/log-inspector.md), [`scripts/nexus_log_inspector/`](../scripts/nexus_log_inspector/) |
 | Optional Serena/Python | Real semantic symbols, definitions and references through a pinned offline snapshot-only Docker worker; mounted-source binding, strict validation, bounded cleanup and explicit fallback. | [Runtime guide](../docker/serena-python/README.md), [provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md), [real semantic tests](../tests/serena-python-docker.test.js), [real sandbox tests](../tests/serena-sandbox-docker.test.js) |
 
 ### Current intelligence endpoints
