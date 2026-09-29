@@ -210,6 +210,97 @@ class TestLogInspector(unittest.TestCase):
         finally:
             p.unlink()
 
+    def test_o2_read_cap_does_not_abort_on_diag_limit(self):
+        """Named test for O2-READ-CAP HIGH: after 51 invalids, continue to count later valids; do not break read."""
+        inv_line = json.dumps({"bad": 1})
+        val_line = json.dumps({
+            "runId": "r", "profile": "p", "sha": "s",
+            "nexusTools": True, "writePaths": [], "watchPaths": []
+        })
+        lines = [inv_line] * 51 + [val_line] * 3
+        p = self._write_temp_jsonl(lines)
+        try:
+            rep = self.inspector.inspect_jsonl_log(p)
+            self.assertEqual(rep["examined"], 54)
+            self.assertEqual(rep["valid"], 3)
+            self.assertEqual(rep["invalid"], 51)
+            self.assertTrue(rep["complete"])
+            self.assertFalse(rep["limited"])
+        finally:
+            p.unlink()
+
+    def test_o2_text_esc_escapes_c0_esc_in_text_output_only(self):
+        """Named test for O2-TEXT-ESC MEDIUM: escape C0/ESC only in --format text; D3-valid records with ESC accepted."""
+        esc = "\x1b"
+        val = {
+            "runId": "r", "profile": "p" + esc + "q", "sha": "s",
+            "nexusTools": True, "writePaths": [], "watchPaths": []
+        }
+        lines = [json.dumps(val)]
+        p = self._write_temp_jsonl(lines)
+        try:
+            rep = self.inspector.inspect_jsonl_log(p)
+            self.assertEqual(rep["valid"], 1)
+            self.assertEqual(rep["invalid"], 0)
+            txt = self.inspector.format_text(rep)
+            self.assertNotIn(esc, txt)
+            # escaped as \x1b (direct) or \u001b (via json group key str)
+            self.assertTrue("\\x1b" in txt or "\\u001b" in txt)
+            # construction accepted ESC in profile value (D3-valid string kept; counted as valid, no reject)
+        finally:
+            p.unlink()
+
+    def test_o2_group_collide_uses_structured_not_colon(self):
+        """Named test for O2-GROUP-COLLIDE MEDIUM: colon concat gkey must not merge distinct (profile,sha)."""
+        line_ab_c = json.dumps({
+            "runId": "r1", "profile": "a:b", "sha": "c",
+            "nexusTools": True, "writePaths": [], "watchPaths": []
+        })
+        line_a_bc = json.dumps({
+            "runId": "r2", "profile": "a", "sha": "b:c",
+            "nexusTools": True, "writePaths": [], "watchPaths": []
+        })
+        p = self._write_temp_jsonl([line_ab_c, line_a_bc])
+        try:
+            rep = self.inspector.inspect_jsonl_log(p)
+            self.assertEqual(rep["valid"], 2)
+            self.assertEqual(rep["distinct_correlation_keys"], 2)
+            groups = rep.get("profile_sha_groups", {})
+            self.assertEqual(len(groups), 2, "must not collapse on colon in profile/sha")
+        finally:
+            p.unlink()
+
+    def test_o2_incomplete_heuristic_only_for_final_line_json_fail(self):
+        """Named test for O2-INCOMPLETE-HEURISTIC MEDIUM: set incomplete_last_line only if final examined line failed JSON and no trailing nl."""
+        inv = "not-json-line"
+        val = json.dumps({
+            "runId": "r", "profile": "p", "sha": "s",
+            "nexusTools": True, "writePaths": [], "watchPaths": []
+        })
+        # invalid first + valid last, file no final nl
+        content = inv + "\n" + val
+        p = self._write_temp_no_nl(content)
+        try:
+            rep = self.inspector.inspect_jsonl_log(p)
+            self.assertEqual(rep["examined"], 2)
+            self.assertEqual(rep["valid"], 1)
+            self.assertEqual(rep["invalid"], 1)
+            self.assertFalse(rep.get("incomplete_last_line", False))
+        finally:
+            p.unlink()
+
+        # last line fails json, no nl -> should set
+        content2 = val + "\n" + inv
+        p2 = self._write_temp_no_nl(content2)
+        try:
+            rep2 = self.inspector.inspect_jsonl_log(p2)
+            self.assertEqual(rep2["examined"], 2)
+            self.assertEqual(rep2["valid"], 1)
+            self.assertEqual(rep2["invalid"], 1)
+            self.assertTrue(rep2.get("incomplete_last_line", False))
+        finally:
+            p2.unlink()
+
 
 if __name__ == "__main__":
     unittest.main()

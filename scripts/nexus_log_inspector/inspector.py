@@ -127,6 +127,7 @@ def inspect_jsonl_log(
     limited = False
     limited_reason: str | None = None
     incomplete_last = False
+    last_line_was_invalid_json = False  # for O2-INCOMPLETE-HEURISTIC: track only final examined line
 
     try:
         with p.open("r", encoding="utf-8", newline="") as f:
@@ -158,6 +159,7 @@ def inspect_jsonl_log(
                     # contract expects records, blank is invalid json context
                     invalids.append({"line": lineno, "code": "blank_line"})
                     report["invalid"] += 1
+                    last_line_was_invalid_json = False
                     continue
 
                 try:
@@ -165,11 +167,13 @@ def inspect_jsonl_log(
                 except json.JSONDecodeError:
                     invalids.append({"line": lineno, "code": "invalid_json"})
                     report["invalid"] += 1
+                    last_line_was_invalid_json = True
                     # if this is last and no \n originally? but since rstrip, check later
                     continue
                 except _DuplicateKeyError as e:
                     invalids.append({"line": lineno, "code": "duplicate_keys", "field": e.key})
                     report["invalid"] += 1
+                    last_line_was_invalid_json = False
                     continue
 
                 if not isinstance(rec, dict):
@@ -223,7 +227,8 @@ def inspect_jsonl_log(
                 corr = (profile, sha, run_id)
                 seen_corrs.add(corr)
 
-                gkey = f"{profile}:{sha}"
+                # structured group identity (tuple) to avoid colon-collision in profile or sha (O2-GROUP-COLLIDE)
+                gkey = (profile, sha)
                 if gkey not in groups:
                     groups[gkey] = {"count": 0, "run_ids": set()}
                 groups[gkey]["count"] += 1
@@ -232,9 +237,10 @@ def inspect_jsonl_log(
                 report["declared_write_path_entries"] += len(write_paths)
                 report["declared_watch_path_entries"] += len(watch_paths)
 
-                if len(invalids) > 50:
-                    # cap diags
-                    break
+                last_line_was_invalid_json = False
+
+                # do not abort read on diagnostic cap (invalids already truncated on report);
+                # continue so later valids are counted (O2-READ-CAP)
 
     except OSError as e:
         report["status"] = "error"
@@ -263,21 +269,14 @@ def inspect_jsonl_log(
         # already set
         pass
 
-    # detect if ended without newline on last record attempt
-    # if the loop read a partial last, and it was invalid_json on what would be end
-    # simple: if bytes_obs < size_before and not ended with \n ? but hard, use the flag if last rec was invalid and limited
-    # for now, set incomplete_last_line only if we saw a json fail on what looks like end-of-file without \n
-    # the spec: Incomplete last line = incomplete observation
-    # We set when the read stopped because of unterminated last line (json fail + no more data)
-    # Since we always read to eof unless budget, if last json failed and bytes_obs == size_before ? treat as incomplete last
-    if report["invalid"] > 0 and invalids and invalids[-1]["code"] == "invalid_json":
-        # check if the raw last line in file had no \n
+    # O2-INCOMPLETE-HEURISTIC: set only when the *final examined line* failed JSON *and* file had no trailing newline
+    if last_line_was_invalid_json:
         try:
             with p.open("rb") as fb:
                 fb.seek(max(0, size_before - 4096))
                 tail = fb.read()
             if tail and not tail.endswith(b"\n") and not tail.endswith(b"\r"):
-                # last line was truncated in file
+                # final examined line was the unterminated json fail
                 incomplete_last = True
         except Exception:
             pass
@@ -293,9 +292,14 @@ def inspect_jsonl_log(
         report["invalid_records_truncated"] = True
 
     # groups: cap
+    # use safe str key from structured tuple gkey so colon in profile/sha cannot collide (O2-GROUP-COLLIDE)
     capped_groups: dict[str, Any] = {}
     for gk, gv in list(groups.items())[:20]:
-        capped_groups[gk] = {
+        if isinstance(gk, tuple) and len(gk) == 2:
+            gk_str = json.dumps([gk[0], gk[1]], ensure_ascii=True)
+        else:
+            gk_str = str(gk)
+        capped_groups[gk_str] = {
             "count": gv["count"],
             "run_ids_sample": sorted(list(gv["run_ids"]))[:5],
         }
@@ -308,9 +312,29 @@ def inspect_jsonl_log(
     return report
 
 
+def _escape_controls_for_text(s: Any) -> str:
+    """Escape C0 controls and ESC for safe text output only (O2-TEXT-ESC).
+    Keep original values in JSON report (records remain valid).
+    """
+    if s is None:
+        return ""
+    t = str(s)
+    out: list[str] = []
+    for ch in t:
+        o = ord(ch)
+        if o < 0x20 or o == 0x7f or o == 0x1b:
+            if o == 0x1b:
+                out.append("\\x1b")
+            else:
+                out.append(f"\\x{o:02x}")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
 def format_text(report: dict[str, Any]) -> str:
     lines = []
-    lines.append(f"input: {report.get('input')}")
+    lines.append(f"input: {_escape_controls_for_text(report.get('input'))}")
     lines.append(f"examined: {report['examined']}  valid: {report['valid']}  invalid: {report['invalid']}")
     lines.append(f"complete: {report['complete']}  limited: {report['limited']}  reason: {report['limited_reason']}")
     lines.append(f"bytes_observed: {report['bytes_observed']}  records_observed: {report['records_observed']}")
@@ -321,11 +345,13 @@ def format_text(report: dict[str, Any]) -> str:
     if report.get("invalid_records"):
         lines.append("invalid_records (capped):")
         for d in report["invalid_records"]:
-            lines.append(f"  line {d['line']}: {d['code']} {d.get('field','')}")
+            fld = _escape_controls_for_text(d.get("field", ""))
+            lines.append(f"  line {d['line']}: {d['code']} {fld}")
     if report.get("profile_sha_groups"):
         lines.append("profile_sha_groups (capped):")
         for k, v in report["profile_sha_groups"].items():
-            lines.append(f"  {k}: count={v['count']} sample_runids={v['run_ids_sample']}")
+            ks = _escape_controls_for_text(k)
+            lines.append(f"  {ks}: count={v['count']} sample_runids={v['run_ids_sample']}")
     return "\n".join(lines) + "\n"
 
 
