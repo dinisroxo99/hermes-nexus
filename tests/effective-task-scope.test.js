@@ -312,6 +312,60 @@ test("composer: setter/accessor property on evidence.pack is not consumed", () =
   assert.equal(hits, 0);
 });
 
+test("composer: pack array-index getter rejects before invocation or classification", () => {
+  let getterHits = 0;
+  const paths = [...MIN_PACK.sections.task.items[0].paths];
+  Object.defineProperty(paths, 0, { enumerable: true, get() { getterHits++; return BASE_REQ.task.paths[0]; } });
+  const pack = { ...MIN_PACK, sections: { ...MIN_PACK.sections, task: {
+    ...MIN_PACK.sections.task, items: [{ ...MIN_PACK.sections.task.items[0], paths }]
+  } } };
+  const result = composeEffectiveTaskScope(BASE_REQ, { pack, impact: MIN_IMPACT });
+  assert.equal(result.status, "rejected");
+  assert.equal(Object.hasOwn(result, "write"), false);
+  assert.equal(getterHits, 0);
+});
+
+test("composer: impact.targets array-index getter rejects before invocation or classification", () => {
+  let getterHits = 0;
+  const targets = [...MIN_IMPACT.targets];
+  Object.defineProperty(targets, 0, { enumerable: true, get() { getterHits++; return MIN_IMPACT.targets[0]; } });
+  const result = composeEffectiveTaskScope(BASE_REQ, { pack: MIN_PACK, impact: { ...MIN_IMPACT, targets } });
+  assert.equal(result.status, "rejected");
+  assert.equal(Object.hasOwn(result, "write"), false);
+  assert.equal(getterHits, 0);
+});
+
+test("composer: array-index setter and nested array getter reject without access", () => {
+  let setterHits = 0;
+  const targets = [...MIN_IMPACT.targets];
+  Object.defineProperty(targets, 0, { enumerable: true, set(_value) { setterHits++; } });
+  const setterResult = composeEffectiveTaskScope(BASE_REQ, { pack: MIN_PACK, impact: { ...MIN_IMPACT, targets } });
+  assert.equal(setterResult.status, "rejected");
+  assert.equal(Object.hasOwn(setterResult, "write"), false);
+  assert.equal(setterHits, 0);
+
+  let getterHits = 0;
+  const nested = [["data"]];
+  Object.defineProperty(nested[0], 0, { enumerable: true, get() { getterHits++; return "data"; } });
+  const pack = { ...MIN_PACK, extra: nested };
+  const nestedResult = composeEffectiveTaskScope(BASE_REQ, { pack, impact: MIN_IMPACT });
+  assert.equal(nestedResult.status, "rejected");
+  assert.equal(Object.hasOwn(nestedResult, "write"), false);
+  assert.equal(getterHits, 0);
+});
+
+test("composer: ordinary data-property arrays remain accepted; nesting 40 still rejects", () => {
+  const accepted = composeEffectiveTaskScope(BASE_REQ, { pack: MIN_PACK, impact: MIN_IMPACT });
+  assert.equal(accepted.status, "incomplete");
+  assert.equal(accepted.write.status, "available");
+
+  let nested = "leaf";
+  for (let i = 0; i < 40; i++) nested = [nested];
+  const rejected = composeEffectiveTaskScope(BASE_REQ, { pack: { ...MIN_PACK, extra: nested }, impact: MIN_IMPACT });
+  assert.equal(rejected.status, "rejected");
+  assert.equal(Object.hasOwn(rejected, "write"), false);
+});
+
 test("composer: distance truncation stays watch, origins minDist used, witnesses retained", () => {
   const res = composeEffectiveTaskScope(BASE_REQ, { pack: MIN_PACK, impact: MIN_IMPACT });
   // WRITE tests remain WRITE (not repeated in WATCH); non-write affected use dist

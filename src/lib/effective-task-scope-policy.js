@@ -303,20 +303,15 @@ function checkBoundedStructure(root, maxDepth = MAX_NESTING, maxCount = MAX_VISI
     if (depth > maxDepth) throw effectiveTaskScopeError("scope_budget_exceeded");
     if (++count > maxCount) throw effectiveTaskScopeError("scope_budget_exceeded");
     if (node == null || typeof node !== "object") return;
-    // reject accessor-backed (getter) without full invoke
-    if (!Array.isArray(node)) {
-      const names = Object.getOwnPropertyNames(node);
-      for (const k of names) {
-        const desc = Object.getOwnPropertyDescriptor(node, k);
-        if (desc && (desc.get || desc.set)) {
-          throw effectiveTaskScopeError("invalid_record");
-        }
-      }
+    // Inspect every own descriptor (including array indices) before visiting any value.
+    const descriptors = Object.getOwnPropertyDescriptors(node);
+    for (const desc of Object.values(descriptors)) {
+      if (desc.get || desc.set) throw effectiveTaskScopeError("invalid_record");
     }
     if (Array.isArray(node)) {
-      for (let i = 0; i < node.length; i++) walk(node[i], depth + 1);
+      for (let i = 0; i < descriptors.length.value; i++) walk(descriptors[i]?.value, depth + 1);
     } else {
-      for (const k of Object.keys(node)) walk(node[k], depth + 1);
+      for (const k of Object.keys(node)) walk(descriptors[k].value, depth + 1);
     }
   }
   walk(root, 0);
