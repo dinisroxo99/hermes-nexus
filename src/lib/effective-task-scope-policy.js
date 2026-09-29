@@ -124,12 +124,32 @@ export function normalizeEffectiveTaskScopeRequest(input) {
   assertAllowedFields(input.expectedRevision, revAllowed);
   const revStatus = boundedText(input.expectedRevision.status, 32, true);
   if (!["available", "unavailable", "unborn", "not_git"].includes(revStatus)) throw invalid();
-  const commitSha = boundedText(input.expectedRevision.commitSha, 64, true);
-  if (!SHA_PATTERN.test(commitSha)) throw invalid();
+  // accept explicit null for commitSha/dirty/isLinked on terminal observations (truthful unknown)
+  let commitSha;
+  const rawSha = input.expectedRevision.commitSha;
+  if (rawSha === null || rawSha === undefined) {
+    if (revStatus === "available") throw invalid();
+    commitSha = null;
+  } else {
+    commitSha = boundedText(rawSha, 64, true);
+    if (!SHA_PATTERN.test(commitSha)) throw invalid();
+  }
   let branch = input.expectedRevision.branch;
-  if (branch !== null) branch = boundedText(branch, 512, true);
-  if (typeof input.expectedRevision.dirty !== "boolean") throw invalid();
-  if (typeof input.expectedRevision.isLinkedWorktree !== "boolean") throw invalid();
+  if (branch !== null && branch !== undefined) branch = boundedText(branch, 512, true);
+  let dirty = input.expectedRevision.dirty;
+  if (dirty === null || dirty === undefined) {
+    if (revStatus === "available") throw invalid();
+    dirty = null;
+  } else if (typeof dirty !== "boolean") {
+    throw invalid();
+  }
+  let isLinkedWorktree = input.expectedRevision.isLinkedWorktree;
+  if (isLinkedWorktree === null || isLinkedWorktree === undefined) {
+    if (revStatus === "available") throw invalid();
+    isLinkedWorktree = null;
+  } else if (typeof isLinkedWorktree !== "boolean") {
+    throw invalid();
+  }
   let repositoryId = null;
   let worktreeId = null;
   if (Object.hasOwn(input.expectedRevision, "repositoryId") || Object.hasOwn(input.expectedRevision, "worktreeId")) {
@@ -142,8 +162,8 @@ export function normalizeEffectiveTaskScopeRequest(input) {
     status: revStatus,
     commitSha,
     branch,
-    dirty: input.expectedRevision.dirty,
-    isLinkedWorktree: input.expectedRevision.isLinkedWorktree,
+    dirty,
+    isLinkedWorktree,
     ...(repositoryId ? { repositoryId, worktreeId } : {})
   };
 
@@ -257,12 +277,38 @@ export function checkInputBudget(request, pack, impact) {
   if (packBytes > 131072 || impactBytes > 131072) {
     throw effectiveTaskScopeError("scope_budget_exceeded", "Pack or Impact exceeds 131072 compact bytes.");
   }
-  const reqStr = JSON.stringify({ request, pack, impact });
+  const inputObj = { request, pack, impact };
+  const reqStr = JSON.stringify(inputObj);
   if (Buffer.byteLength(reqStr, "utf8") > MAX_COMPACT_INPUT) {
     throw effectiveTaskScopeError("scope_budget_exceeded", "Input exceeds compactBytes budget.");
   }
-  // bounded walk before norm (simplified; full walk would traverse without recurse on accessors)
-  // reject accessor backed by simple check - JSON.stringify would invoke but for slice assume plain after clone
+  // bounded walk (nesting 32, 20000 vals) + reject accessor-backed before any recursive norm
+  checkBoundedStructure(inputObj);
+}
+
+function checkBoundedStructure(root, maxDepth = MAX_NESTING, maxCount = MAX_VISITED_VALUES) {
+  let count = 0;
+  function walk(node, depth) {
+    if (depth > maxDepth) throw effectiveTaskScopeError("scope_budget_exceeded");
+    if (++count > maxCount) throw effectiveTaskScopeError("scope_budget_exceeded");
+    if (node == null || typeof node !== "object") return;
+    // reject accessor-backed (getter) without full invoke
+    if (!Array.isArray(node)) {
+      const names = Object.getOwnPropertyNames(node);
+      for (const k of names) {
+        const desc = Object.getOwnPropertyDescriptor(node, k);
+        if (desc && (desc.get || desc.set)) {
+          throw effectiveTaskScopeError("invalid_record");
+        }
+      }
+    }
+    if (Array.isArray(node)) {
+      for (let i = 0; i < node.length; i++) walk(node[i], depth + 1);
+    } else {
+      for (const k of Object.keys(node)) walk(node[k], depth + 1);
+    }
+  }
+  walk(root, 0);
 }
 
 export function buildEmptyCategory(status = "not_evaluated", reasons = []) {

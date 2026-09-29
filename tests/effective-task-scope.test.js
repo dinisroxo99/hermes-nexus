@@ -267,14 +267,21 @@ test("composer: requested compactBytes enforced, output budget", () => {
 test("composer: distance truncation stays watch, origins minDist used, witnesses retained", () => {
   const res = composeEffectiveTaskScope(BASE_REQ, { pack: MIN_PACK, impact: MIN_IMPACT });
   // WRITE tests remain WRITE (not repeated in WATCH); non-write affected use dist
-  // evidence has origins
-  assert.ok(res.evidence && res.evidence.origins && res.evidence.origins.length > 0);
+  // evidence has origins and witnesses (full fields, not empty)
+  assert.ok(res.evidence && Array.isArray(res.evidence.origins) && res.evidence.origins.length > 0);
+  assert.ok(res.evidence && Array.isArray(res.evidence.witnesses) && res.evidence.witnesses.length > 0);
   // truncation would keep watch (no truncation in fixture)
 });
 
 test("composer: F-TRUNC-WATCH truncated attribution + local_implementation stays WATCH not IMPACT; dist from origins[].minimumDistance", () => {
   const truncImpact = {
     ...MIN_IMPACT,
+    targets: [{
+      originPath: "src/lib/effective-task-scope-policy.js",
+      targetSource: { path: "src/lib/effective-task-scope-policy.js", hash: "fa1f1f8c81732b564733ea862aa709fa197ec4cb81f684074715ce9e3cffb83a" },
+      status: "partial",
+      findingState: "evidence_found"
+    }],
     affectedFiles: [
       { path: "src/lib/impact-policy.js", origins: [ { originPath: "src/lib/effective-task-scope-policy.js", minimumDistance: 1, witness: { id: "eX", provider: {id:"native.typescript",version:"1"}, capability:"dependencies", relationshipKind:"imports", source: {path:"src/lib/impact-policy.js",hash:"x"}, location:null, trust:"derived_analysis", basis:"structural" } } ], originSummary: { discoveredOriginCount:1, retainedOriginWitnessCount:1, attributionTruncated: true }, attributionTruncated: true }
     ]
@@ -296,7 +303,8 @@ test("composer: F-TRUNC-WATCH truncated attribution + local_implementation stays
 test("composer: not_evaluated and stale have no classification containers", () => {
   const dirtyReq = { ...BASE_REQ, expectedRevision: { ...BASE_REQ.expectedRevision, dirty: true } };
   const res = composeEffectiveTaskScope(dirtyReq, { pack: MIN_PACK, impact: MIN_IMPACT });
-  assert.equal(res.status, "not_evaluated");
+  // coherent clean evidence + supplied dirty true -> stale without containers (not bound not_e)
+  assert.equal(res.status, "stale");
   assert.ok(!res.write && !res.watch && !res.impact && !res.reserved);
 });
 
@@ -305,4 +313,44 @@ test("composer: origin-set equality and request paths match impact origins for b
   const res = composeEffectiveTaskScope(BASE_REQ, { pack: MIN_PACK, impact: MIN_IMPACT });
   assert.equal(res.status, "incomplete");
   assert.ok(res.write && res.write.status === "available");
+  // mismatch set rejects (BINDING_FAIL_OPEN)
+  const misTargets = MIN_IMPACT.targets.map(t => ({...t}));
+  misTargets[0] = { ...misTargets[0], originPath: "other.js" };
+  const misImp = { ...MIN_IMPACT, targets: misTargets };
+  const resM = composeEffectiveTaskScope(BASE_REQ, { pack: MIN_PACK, impact: misImp });
+  assert.equal(resM.status, "rejected");
+  assert.ok(!resM.write);
+  // single originPath form (no targets) rejects even on name match
+  const singleImp = { ...MIN_IMPACT, targets: undefined, originPath: "src/lib/effective-task-scope-policy.js" };
+  const resS = composeEffectiveTaskScope(BASE_REQ, { pack: MIN_PACK, impact: singleImp });
+  assert.equal(resS.status, "rejected");
+});
+
+test("composer: terminal explicit null fields on unavailable accepted as not_evaluated no containers", () => {
+  const termNull = { ...BASE_REQ, expectedRevision: { ...BASE_REQ.expectedRevision, status: "unavailable", commitSha: null, dirty: null, isLinkedWorktree: null } };
+  const res = composeEffectiveTaskScope(termNull, { pack: MIN_PACK, impact: MIN_IMPACT });
+  assert.equal(res.status, "not_evaluated");
+  assert.ok(!res.write && !res.watch);
+  assert.ok(res.reasons && res.reasons.some(r => (r.code || "").includes("observation")));
+});
+
+test("composer: coherent + supplied dirty true yields stale (not bound not_e) without containers", () => {
+  const dirtyTrue = { ...BASE_REQ, expectedRevision: { ...BASE_REQ.expectedRevision, dirty: true } };
+  const res = composeEffectiveTaskScope(dirtyTrue, { pack: MIN_PACK, impact: MIN_IMPACT });
+  assert.equal(res.status, "stale");
+  assert.ok(!res.write && !res.watch);
+  assert.ok(res.stale && res.stale.state === "stale");
+});
+
+test("composer: deep nesting >32 rejects with budget (bounded walk before norm)", () => {
+  const deep = {};
+  let cur = deep;
+  for (let i = 0; i < 40; i++) {
+    cur.child = {};
+    cur = cur.child;
+  }
+  const deepPack = { ...MIN_PACK, deep: deep };
+  const res = composeEffectiveTaskScope(BASE_REQ, { pack: deepPack, impact: MIN_IMPACT });
+  assert.equal(res.status, "rejected");
+  assert.ok(res.reasons && res.reasons.some(r => r.code === "scope_budget_exceeded"));
 });
