@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { composeEffectiveTaskScope } from "../src/lib/effective-task-scope.js";
+import { normalizeEffectiveTaskScopeEvidence } from "../src/lib/effective-task-scope-policy.js";
 
 const BASE_REQ = {
   task: {
@@ -262,6 +263,53 @@ test("composer: requested compactBytes enforced, output budget", () => {
   const res = composeEffectiveTaskScope(bigLim, { pack: MIN_PACK, impact: MIN_IMPACT });
   assert.equal(res.status, "rejected");
   assert.ok(res.reasons && res.reasons.some(r => r.code === "scope_budget_exceeded"));
+});
+
+// === F-NESTING-ACCESSOR locking tests (mandatory exact per task) ===
+test("composer: enumerable getter on evidence.pack rejected fail-closed; getter hit count === 0", () => {
+  let hits = 0;
+  const trappedPack = { ...MIN_PACK };
+  Object.defineProperty(trappedPack, "trap", { enumerable: true, get() { hits++; return "x"; } });
+  const res = composeEffectiveTaskScope(BASE_REQ, { pack: trappedPack, impact: MIN_IMPACT });
+  assert.equal(res.status, "rejected");
+  assert.ok(res.reasons && res.reasons.some(r => (r.code || "").includes("invalid") || (r.code || "").includes("record") || (r.code || "").includes("evidence")));
+  assert.equal(hits, 0, "getter must not be invoked");
+});
+
+test("composer: enumerable getter on evidence.impact rejected fail-closed; getter hit count === 0", () => {
+  let hits = 0;
+  const trappedImpact = { ...MIN_IMPACT };
+  Object.defineProperty(trappedImpact, "trap", { enumerable: true, get() { hits++; return "x"; } });
+  const res = composeEffectiveTaskScope(BASE_REQ, { pack: MIN_PACK, impact: trappedImpact });
+  assert.equal(res.status, "rejected");
+  assert.ok(res.reasons && res.reasons.some(r => (r.code || "").includes("invalid") || (r.code || "").includes("record") || (r.code || "").includes("evidence")));
+  assert.equal(hits, 0, "getter must not be invoked");
+});
+
+test("policy: normalizeEffectiveTaskScopeEvidence rejects accessor on pack/impact with hit===0 (no invoke)", () => {
+  let packHits = 0;
+  let impactHits = 0;
+  const p = { ...MIN_PACK };
+  const i = { ...MIN_IMPACT };
+  Object.defineProperty(p, "trapP", { enumerable: true, get() { packHits++; return 1; } });
+  Object.defineProperty(i, "trapI", { enumerable: true, get() { impactHits++; return 2; } });
+  let err;
+  try {
+    normalizeEffectiveTaskScopeEvidence(p, i);
+    assert.fail("should reject");
+  } catch (e) { err = e; }
+  assert.ok(err && (err.code === "invalid_record" || (err.message || "").includes("invalid")));
+  assert.equal(packHits, 0);
+  assert.equal(impactHits, 0);
+});
+
+test("composer: setter/accessor property on evidence.pack is not consumed", () => {
+  let hits = 0;
+  const trapped = { ...MIN_PACK };
+  Object.defineProperty(trapped, "s", { enumerable: true, configurable: true, get() { return "s"; }, set(v) { hits++; } });
+  const res = composeEffectiveTaskScope(BASE_REQ, { pack: trapped, impact: MIN_IMPACT });
+  assert.equal(res.status, "rejected");
+  assert.equal(hits, 0);
 });
 
 test("composer: distance truncation stays watch, origins minDist used, witnesses retained", () => {

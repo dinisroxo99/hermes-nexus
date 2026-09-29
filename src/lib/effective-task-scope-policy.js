@@ -247,10 +247,21 @@ function inferFromPaths(paths) {
 
 export function normalizeEffectiveTaskScopeEvidence(pack, impact) {
   // basic shape checks; full binding later in composer
-  if (!pack || typeof pack !== "object" || pack.schemaVersion !== 1 || pack.analysisVersion !== "task-context-v1") {
+  if (!pack || typeof pack !== "object" || Array.isArray(pack)) {
     throw effectiveTaskScopeError("invalid_pack", "Pack must be accepted task-context-v1");
   }
-  if (!impact || typeof impact !== "object" || impact.schemaVersion !== 1 || impact.analysisVersion !== "impact-v2") {
+  if (!impact || typeof impact !== "object" || Array.isArray(impact)) {
+    throw effectiveTaskScopeError("invalid_impact", "Impact must be accepted impact-v2");
+  }
+  // F-NESTING-ACCESSOR fix (attempt 4): reject getters/setters via descriptors (no value read, no invoke)
+  // BEFORE any prop access, clone, or serialization. checkBoundedStructure already does descriptor
+  // inspection without reading accessor values and preserves nesting/depth.
+  checkBoundedStructure(pack);
+  checkBoundedStructure(impact);
+  if (pack.schemaVersion !== 1 || pack.analysisVersion !== "task-context-v1") {
+    throw effectiveTaskScopeError("invalid_pack", "Pack must be accepted task-context-v1");
+  }
+  if (impact.schemaVersion !== 1 || impact.analysisVersion !== "impact-v2") {
     throw effectiveTaskScopeError("invalid_impact", "Impact must be accepted impact-v2");
   }
   return { pack: deepClone(pack), impact: deepClone(impact) };
@@ -271,19 +282,19 @@ export const MAX_COMPACT_INPUT = 327680;
 export const MAX_COMPACT_OUTPUT = 131072;
 
 export function checkInputBudget(request, pack, impact) {
+  // F-NESTING-ACCESSOR: check (descriptors, no invoke) BEFORE any serialization/JSON on inputs
+  const inputObj = { request, pack, impact };
+  checkBoundedStructure(inputObj);
   // pack and impact each <=131072
   const packBytes = Buffer.byteLength(JSON.stringify(pack), "utf8");
   const impactBytes = Buffer.byteLength(JSON.stringify(impact), "utf8");
   if (packBytes > 131072 || impactBytes > 131072) {
     throw effectiveTaskScopeError("scope_budget_exceeded", "Pack or Impact exceeds 131072 compact bytes.");
   }
-  const inputObj = { request, pack, impact };
   const reqStr = JSON.stringify(inputObj);
   if (Buffer.byteLength(reqStr, "utf8") > MAX_COMPACT_INPUT) {
     throw effectiveTaskScopeError("scope_budget_exceeded", "Input exceeds compactBytes budget.");
   }
-  // bounded walk (nesting 32, 20000 vals) + reject accessor-backed before any recursive norm
-  checkBoundedStructure(inputObj);
 }
 
 function checkBoundedStructure(root, maxDepth = MAX_NESTING, maxCount = MAX_VISITED_VALUES) {
