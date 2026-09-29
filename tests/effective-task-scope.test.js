@@ -151,8 +151,10 @@ test("composer: returns incomplete for missing target sources, write available e
 test("composer: unevaluated Impact global yields not_evaluated with NO classification containers, no write.available", () => {
   const res = composeEffectiveTaskScope(BASE_REQ, { pack: MIN_PACK, impact: UNEVAL_IMPACT });
   assert.equal(res.status, "not_evaluated");
-  assert.ok(!("write" in res) || res.write == null || res.write.status === "not_evaluated");
-  assert.ok(!("watch" in res) || res.watch == null);
+  assert.ok(!("write" in res));
+  assert.ok(!("watch" in res));
+  assert.ok(!("impact" in res));
+  assert.ok(!("reserved" in res));
   assert.ok(res.task && res.task.id === BASE_REQ.task.id); // echo retained as intent
   assert.ok(res.reasons.some(r => (r.code || "").includes("not_evaluated") || (r.code || "").includes("impact")));
 });
@@ -163,7 +165,10 @@ test("composer: dirty true yields not_evaluated without classification container
   const dirtyReq = { ...BASE_REQ, expectedRevision: { ...BASE_REQ.expectedRevision, dirty: true } };
   const res = composeEffectiveTaskScope(dirtyReq, { pack: dirtyPack, impact: dirtyImpact });
   assert.equal(res.status, "not_evaluated");
-  assert.ok(!("write" in res) || res.write == null);
+  assert.ok(!("write" in res));
+  assert.ok(!("watch" in res));
+  assert.ok(!("impact" in res));
+  assert.ok(!("reserved" in res));
   assert.ok(res.reasons.some(r => String(r.code || "").includes("working_tree") || String(r.code || "").includes("dirty")));
 });
 
@@ -173,7 +178,10 @@ test("composer: symbols nonempty -> not_evaluated symbol_targets_not_supported, 
   const res = composeEffectiveTaskScope(symReq, { pack: symPack, impact: MIN_IMPACT });
   assert.equal(res.status, "not_evaluated");
   assert.ok(res.reasons.some(r => r.code === "symbol_targets_not_supported"));
-  assert.ok(!("write" in res) || res.write == null);
+  assert.ok(!("write" in res));
+  assert.ok(!("watch" in res));
+  assert.ok(!("impact" in res));
+  assert.ok(!("reserved" in res));
 });
 
 test("composer: cross project mismatch rejects", () => {
@@ -198,8 +206,7 @@ test("composer: purity - same input produces identical output (determinism)", ()
 test("composer: includeTests false requires not_requested no cands; true mismatch rejected", () => {
   const reqNo = { ...BASE_REQ, includeTests: false };
   const resNo = composeEffectiveTaskScope(reqNo, { pack: MIN_PACK, impact: MIN_IMPACT });
-  // may be incomplete but no cat mismatch hard
-  assert.ok(resNo.status === "incomplete" || resNo.status === "rejected");
+  assert.equal(resNo.status, "rejected");
   const badTrue = { ...BASE_REQ, includeTests: true };
   const badImp = { ...MIN_IMPACT, affectedTests: { status: "not_requested", findingState: "not_requested", candidates: [] } };
   const resBad = composeEffectiveTaskScope(badTrue, { pack: MIN_PACK, impact: badImp });
@@ -232,6 +239,18 @@ test("composer: null IDs or alias conflict reject (no null==null)", () => {
   assert.equal(res.status, "rejected");
 });
 
+test("composer: F-ALIAS-CONFLICT pack.repositoryId != pack.repositoryIdentity rejects (no incomplete+write)", () => {
+  const aliasPack = {
+    ...MIN_PACK,
+    revision: { ...MIN_PACK.revision, repositoryIdentity: MIN_PACK.revision.repositoryIdentity, repositoryId: "1111111111111111111111111111111111111111111111111111111111111111" }
+  };
+  const res = composeEffectiveTaskScope(BASE_REQ, { pack: aliasPack, impact: MIN_IMPACT });
+  assert.equal(res.status, "rejected");
+  assert.ok(!("write" in res) || res.write == null);
+  assert.ok(!("watch" in res) || res.watch == null);
+  assert.ok(res.reasons && res.reasons.some(r => r.code && r.code.includes("repository_identity")));
+});
+
 test("composer: path rejection for traversal/glob via normalize", () => {
   const badPathReq = { ...BASE_REQ, task: { ...BASE_REQ.task, paths: ["../outside.js"] } };
   const res = composeEffectiveTaskScope(badPathReq, { pack: MIN_PACK, impact: MIN_IMPACT });
@@ -241,8 +260,8 @@ test("composer: path rejection for traversal/glob via normalize", () => {
 test("composer: requested compactBytes enforced, output budget", () => {
   const bigLim = { ...BASE_REQ, limits: { compactBytes: 10 } }; // too small will exceed in practice for full
   const res = composeEffectiveTaskScope(bigLim, { pack: MIN_PACK, impact: MIN_IMPACT });
-  // may reject or incomplete depending size; ensure no silent
-  assert.ok(res.status === "rejected" || res.status === "incomplete");
+  assert.equal(res.status, "rejected");
+  assert.ok(res.reasons && res.reasons.some(r => r.code === "scope_budget_exceeded"));
 });
 
 test("composer: distance truncation stays watch, origins minDist used, witnesses retained", () => {
@@ -251,6 +270,27 @@ test("composer: distance truncation stays watch, origins minDist used, witnesses
   // evidence has origins
   assert.ok(res.evidence && res.evidence.origins && res.evidence.origins.length > 0);
   // truncation would keep watch (no truncation in fixture)
+});
+
+test("composer: F-TRUNC-WATCH truncated attribution + local_implementation stays WATCH not IMPACT; dist from origins[].minimumDistance", () => {
+  const truncImpact = {
+    ...MIN_IMPACT,
+    affectedFiles: [
+      { path: "src/lib/impact-policy.js", origins: [ { originPath: "src/lib/effective-task-scope-policy.js", minimumDistance: 1, witness: { id: "eX", provider: {id:"native.typescript",version:"1"}, capability:"dependencies", relationshipKind:"imports", source: {path:"src/lib/impact-policy.js",hash:"x"}, location:null, trust:"derived_analysis", basis:"structural" } } ], originSummary: { discoveredOriginCount:1, retainedOriginWitnessCount:1, attributionTruncated: true }, attributionTruncated: true }
+    ]
+  };
+  const declReq = { ...BASE_REQ, changeSemantics: { category: "local_implementation" }, task: { ...BASE_REQ.task, paths: ["src/lib/effective-task-scope-policy.js"] } };
+  // adjust pack task echo minimally for this test
+  const truncPack = { ...MIN_PACK, sections: { ...MIN_PACK.sections, task: { items: [ { ...MIN_PACK.sections.task.items[0], paths: ["src/lib/effective-task-scope-policy.js"] } ] } } };
+  const res = composeEffectiveTaskScope(declReq, { pack: truncPack, impact: truncImpact });
+  assert.equal(res.status, "incomplete");
+  assert.ok(res.watch && Array.isArray(res.watch.items));
+  const watchPaths = res.watch.items.map(i => i.target.path);
+  assert.ok(watchPaths.includes("src/lib/impact-policy.js"), "truncated must be in watch");
+  assert.ok(!res.impact || !res.impact.items || res.impact.items.length === 0 || !res.impact.items.some(i => i.target.path === "src/lib/impact-policy.js"));
+  // exact dist from origins
+  const w = res.watch.items.find(i => i.target.path === "src/lib/impact-policy.js");
+  assert.ok(w && w.origins && w.origins[0] && w.origins[0].minimumDistance === 1);
 });
 
 test("composer: not_evaluated and stale have no classification containers", () => {
@@ -263,5 +303,6 @@ test("composer: not_evaluated and stale have no classification containers", () =
 test("composer: origin-set equality and request paths match impact origins for binding", () => {
   // the MIN have matching for writes
   const res = composeEffectiveTaskScope(BASE_REQ, { pack: MIN_PACK, impact: MIN_IMPACT });
-  assert.ok(res.status !== "rejected");
+  assert.equal(res.status, "incomplete");
+  assert.ok(res.write && res.write.status === "available");
 });

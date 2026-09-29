@@ -171,7 +171,7 @@ export function normalizeEffectiveTaskScopeRequest(input) {
     assertAllowedFields(input.limits, ["compactBytes"]);
     if (Object.hasOwn(input.limits, "compactBytes")) {
       const cb = input.limits.compactBytes;
-      if (typeof cb !== "number" || !Number.isFinite(cb) || cb < 1 || cb > 131072) throw invalid();
+      if (typeof cb !== "number" || !Number.isFinite(cb) || !Number.isSafeInteger(cb) || cb < 1 || cb > 131072) throw invalid();
       limits = { compactBytes: cb };
     }
   }

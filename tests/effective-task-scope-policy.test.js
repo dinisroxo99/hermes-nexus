@@ -131,4 +131,7 @@ test("policy: compactBytes must be finite safe 1..131072", () => {
   const badInf = { ...BASE_REQUEST, limits: { compactBytes: Infinity } };
   let err2; try { normalizeEffectiveTaskScopeRequest(badInf); assert.fail("should throw"); } catch(e){err2=e;}
   assert.ok(err2 && ((err2.code||"").includes("invalid") || (err2.message||"").includes("Invalid") || (err2.message||"").includes("bounded")));
+  const badFloat = { ...BASE_REQUEST, limits: { compactBytes: 10.5 } };
+  let err3; try { normalizeEffectiveTaskScopeRequest(badFloat); assert.fail("should throw"); } catch(e){err3=e;}
+  assert.ok(err3 && ((err3.code||"").includes("invalid") || (err3.message||"").includes("Invalid") || (err3.message||"").includes("bounded")));
 });

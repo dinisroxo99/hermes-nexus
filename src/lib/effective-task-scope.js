@@ -69,7 +69,9 @@ function classifyFromImpact(affectedItem, semantics, includeTests, isWrite) {
   const isTrunc = !!(affectedItem.attributionTruncated || os.attributionTruncated);
   let category = "impact";
   let roles = ["affected_file"];
-  if (dist <= 2 && !isTrunc) {
+  if (isTrunc) {
+    category = "watch";
+  } else if (dist <= 2) {
     category = "watch";
   } else if (dist > 2) {
     category = "impact";
@@ -164,12 +166,28 @@ export function composeEffectiveTaskScope(request, evidence) {
   for (const k of revKeys) {
     if (pr[k] !== ir[k]) return buildRejected("revision_binding_mismatch");
   }
-  // require IDs present equal across, alias==canonical
+  // require IDs present equal across, alias==canonical; any alias disagreement rejects (no fail-open)
   if (!er.repositoryId || !er.worktreeId || !pr.repositoryIdentity || !ir.repositoryId) {
     return buildRejected("repository_identity_mismatch");
   }
-  const pRid = pr.repositoryIdentity || pr.repositoryId;
-  const iRid = ir.repositoryId || ir.repositoryIdentity;
+  // intra-producer alias disagreement check (repositoryId vs repositoryIdentity, worktreeId vs worktreeIdentity)
+  if (pr.repositoryId !== undefined && pr.repositoryId !== pr.repositoryIdentity) {
+    return buildRejected("repository_identity_mismatch");
+  }
+  if (ir.repositoryIdentity !== undefined && ir.repositoryIdentity !== ir.repositoryId) {
+    return buildRejected("repository_identity_mismatch");
+  }
+  if (pr.worktreeIdentity !== undefined && pr.worktreeIdentity !== pr.worktreeId) {
+    return buildRejected("worktree_identity_mismatch");
+  }
+  if (ir.worktreeIdentity !== undefined && ir.worktreeIdentity !== ir.worktreeId) {
+    return buildRejected("worktree_identity_mismatch");
+  }
+  if (er.repositoryId !== undefined && er.worktreeId !== undefined) {
+    // er uses canonical v2 names only
+  }
+  const pRid = pr.repositoryIdentity;
+  const iRid = ir.repositoryId;
   if (pRid !== er.repositoryId || iRid !== er.repositoryId || pRid !== iRid) {
     return buildRejected("repository_identity_mismatch");
   }
@@ -411,6 +429,19 @@ export function composeEffectiveTaskScope(request, evidence) {
   if (classifiedCount > MAX_CLASSIFIED_TARGETS) {
     return buildRejected("scope_budget_exceeded");
   }
+  let originWitnessRefCount = 0;
+  for (const [p, c] of classified) {
+    if (c.item && Array.isArray(c.item.origins)) {
+      originWitnessRefCount += c.item.origins.length;
+    }
+  }
+  if (originWitnessRefCount > MAX_ORIGIN_WITNESS_REFS) {
+    return buildRejected("scope_budget_exceeded");
+  }
+  const resolverReasonCount = topReasons.length;
+  if (resolverReasonCount > MAX_RESOLVER_REASONS) {
+    return buildRejected("scope_budget_exceeded");
+  }
 
   const output = {
     schemaVersion: EFFECTIVE_TASK_SCOPE_SCHEMA_VERSION,
@@ -460,8 +491,8 @@ export function composeEffectiveTaskScope(request, evidence) {
     limits: {
       compactBytes: normalizedRequest.limits ? normalizedRequest.limits.compactBytes : 65536,
       classifiedTargets: classifiedCount,
-      originWitnessRefs: 0,
-      resolverReasons: topReasons.length
+      originWitnessRefs: originWitnessRefCount,
+      resolverReasons: resolverReasonCount
     },
     stale: {
       state: isStale ? "stale" : "bound",
@@ -473,9 +504,11 @@ export function composeEffectiveTaskScope(request, evidence) {
     reasons: topReasons.length ? topReasons.map(r => makeReason("composition", r)) : []
   };
 
-  // budget output
+  // budget output - requested compactBytes (or MAX) must not be exceeded; reject instead of emitting oversized incomplete
   const outBytes = countCompactBytes(output);
-  if (outBytes > MAX_COMPACT_OUTPUT) {
+  const requestedBudget = (normalizedRequest.limits && typeof normalizedRequest.limits.compactBytes === "number")
+    ? normalizedRequest.limits.compactBytes : MAX_COMPACT_OUTPUT;
+  if (outBytes > requestedBudget || outBytes > MAX_COMPACT_OUTPUT) {
     return buildRejected("scope_budget_exceeded");
   }
 
