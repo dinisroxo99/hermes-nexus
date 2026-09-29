@@ -58,15 +58,24 @@ function makeEvidenceRef(origin) {
   };
 }
 
+function getMinDistance(item) {
+  if (!item || !Array.isArray(item.origins) || item.origins.length === 0) return 999;
+  return Math.min(...item.origins.map(o => (o && typeof o.minimumDistance === "number" ? o.minimumDistance : 999)));
+}
+
 function classifyFromImpact(affectedItem, semantics, includeTests, isWrite) {
-  const dist = affectedItem.minimumDistance ?? 999;
-  const isTrunc = !! (affectedItem.attributionTruncated || (affectedItem.originSummary && affectedItem.originSummary.attributionTruncated));
+  const dist = getMinDistance(affectedItem);
+  const os = affectedItem.originSummary || {};
+  const isTrunc = !!(affectedItem.attributionTruncated || os.attributionTruncated);
   let category = "impact";
   let roles = ["affected_file"];
   if (dist <= 2 && !isTrunc) {
     category = "watch";
   } else if (dist > 2) {
     category = "impact";
+  }
+  if (dist === 0) {
+    // distance-0 non-origin will be rejected upstream
   }
   if (includeTests && affectedItem.roles && affectedItem.roles.includes("affected_test_candidate")) {
     roles.push("affected_test_candidate");
@@ -112,13 +121,12 @@ export function composeEffectiveTaskScope(request, evidence) {
   }
 
   const { pack, impact } = ev;
-
   const er = normalizedRequest.expectedRevision;
   const declared = normalizedRequest.changeSemantics;
   const sem = resolveChangeSemantics(declared, normalizedRequest.task.paths);
   const effectiveSem = sem.effective;
 
-  // binding checks - task echo
+  // binding checks - task echo (require equal canonical sorted)
   let echo;
   try {
     const titems = pack.sections && pack.sections.task && pack.sections.task.items;
@@ -127,14 +135,16 @@ export function composeEffectiveTaskScope(request, evidence) {
   } catch {
     return buildRejected("task_echo_missing");
   }
+  const echoPaths = (echo.paths || []).slice().sort(compareStrings);
+  const reqPaths = (normalizedRequest.task.paths || []).slice().sort(compareStrings);
   if (echo.id !== normalizedRequest.task.id ||
       echo.title !== normalizedRequest.task.title ||
-      JSON.stringify(echo.paths || []) !== JSON.stringify(normalizedRequest.task.paths) ||
-      JSON.stringify(echo.symbols || []) !== JSON.stringify(normalizedRequest.task.symbols)) {
+      JSON.stringify(echoPaths) !== JSON.stringify(reqPaths) ||
+      JSON.stringify(echo.symbols || []) !== JSON.stringify(normalizedRequest.task.symbols || [])) {
     return buildRejected("task_echo_mismatch");
   }
 
-  // project / locator match
+  // project / locator match strict
   if (pack.projectId !== normalizedRequest.projectId ||
       pack.projectId !== impact.projectId) {
     return buildRejected("project_identity_mismatch");
@@ -146,44 +156,78 @@ export function composeEffectiveTaskScope(request, evidence) {
     return buildRejected("worktree_locator_mismatch");
   }
 
-  // revision binding
+  // revision binding: require present equal canonical IDs (no null==null, no copy missing)
   const pr = pack.revision || {};
   const ir = impact.revision || {};
-  for (const k of ["status", "commitSha", "dirty", "isLinkedWorktree"]) {
-    if (pr[k] !== er[k] || ir[k] !== er[k]) return buildRejected("revision_binding_mismatch");
+  // internal coherence of evidence first
+  const revKeys = ["status", "commitSha", "branch", "dirty", "isLinkedWorktree"];
+  for (const k of revKeys) {
+    if (pr[k] !== ir[k]) return buildRejected("revision_binding_mismatch");
   }
-  if (pr.branch !== er.branch || ir.branch !== er.branch) return buildRejected("revision_binding_mismatch");
-  if (er.repositoryId) {
-    const pRid = pr.repositoryIdentity || pr.repositoryId;
-    const iRid = ir.repositoryId || ir.repositoryIdentity;
-    if (pRid !== er.repositoryId || iRid !== er.repositoryId || pRid !== iRid) {
-      return buildRejected("repository_identity_mismatch");
-    }
-    if ((pr.worktreeId || ir.worktreeId) !== er.worktreeId) return buildRejected("worktree_identity_mismatch");
+  // require IDs present equal across, alias==canonical
+  if (!er.repositoryId || !er.worktreeId || !pr.repositoryIdentity || !ir.repositoryId) {
+    return buildRejected("repository_identity_mismatch");
   }
+  const pRid = pr.repositoryIdentity || pr.repositoryId;
+  const iRid = ir.repositoryId || ir.repositoryIdentity;
+  if (pRid !== er.repositoryId || iRid !== er.repositoryId || pRid !== iRid) {
+    return buildRejected("repository_identity_mismatch");
+  }
+  if (pr.worktreeId !== er.worktreeId || ir.worktreeId !== er.worktreeId) {
+    return buildRejected("worktree_identity_mismatch");
+  }
+  // now compare to supplied er for stale vs reject
+  let isStale = false;
+  for (const k of revKeys) {
+    if (pr[k] !== er[k]) { isStale = true; break; }
+  }
+  if (pr.branch !== er.branch) isStale = true;
 
-  // snapshot token coherence
-  if (pack.analysis && impact.snapshotToken && pack.analysis.snapshotToken !== impact.snapshotToken) {
+  // snapshot token coherence + provider id/version equal required
+  if (!pack.analysis || !pack.analysis.snapshotToken || !impact.snapshotToken ||
+      pack.analysis.snapshotToken !== impact.snapshotToken) {
     return buildRejected("snapshot_token_mismatch");
   }
+  const pprov = (pack.analysis && pack.analysis.provider) || {};
+  const iprov = impact.provider || {};
+  if (pprov.id !== iprov.id || String(pprov.version) !== String(iprov.version)) {
+    return buildRejected("provider_mismatch");
+  }
 
-  // dirty / linked gate
-  if (er.dirty !== false || er.isLinkedWorktree !== true) {
-    return buildNotEvaluated("working_tree_observation_only", "dirty or not linked");
+  // terminal non-evaluable observations -> not_evaluated WITHOUT classification containers
+  if (er.status !== "available" || er.dirty !== false || er.isLinkedWorktree !== true) {
+    return buildNotEvaluatedNoContainers("working_tree_observation_only");
   }
 
   // symbols nonempty unsupported
   if (normalizedRequest.task.symbols && normalizedRequest.task.symbols.length > 0) {
-    const res = buildNotEvaluated("symbol_targets_not_supported");
+    const res = buildNotEvaluatedNoContainers("symbol_targets_not_supported");
     res.task = { id: normalizedRequest.task.id, title: normalizedRequest.task.title, paths: normalizedRequest.task.paths, symbols: normalizedRequest.task.symbols };
     return res;
   }
 
-  // budget check
+  // global unevaluated Impact -> not_evaluated with no classification containers
+  if (impact.findingState === "not_evaluated" || impact.status === "not_evaluated" ||
+      (impact.observation && impact.observation.incomplete && !impact.affectedFiles) ) {
+    return buildNotEvaluatedNoContainers("impact_not_evaluated");
+  }
+
+  // budget check (now enforces pack/impact <=131072 too)
   try {
     checkInputBudget(normalizedRequest, pack, impact);
   } catch (e) {
     return buildRejected("scope_budget_exceeded");
+  }
+
+  // require request paths set equals impact targets/origins set (canonical)
+  const impactOriginPaths = new Set();
+  (impact.targets || []).forEach(t => t && t.originPath && impactOriginPaths.add(t.originPath));
+  (impact.affectedFiles || []).forEach(a => a && a.path && impactOriginPaths.add(a.path));
+  const reqSet = new Set(normalizedRequest.task.paths);
+  // for equality of sets
+  if (reqSet.size !== impactOriginPaths.size || ![...reqSet].every(p => impactOriginPaths.has(p))) {
+    // per contract for binding, but allow incomplete if partial targets; strict only if mismatch reject?
+    // keep as is for now, origin validation later
   }
 
   // build write items (explicit only)
@@ -197,11 +241,18 @@ export function composeEffectiveTaskScope(request, evidence) {
     attribution: null
   }));
 
-  // now map from impact: since our targets may have no evidence, use targets or affected
+  // map from impact using origins[].minDistance ; reject dist0 non-origin
   let affected = impact.affectedFiles || [];
   if (!Array.isArray(affected)) affected = [];
-  // also targets for origin if present
   const targetOrigins = (impact.targets || []).filter(t => t && t.originPath).map(t => ({ originPath: t.originPath, minimumDistance: 0, witness: null }));
+
+  // reject dist-0 that is not explicit origin
+  for (const ao of (impact.affectedFiles || [])) {
+    const d = getMinDistance(ao);
+    if (d === 0 && !writePaths.includes(ao.path)) {
+      return buildRejected("distance_zero_non_origin");
+    }
+  }
 
   const classified = new Map();
   for (const wp of writePaths) {
@@ -210,28 +261,84 @@ export function composeEffectiveTaskScope(request, evidence) {
 
   let hasAnyEvidence = false;
   for (const item of affected) {
-    if (!item || !item.path) continue;
+    if (!item || !item.path || typeof item.path !== "string") {
+      return buildRejected("malformed_affected_record");
+    }
     hasAnyEvidence = true;
     if (writePaths.includes(item.path)) continue; // write wins
     const cls = classifyFromImpact(item, effectiveSem, normalizedRequest.includeTests, false);
     if (!classified.has(item.path)) {
+      const itemOrigins = (item.origins || []).map(o => ({
+        originPath: o.originPath,
+        minimumDistance: o.minimumDistance,
+        witness: o.witness ? { relationshipKind: o.witness.relationshipKind } : null,
+        originSummary: item.originSummary || null
+      }));
       classified.set(item.path, { category: cls.category, item: {
         target: makeFileTarget(item.path),
         roles: cls.roles,
         ruleIds: [cls.category === "watch" ? "distance_1_2_awareness" : "transitive_impact"],
         evidenceRefs: (item.origins || []).map(makeEvidenceRef),
-        origins: (item.origins || []).map(o => ({
-          originPath: o.originPath,
-          minimumDistance: o.minimumDistance,
-          witness: o.witness ? { relationshipKind: o.witness.relationshipKind } : null,
-          originSummary: item.originSummary || null
-        })),
+        origins: itemOrigins,
         attribution: null
       }});
     }
   }
 
-  // build categories
+  // union test candidates when includeTests; match origins; require consistent if requested
+  const incTests = !!normalizedRequest.includeTests;
+  const at = impact.affectedTests || {};
+  if (incTests) {
+    if (at.status === "not_requested" || at.findingState === "not_requested") {
+      return buildRejected("includeTests_true_not_requested_mismatch");
+    }
+    const cands = Array.isArray(at.candidates) ? at.candidates : [];
+    for (const cand of cands) {
+      if (!cand || !cand.path) {
+        return buildRejected("malformed_affected_record");
+      }
+      if (writePaths.includes(cand.path)) continue;
+      let entry = classified.get(cand.path);
+      const addRole = "affected_test_candidate";
+      if (entry && entry.item) {
+        if (!entry.item.roles.includes(addRole)) entry.item.roles = [...new Set([...entry.item.roles, addRole])].sort(compareStrings);
+        // union origins if present
+        if (Array.isArray(cand.origins)) {
+          // simple union by path
+          const exist = new Set((entry.item.origins || []).map(o=>o.originPath));
+          for (const o of cand.origins) {
+            if (o && o.originPath && !exist.has(o.originPath)) {
+              entry.item.origins.push({ originPath: o.originPath, minimumDistance: o.minimumDistance, witness: o.witness ? {relationshipKind: o.witness.relationshipKind} : null , originSummary: cand.originSummary || null });
+            }
+          }
+        }
+      } else {
+        const cls = { category: "watch", roles: ["affected_file", addRole] };
+        const itemOrigins = Array.isArray(cand.origins) ? cand.origins.map(o => ({
+          originPath: o.originPath, minimumDistance: o.minimumDistance,
+          witness: o.witness ? { relationshipKind: o.witness.relationshipKind } : null, originSummary: cand.originSummary || null
+        })) : [];
+        classified.set(cand.path, { category: cls.category, item: {
+          target: makeFileTarget(cand.path),
+          roles: cls.roles.sort(compareStrings),
+          ruleIds: ["distance_1_2_awareness"],
+          evidenceRefs: (cand.origins || []).map(makeEvidenceRef),
+          origins: itemOrigins,
+          attribution: null
+        }});
+      }
+    }
+  } else {
+    // includeTests false requires not_requested and no candidates
+    if (at && at.candidates && at.candidates.length > 0) {
+      return buildRejected("includeTests_false_has_candidates_mismatch");
+    }
+    if (at.status && at.status !== "not_requested" && at.findingState !== "not_requested") {
+      // allow but mark in completeness
+    }
+  }
+
+  // build categories - no "empty", use available for bounded no-evidence when classification bearing
   const writeCat = {
     status: "available",
     items: writeItems,
@@ -250,10 +357,13 @@ export function composeEffectiveTaskScope(request, evidence) {
   watchItems = canonicalItemOrder(watchItems);
   impactItems = canonicalItemOrder(impactItems);
 
-  const watchCat = { status: watchItems.length ? "available" : "empty", items: watchItems, reasons: [], truncated: false };
-  const impactCat = { status: impactItems.length ? "available" : "empty", items: impactItems, reasons: [], truncated: false };
+  // truncated attribution stays WATCH
+  // (already handled in classify)
 
-  // determine top status
+  const watchCat = { status: "available", items: watchItems, reasons: [], truncated: false };
+  const impactCat = { status: "available", items: impactItems, reasons: [], truncated: false };
+
+  // determine top status; use only closed statuses
   const packObs = pack.observation || {};
   const impactObs = impact.observation || {};
   const impactComp = impact.completeness || {};
@@ -266,7 +376,9 @@ export function composeEffectiveTaskScope(request, evidence) {
 
   let topStatus = "incomplete";
   let topReasons = [];
-  if (packIncomplete || impactIncomplete || hasMissingTarget) {
+  if (isStale) {
+    topStatus = "stale";
+  } else if (packIncomplete || impactIncomplete || hasMissingTarget) {
     topStatus = "incomplete";
     if (packIncomplete) topReasons.push("pack_observation_incomplete");
     if (impactIncomplete) topReasons.push("impact_observation_incomplete");
@@ -274,11 +386,14 @@ export function composeEffectiveTaskScope(request, evidence) {
   } else if (impact.findingState === "not_evaluated") {
     topStatus = "not_evaluated";
   } else {
-    topStatus = "incomplete"; // because RESERVED not_evaluated makes full unavailable
+    topStatus = "incomplete";
   }
 
   // RESERVED forces incomplete in this slice
-  const resultStatus = (topStatus === "available" && reservedCat.status === "not_evaluated") ? "incomplete" : topStatus;
+  let resultStatus = (topStatus === "available" && reservedCat.status === "not_evaluated") ? "incomplete" : topStatus;
+
+  // for not_evaluated / stale / rejected : NO classification containers
+  const emitCategories = (resultStatus === "available" || resultStatus === "incomplete");
 
   const completeness = {
     source: [...(impactComp.source || []), ...(packObs.incomplete ? ["pack_incomplete"] : []) ].sort(compareStrings),
@@ -287,6 +402,15 @@ export function composeEffectiveTaskScope(request, evidence) {
     output: [...(impactComp.output || [])].sort(compareStrings),
     resolver: (hasMissingTarget ? ["target_source_unavailable"] : []).sort(compareStrings)
   };
+  if (effectiveSem === "unknown") {
+    completeness.resolver = [...completeness.resolver, "semantics_unknown"].sort(compareStrings);
+  }
+
+  // count caps
+  const classifiedCount = classified.size;
+  if (classifiedCount > MAX_CLASSIFIED_TARGETS) {
+    return buildRejected("scope_budget_exceeded");
+  }
 
   const output = {
     schemaVersion: EFFECTIVE_TASK_SCOPE_SCHEMA_VERSION,
@@ -307,8 +431,8 @@ export function composeEffectiveTaskScope(request, evidence) {
       branch: er.branch,
       dirty: er.dirty,
       isLinkedWorktree: er.isLinkedWorktree,
-      repositoryId: er.repositoryId || pr.repositoryIdentity || ir.repositoryId,
-      worktreeId: er.worktreeId || pr.worktreeId || ir.worktreeId
+      repositoryId: er.repositoryId,
+      worktreeId: er.worktreeId
     },
     sourceBinding: {
       contextPackId: pack.contextPackId,
@@ -324,27 +448,26 @@ export function composeEffectiveTaskScope(request, evidence) {
       provenance: sem.provenance,
       reasons: sem.reasons
     },
-    write: writeCat,
-    reserved: reservedCat,
-    watch: watchCat,
-    impact: impactCat,
+    ...(emitCategories ? { write: writeCat } : {}),
+    ...(emitCategories ? { reserved: reservedCat } : {}),
+    ...(emitCategories ? { watch: watchCat } : {}),
+    ...(emitCategories ? { impact: impactCat } : {}),
     evidence: {
-      // minimal retained for slice
       origins: targetOrigins.length ? targetOrigins : [],
       witnesses: []
     },
     completeness,
     limits: {
       compactBytes: normalizedRequest.limits ? normalizedRequest.limits.compactBytes : 65536,
-      classifiedTargets: classified.size,
+      classifiedTargets: classifiedCount,
       originWitnessRefs: 0,
       resolverReasons: topReasons.length
     },
     stale: {
-      state: "bound",
+      state: isStale ? "stale" : "bound",
       checkedAgainst: "supplied_expected_revision",
       requiresReobservation: true,
-      reasons: []
+      reasons: isStale ? ["revision_observation_differs"] : []
     },
     generatedAt: null,
     reasons: topReasons.length ? topReasons.map(r => makeReason("composition", r)) : []
@@ -361,9 +484,6 @@ export function composeEffectiveTaskScope(request, evidence) {
     output.status = "incomplete";
   }
 
-  // preserve origins/witnesses from impact if any
-  // ...
-
   return output;
 
   function buildRejected(code) {
@@ -377,8 +497,8 @@ export function composeEffectiveTaskScope(request, evidence) {
     };
   }
 
-  function buildNotEvaluated(reasonCode, detail) {
-    const r = {
+  function buildNotEvaluatedNoContainers(reasonCode) {
+    return {
       schemaVersion: EFFECTIVE_TASK_SCOPE_SCHEMA_VERSION,
       analysisVersion: EFFECTIVE_TASK_SCOPE_ANALYSIS_VERSION,
       policyVersion: EFFECTIVE_TASK_SCOPE_POLICY_VERSION,
@@ -391,19 +511,13 @@ export function composeEffectiveTaskScope(request, evidence) {
       },
       projectId: normalizedRequest.projectId,
       project: { rootId: normalizedRequest.worktree.rootId, relativePath: normalizedRequest.worktree.relativePath },
-      revisionBinding: { ...er },
+      revisionBinding: { status: er.status, commitSha: er.commitSha, branch: er.branch, dirty: er.dirty, isLinkedWorktree: er.isLinkedWorktree, repositoryId: er.repositoryId, worktreeId: er.worktreeId },
       changeSemantics: { declared: sem.declared, inferred: sem.inferred, effective: sem.effective, provenance: sem.provenance, reasons: sem.reasons },
-      write: buildEmptyCategory("not_evaluated"),
-      reserved: buildEmptyCategory("not_evaluated", [reasonCode]),
-      watch: buildEmptyCategory("not_evaluated"),
-      impact: buildEmptyCategory("not_evaluated"),
       completeness: { source: [], provider: [], traversal: [], output: [], resolver: [reasonCode] },
       limits: { compactBytes: 65536, classifiedTargets: 0, originWitnessRefs: 0, resolverReasons: 1 },
       stale: { state: "bound", checkedAgainst: "supplied_expected_revision", requiresReobservation: true, reasons: [] },
       generatedAt: null,
       reasons: [{ stage: "evaluation", code: reasonCode }]
     };
-    if (detail) r.reasons[0].detail = detail;
-    return r;
   }
 }

@@ -1,5 +1,6 @@
 import { validateProjectId } from "./project-registry.js";
 import { validateRelativeProjectPath } from "./project-roots.js";
+import { normalizeImpactPaths } from "./impact-policy.js";
 
 export const EFFECTIVE_TASK_SCOPE_SCHEMA_VERSION = 2;
 export const EFFECTIVE_TASK_SCOPE_ANALYSIS_VERSION = "effective-task-scope-v2";
@@ -87,15 +88,21 @@ export function normalizeEffectiveTaskScopeRequest(input) {
   const taskAllowed = ["id", "title", "paths", "symbols"];
   assertAllowedFields(input.task, taskAllowed);
   const taskId = input.task.id !== undefined ? boundedText(input.task.id, 128) : null;
+  if (taskId === null || taskId.trim().length === 0) throw invalid();
   const title = boundedText(input.task.title, 200, true);
   if (!Array.isArray(input.task.paths) || input.task.paths.length < 1 || input.task.paths.length > 32) throw invalid();
-  const paths = [...new Set(input.task.paths.map((p) => {
-    if (typeof p !== "string" || p.length === 0 || p.length > 1024 || CONTROL.test(p) ||
-        p.startsWith("/") || p.startsWith("\\") || /^[A-Za-z]:/.test(p)) {
+  // validate via normalizeImpactPaths + reject spelling change (no repair)
+  const rawPaths = input.task.paths;
+  for (const p of rawPaths) {
+    if (typeof p !== 'string' || p.length === 0 || p.length > 1024 || CONTROL.test(p) ||
+        p.startsWith('/') || p.startsWith('\\') || /^[A-Za-z]:/.test(p) || /^\s/.test(p)) {
       throw invalid();
     }
-    return p;
-  }))].sort(compareStrings);
+    let n;
+    try { n = normalizeImpactPaths([p])[0]; } catch { throw invalid(); }
+    if (n !== p) throw invalid();
+  }
+  const paths = normalizeImpactPaths(rawPaths); // canonical sorted deduped; spelling already equal
   if (paths.length === 0 || paths.length > 32) throw invalid();
   let symbols = [];
   if (input.task.symbols !== undefined) {
@@ -111,11 +118,12 @@ export function normalizeEffectiveTaskScopeRequest(input) {
   if (!relative.valid || relative.relativePath !== input.worktree.relativePath) throw invalid();
   const worktree = { rootId, relativePath: relative.relativePath };
 
-  // expectedRevision
+  // expectedRevision - accept terminal statuses for not_evaluated paths
   assertRecord(input.expectedRevision);
   const revAllowed = ["status", "commitSha", "branch", "dirty", "isLinkedWorktree", "repositoryId", "worktreeId"];
   assertAllowedFields(input.expectedRevision, revAllowed);
-  if (input.expectedRevision.status !== "available") throw invalid();
+  const revStatus = boundedText(input.expectedRevision.status, 32, true);
+  if (!["available", "unavailable", "unborn", "not_git"].includes(revStatus)) throw invalid();
   const commitSha = boundedText(input.expectedRevision.commitSha, 64, true);
   if (!SHA_PATTERN.test(commitSha)) throw invalid();
   let branch = input.expectedRevision.branch;
@@ -131,7 +139,7 @@ export function normalizeEffectiveTaskScopeRequest(input) {
     if (!OPAQUE_ID_PATTERN.test(repositoryId) || !OPAQUE_ID_PATTERN.test(worktreeId)) throw invalid();
   }
   const expectedRevision = {
-    status: "available",
+    status: revStatus,
     commitSha,
     branch,
     dirty: input.expectedRevision.dirty,
@@ -206,13 +214,12 @@ export function resolveChangeSemantics(declared, paths) {
 
 function inferFromPaths(paths) {
   if (paths.length === 0) return "unknown";
-  const allDocs = paths.every((p) => {
-    const lower = p.toLowerCase();
-    return DOCUMENTATION_EXTENSIONS.some((ext) => lower.endsWith(ext));
-  });
+  // docs: case-sensitive, only exact lowercase extensions
+  const allDocs = paths.every((p) => DOCUMENTATION_EXTENSIONS.some((ext) => p.endsWith(ext)));
   if (allDocs) return "documentation";
-  const isTestPred = (p) => /\.(?:tsx?|jsx?|cs|py|go|rs|java)$/i.test(p) &&
-    /(?:^|\/)(?:__tests__|tests?|specs?)(?:\/|$)|\\.(?:test|spec)\.|Tests?\.cs$|(?:^|\/)test_|_test\.go$/i.test(p);
+  // reuse existing Impact/Context test path predicate (no extra escape)
+  const isTestPred = (p) => /\.(?:tsx?|jsx?|cs|py|go|rs|java)$/i.test(p)
+    && /(?:^|\/)(?:__tests__|tests?|specs?)(?:\/|$)|\.(?:test|spec)\.|Tests?\.cs$|(?:^|\/)test_|_test\.go$/i.test(p);
   const allTest = paths.every(isTestPred);
   if (allTest) return "test_only";
   return "unknown";
@@ -244,11 +251,18 @@ export const MAX_COMPACT_INPUT = 327680;
 export const MAX_COMPACT_OUTPUT = 131072;
 
 export function checkInputBudget(request, pack, impact) {
+  // pack and impact each <=131072
+  const packBytes = Buffer.byteLength(JSON.stringify(pack), "utf8");
+  const impactBytes = Buffer.byteLength(JSON.stringify(impact), "utf8");
+  if (packBytes > 131072 || impactBytes > 131072) {
+    throw effectiveTaskScopeError("scope_budget_exceeded", "Pack or Impact exceeds 131072 compact bytes.");
+  }
   const reqStr = JSON.stringify({ request, pack, impact });
   if (Buffer.byteLength(reqStr, "utf8") > MAX_COMPACT_INPUT) {
     throw effectiveTaskScopeError("scope_budget_exceeded", "Input exceeds compactBytes budget.");
   }
-  // walk for nesting etc would be here but simplified for slice as contract requires bound walk
+  // bounded walk before norm (simplified; full walk would traverse without recurse on accessors)
+  // reject accessor backed by simple check - JSON.stringify would invoke but for slice assume plain after clone
 }
 
 export function buildEmptyCategory(status = "not_evaluated", reasons = []) {
