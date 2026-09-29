@@ -46,7 +46,8 @@ pending merge, **not** Hermes tools, and **not** Roadmap Step 4. The
 helper classification on this page is a documentation delta on top of
 that baseline and is **not** contained in that baseline commit.
 Roadmap Step 4 remains Effective Task Scope as
-coordination/enforcement and is **not started**.
+coordination/enforcement and is **incomplete**; helpers are **not**
+the foundation slice recorded below.
 
 Present here (verified in this worktree; invocation from repo root):
 
@@ -88,13 +89,17 @@ move (operator; 2026-09-28). Do not treat `origin/main` as live.
 `/api/health` 200 has no SHA field; revision proof is that cwd HEAD, not
 health.
 
-**Steps 1, 2, 2.5 and 3 are complete. Step 4 is NOT INITIATED as
-coordination/enforcement.** Step 4 = Effective Task Scope as
-coordination/enforcement; Step 5 = Conflict Engine; Step 6 = Guard
-integration. WRITE/WATCH classification is not a complete
-coordination/enforcement system. Historical local names (Step 4.0/4.1)
-identify earlier slices; they do not renumber the roadmap or mark those
-phases complete. `787f662` / adapter 1A do **not** enter this delta.
+**Steps 1, 2, 2.5 and 3 are complete.** The first Roadmap Step 4
+foundation slice is implemented as **effective-task-scope-v2** pure
+domain only; Step 4 remains **incomplete**. This is **not**
+STEP4_COMPLETE, **not** Slice 2, **not** runtime exposure, and **not**
+a RESERVED producer. Step 5 (Conflict Engine) is **not started**.
+Step 6 (Guard integration) is **not started**. WRITE/WATCH
+classification is not a complete coordination/enforcement system.
+Historical local names (Step 4.0/4.1) identify earlier slices; they
+do not renumber the roadmap or mark those phases complete. `787f662`
+/ adapter 1A do **not** enter this delta. **G1 REJECTED**; **R1/R2
+OPEN / DEFERRED**.
 
 ### Step 4 entry contract (documentation delta)
 
@@ -109,19 +114,36 @@ baseline; this delta does not recopy that inventory into this SHA.
 
 Canonical contract:
 [38_STEP4_ENTRY_CONTRACT.md](project-intelligence/38_STEP4_ENTRY_CONTRACT.md).
+That file remains the prepared entry contract; it is **not** a claim
+that Step 4 is complete.
 
-- Status: **PREPARED** / **NOT IMPLEMENTED**.
-- First slice: **SPECIFIED_NOT_STARTED**.
-- Step 4 **code is not started**. This is not Step 4 complete, not
-  runtime exposure, and not a plugin/service/install recopy.
+### Step 4 foundation slice (this checkout)
+
+Dated **2026-09-29**, accepted code candidate
+**`b3026dccc4c86ddcf1af5707c451b004eb8fa80d`** (tree
+`897e54540f49ec869ab216bd44e67daed369b9f0`; branch
+`feat/step4-slice1-ets-v2`) contains the first Roadmap Step 4
+foundation slice: **effective-task-scope-v2** pure domain only
+(`src/lib/effective-task-scope-policy.js`,
+`src/lib/effective-task-scope.js`, and isolated tests). That SHA is
+the code-candidate observation, **not** a future merge SHA, **not**
+live service, and **not** a plugin/service/install recopy. This
+documentation commit is a status delta on top of that code; it does
+**not** change those four blobs.
+
+- First slice: **implemented**, pure domain only.
+- Step 4 remains **incomplete**. Not STEP4_COMPLETE. Not Slice 2.
+- RESERVED producer still **not implemented**.
+- No runtime exposure: no HTTP route, Hermes tool, plugin.yaml, or
+  `provides_tools` change in this slice.
+- Step 5 **not started**. Step 6 **not started**.
 - Risk-entry disposition unchanged as operational facts: **G1 REJECTED**;
   **R1/R2 OPEN / DEFERRED**. Architectural notes:
   `STEP4_CORE_DEV_ALLOWED_WITH_EXISTING_DEFERRED_RISKS`;
   `RUNTIME_EXPOSURE_REQUIRES_SEPARATE_RISK_GATE`. Neither green tests nor
-  this prepared document closes G1/R1/R2.
+  this documentation close G1/R1/R2.
 - This documentation mission did **not** recopy plugins, restart
-  Hermes/Nexus, implement Step 4 modules, or change `provides_tools` /
-  `scope_enabled`.
+  Hermes/Nexus, or change `provides_tools` / `scope_enabled`.
 
 ### Canonicalization of the native caller (RESOLVIDO as Git on main)
 
@@ -413,6 +435,7 @@ candidate verification or plugin lifecycle acceptance.
 | Step 2.5 — Analyzer Provider Layer | Normalized contract and native adapters; deterministic selection/fallback; provider/version/capability/language metadata; bounded snapshot-scoped external evidence validation; polyglot symbol-name normalization. Node.js projects remain classified as `nodejs` while resolving to the existing JavaScript-capable native TypeScript analyzer. Task Context Pack consumes normalized providers and exposes partial/not_analyzed coverage. | [Provider contract](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md), [provider selection](../src/analyzers/common/analyzer-providers.js), [data validator](../src/analyzers/external/snapshot-provider.js), [pack/provider tests](../tests/task-context-providers.test.js), [Node.js routing tests](../tests/nodejs-analyzer-routing.test.js) |
 | Existing graph impact | Bounded node-based impact, symbol context and graph insights. This is not Step 3 Impact v2. | [Graph intelligence](../src/lib/graph-intelligence.js), [analyzer service tests](../tests/analyzer-service.test.js) |
 | Step 3 — Impact v2 | Bounded file/multi-file reverse-impact evidence and optional affected-test candidates, resolved against persisted project/worktree/revision, with reobservation and independent output caps. | [Impact contract](project-intelligence/06_SCOPE_IMPACT_CONFLICTS.md), [HTTP route](../src/routes/project-impact.routes.js), [service tests](../tests/project-impact-service.test.js) |
+| Step 4 foundation (pure domain) | First Roadmap Step 4 foundation slice implemented on this checkout (`b3026dcc…`): `analysisVersion` `effective-task-scope-v2`, `policyVersion` `step4-foundation-1`. Pure `composeEffectiveTaskScope` in `src/lib/` with isolated tests. No HTTP, tool, or plugin wiring. RESERVED producer not implemented. Step 4 remains incomplete. | [policy](../src/lib/effective-task-scope-policy.js), [composer](../src/lib/effective-task-scope.js) |
 | Hermes thin plugin | Exactly two tracked read-only tools (`project_task_context`, `project_impact`); `compose_effective_task_scope` exists in plugin at historical `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5`, read-only local, without HTTP tool/route/schemas; labels only WRITE and WATCH; RESERVED/IMPACT `not_emitted`. `feat/legacy-project-map-t_d032c9fe@787f662df941ea8461efeb0db86f51ad569a461c` / adapter 1A do not enter this delta. Two-tool publication is accepted as recorded in the installation contract, not automatic installation or Guard. | [Usage contract](hermes-tool-integration.md#dev-adoption-1--two-tool-usage-contract), [open limitations](KNOWN_ISSUES.md), [composer](../integrations/hermes-nexus/effective_task_scope.py) |
 | Gated ETS caller | `project_effective_task_scope` (local compose from accepted pack+impact) exists at ancestor `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb`. Hidden via `register_tool` omission unless `scope_enabled` is exactly true. `provides_tools` lists exactly the two core tools. Dated 2026-09-28 six-profile install handoff: independent copies with `scope_enabled: true`; `default` and `workspace-manager` excluded from install/config/exposure (not a ban on the workspace-manager role). Canonical Git `tools.py` overlay is on main at `643eb3ab` and remains at checkpoint `050540d0`; that is not byte equality of every installed file, and the `6152cea` `schemas.py` text is in this revision and is **not copied into local installations**. Read-only classification, not Step 4 coordination/enforcement. | [ETS profile exposure](ETS_PROFILE_EXPOSURE.md); [effective_task_scope](../integrations/hermes-nexus/effective_task_scope.py) |
 | Request-preflight helper CLI | Present in the code baseline (`4d6a78632e772e7ca43fadf37b287213d6f9ea93`) via PR #39 merge `07845ba0fc86440a080f81ffe4ad3fe125ec726d`. Invoke `python3 -B -m scripts.nexus_request_preflight`. Syntax-only local helper; not a Hermes tool; not pending merge; not Step 4. Helper classification is a documentation delta, not content of that baseline commit. | [request-preflight](development/request-preflight.md), [`scripts/nexus_request_preflight/__main__.py`](../scripts/nexus_request_preflight/__main__.py) |
@@ -484,14 +507,16 @@ See [the full matrix](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md#languag
 
 Following the [active implementation plan](../.hermes/plans/2026-09-17_002050-project-intelligence-service-active.md):
 
-**Effective Task Scope (Step 4, not initiated as coordination/enforcement)** → Conflict Engine (Step 5) →
-Hermes Guard integration (Step 6) → Telemetry / validated project history → Project Expert
+**Effective Task Scope (Step 4, first foundation slice implemented as
+effective-task-scope-v2 pure domain only; Step 4 remains incomplete;
+RESERVED producer still not implemented; no runtime exposure)** →
+Conflict Engine (Step 5, **not started**) →
+Hermes Guard integration (Step 6, **not started**) → Telemetry / validated project history → Project Expert
 → Learning / evaluation.
 
-The Step 4 entry contract is **PREPARED** /
-**NOT IMPLEMENTED**; first slice **SPECIFIED_NOT_STARTED**. See
-[38_STEP4_ENTRY_CONTRACT.md](project-intelligence/38_STEP4_ENTRY_CONTRACT.md).
-Step 4 code is not started. G1 remains REJECTED; R1/R2 remain OPEN /
+See
+[38_STEP4_ENTRY_CONTRACT.md](project-intelligence/38_STEP4_ENTRY_CONTRACT.md)
+for the prepared entry contract. G1 remains REJECTED; R1/R2 remain OPEN /
 DEFERRED. Core-dev of an isolated later slice is allowed with those
 deferred risks; runtime exposure needs a separate risk gate.
 
