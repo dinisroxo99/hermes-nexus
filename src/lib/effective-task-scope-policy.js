@@ -1,3 +1,4 @@
+import { types as utilTypes } from "node:util";
 import { validateProjectId } from "./project-registry.js";
 import { validateRelativeProjectPath } from "./project-roots.js";
 import { normalizeImpactPaths } from "./impact-policy.js";
@@ -298,6 +299,9 @@ export function materializeBoundedJsonData(root) {
     if (++count > MAX_VISITED_VALUES) throw effectiveTaskScopeError("scope_budget_exceeded");
     if (node === null || typeof node === "string" || typeof node === "boolean" ||
         (typeof node === "number" && Number.isFinite(node))) return node;
+    // Native detection never invokes traps, including for revoked Proxies.
+    // Every visited value must pass this gate before any container reflection.
+    if (utilTypes.isProxy(node)) throw effectiveTaskScopeError("invalid_record");
     if (typeof node !== "object") throw effectiveTaskScopeError("invalid_record");
     const array = Array.isArray(node);
     const prototype = Object.getPrototypeOf(node);

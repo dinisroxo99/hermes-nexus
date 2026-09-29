@@ -171,3 +171,41 @@ test("policy: direct request normalization rejects getter before reading it", ()
   assert.throws(() => normalizeEffectiveTaskScopeRequest(request));
   assert.equal(hits, 0);
 });
+
+test("policy: materializer rejects root and nested object, array and callable Proxies without traps", () => {
+  for (const target of [{ value: "data" }, ["data"], () => "data"]) {
+    for (const nested of [false, true]) {
+      const hits = { get: 0, getOwnPropertyDescriptor: 0, ownKeys: 0, getPrototypeOf: 0, apply: 0 };
+      const proxy = new Proxy(target, {
+        get(...args) { hits.get++; return Reflect.get(...args); },
+        getOwnPropertyDescriptor(...args) { hits.getOwnPropertyDescriptor++; return Reflect.getOwnPropertyDescriptor(...args); },
+        ownKeys(...args) { hits.ownKeys++; return Reflect.ownKeys(...args); },
+        getPrototypeOf(...args) { hits.getPrototypeOf++; return Reflect.getPrototypeOf(...args); },
+        apply(...args) { hits.apply++; return Reflect.apply(...args); }
+      });
+      assert.throws(() => materializeBoundedJsonData(nested ? { value: [proxy] } : proxy), { code: "invalid_record" });
+      assert.deepEqual(hits, { get: 0, getOwnPropertyDescriptor: 0, ownKeys: 0, getPrototypeOf: 0, apply: 0 });
+    }
+  }
+});
+
+test("policy: direct request normalization rejects forwarding Proxy without reflection", () => {
+  let hits = 0;
+  const proxy = new Proxy(BASE_REQUEST, {
+    getPrototypeOf(target) { hits++; return Reflect.getPrototypeOf(target); },
+    ownKeys(target) { hits++; return Reflect.ownKeys(target); },
+    getOwnPropertyDescriptor(target, key) { hits++; return Reflect.getOwnPropertyDescriptor(target, key); },
+    get(target, key) { hits++; return Reflect.get(target, key); }
+  });
+  assert.throws(() => normalizeEffectiveTaskScopeRequest(proxy), { code: "invalid_record" });
+  assert.equal(hits, 0);
+});
+
+test("policy: materializer rejects revoked Proxies with structural error, not trap errors", () => {
+  for (const target of [{}, [], () => null]) {
+    const { proxy, revoke } = Proxy.revocable(target, {});
+    revoke();
+    assert.throws(() => materializeBoundedJsonData(proxy), { code: "invalid_record" });
+    assert.throws(() => materializeBoundedJsonData({ nested: proxy }), { code: "invalid_record" });
+  }
+});

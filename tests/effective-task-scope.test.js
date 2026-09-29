@@ -518,3 +518,103 @@ test("composer: nested ordinary callable rejects without execution", () => {
   const callable = () => { hits++; return "safe"; };
   assertIngressRejected(BASE_REQ, { pack: { ...MIN_PACK, extra: { callable } }, impact: MIN_IMPACT }, () => hits);
 });
+
+function proxyProbe(target, substitutions = {}) {
+  const hits = { get: 0, getOwnPropertyDescriptor: 0, ownKeys: 0, getPrototypeOf: 0 };
+  const { proxy, revoke } = Proxy.revocable(target, {
+    get(...args) { hits.get++; return Reflect.get(...args); },
+    getOwnPropertyDescriptor(object, key) {
+      hits.getOwnPropertyDescriptor++;
+      const descriptor = Reflect.getOwnPropertyDescriptor(object, key);
+      return Object.hasOwn(substitutions, key) ? { ...descriptor, value: substitutions[key] } : descriptor;
+    },
+    ownKeys(...args) { hits.ownKeys++; return Reflect.ownKeys(...args); },
+    getPrototypeOf(...args) { hits.getPrototypeOf++; return Reflect.getPrototypeOf(...args); }
+  });
+  return { proxy, hits, revoke };
+}
+
+function assertProxyRejected(request, evidence, hits) {
+  const result = composeEffectiveTaskScope(request, evidence);
+  assert.equal(result.status, "rejected");
+  assert.deepEqual(result.reasons.map(reason => reason.code), ["invalid_record"]);
+  for (const category of ["write", "watch", "impact", "reserved", "evidence"]) {
+    assert.equal(Object.hasOwn(result, category), false, `${category} must not carry classification`);
+  }
+  if (hits) assert.deepEqual(hits, { get: 0, getOwnPropertyDescriptor: 0, ownKeys: 0, getPrototypeOf: 0 });
+}
+
+const PROXY_PLACEMENTS = [
+  ["root request", BASE_REQ, proxy => [proxy, { pack: MIN_PACK, impact: MIN_IMPACT }]],
+  ["root evidence", { pack: MIN_PACK, impact: MIN_IMPACT }, proxy => [BASE_REQ, proxy]],
+  ["evidence.pack", MIN_PACK, proxy => [BASE_REQ, { pack: proxy, impact: MIN_IMPACT }]],
+  ["evidence.impact", MIN_IMPACT, proxy => [BASE_REQ, { pack: MIN_PACK, impact: proxy }]],
+  ["impact.targets array", MIN_IMPACT.targets, proxy => [BASE_REQ, { pack: MIN_PACK, impact: { ...MIN_IMPACT, targets: proxy } }]],
+  ["nested target", MIN_IMPACT.targets[0], proxy => [BASE_REQ, { pack: MIN_PACK, impact: { ...MIN_IMPACT, targets: [proxy, ...MIN_IMPACT.targets.slice(1)] } }]],
+  ["nested targetSource", MIN_IMPACT.targets[0].targetSource, proxy => [BASE_REQ, { pack: MIN_PACK, impact: { ...MIN_IMPACT, targets: [{ ...MIN_IMPACT.targets[0], targetSource: proxy }, ...MIN_IMPACT.targets.slice(1)] } }]],
+  ["nested evidence source", MIN_IMPACT.affectedFiles[0].origins[0].witness.source, proxy => {
+    const impact = structuredClone(MIN_IMPACT);
+    impact.affectedFiles[0].origins[0].witness.source = proxy;
+    return [BASE_REQ, { pack: MIN_PACK, impact }];
+  }],
+  ["nested pack record", MIN_PACK.analysis, proxy => [BASE_REQ, { pack: { ...MIN_PACK, analysis: proxy }, impact: MIN_IMPACT }]],
+  ["nested request paths", BASE_REQ.task.paths, proxy => [{ ...BASE_REQ, task: { ...BASE_REQ.task, paths: proxy } }, { pack: MIN_PACK, impact: MIN_IMPACT }]]
+];
+
+for (const [place, target, insert] of PROXY_PLACEMENTS) {
+  test(`composer: ${place} Proxy rejects with all trap hits==0`, () => {
+    const { proxy, hits } = proxyProbe(target);
+    const [request, evidence] = insert(proxy);
+    assertProxyRejected(request, evidence, hits);
+  });
+}
+
+test("composer: descriptor-substitution evidence Proxy cannot classify attacker-controlled.js", () => {
+  const attackerImpact = structuredClone(MIN_IMPACT);
+  attackerImpact.affectedFiles[0].path = "attacker-controlled.js";
+  const control = composeEffectiveTaskScope(BASE_REQ, { pack: MIN_PACK, impact: attackerImpact });
+  assert.equal(control.write.status, "available");
+  assert.ok(control.watch.items.some(item => item.target.path === "attacker-controlled.js"));
+  const { proxy, hits } = proxyProbe({ pack: MIN_PACK, impact: MIN_IMPACT }, { impact: attackerImpact });
+  assertProxyRejected(BASE_REQ, proxy, hits);
+});
+
+for (const [place, target, insert, substitutions] of [
+  ["projectId", MIN_PACK, proxy => ({ pack: proxy, impact: MIN_IMPACT }), { projectId: "prj_substituted" }],
+  ["schemaVersion", MIN_PACK, proxy => ({ pack: proxy, impact: MIN_IMPACT }), { schemaVersion: 2 }],
+  ["analysisVersion", MIN_IMPACT, proxy => ({ pack: MIN_PACK, impact: proxy }), { analysisVersion: "substituted-analysis" }],
+  ["targets", MIN_IMPACT, proxy => ({ pack: MIN_PACK, impact: proxy }), { targets: [{ ...MIN_IMPACT.targets[0], originPath: "attacker-controlled.js" }] }],
+  ["affectedFiles", MIN_IMPACT, proxy => ({ pack: MIN_PACK, impact: proxy }), { affectedFiles: [{ ...MIN_IMPACT.affectedFiles[0], path: "attacker-controlled.js" }] }],
+  ["source", MIN_IMPACT.affectedFiles[0].origins[0].witness, proxy => {
+    const impact = structuredClone(MIN_IMPACT);
+    impact.affectedFiles[0].origins[0].witness = proxy;
+    return { pack: MIN_PACK, impact };
+  }, { source: { path: "attacker-controlled.js", hash: "substituted" } }]
+]) {
+  test(`composer: ${place} descriptor substitution Proxy rejects before substitution with hits==0`, () => {
+    const { proxy, hits } = proxyProbe(target, substitutions);
+    assertProxyRejected(BASE_REQ, insert(proxy), hits);
+  });
+}
+
+test("composer: forwarding no-op Proxies around valid data are rejected", () => {
+  const control = composeEffectiveTaskScope(BASE_REQ, { pack: MIN_PACK, impact: MIN_IMPACT });
+  assert.equal(control.write.status, "available");
+  for (const [, target, insert] of PROXY_PLACEMENTS) {
+    const { proxy, hits } = proxyProbe(target);
+    const [forwardedRequest, forwardedEvidence] = insert(proxy);
+    assertProxyRejected(forwardedRequest, forwardedEvidence, hits);
+    // An empty handler has no traps to count, but must still be rejected.
+    const [request, evidence] = insert(new Proxy(target, {}));
+    assertProxyRejected(request, evidence);
+  }
+});
+
+test("composer: revoked Proxies reject as invalid structural input without trap/error paths", () => {
+  for (const [, target, insert] of PROXY_PLACEMENTS) {
+    const { proxy, hits, revoke } = proxyProbe(target);
+    revoke();
+    const [request, evidence] = insert(proxy);
+    assertProxyRejected(request, evidence, hits);
+  }
+});
