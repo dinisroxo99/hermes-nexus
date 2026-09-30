@@ -36,15 +36,20 @@ domain only. Slice 2 is the merged data-only envelope adapter
 `02d5784701c4c0cbc1688e04a38b8a73dd238b38`; merge
 `c6be8caf436405924d22b812e3aa84b12f64f725`). Earlier "not Slice 2"
 wording described the Slice 1 delta, not current Git absence. Slice 3 is
-achieved locally only (source-bound explicit file deletion intent;
+MERGED via PR #46 (source-bound explicit file deletion intent;
 schemaVersion=2 / effective-task-scope-v2 / policyVersion
-`step4-foundation-2`; candidate
-`f4d09cedf374872c865125d4c27fdcc602af523d` / tree
-`d0dac0ceeb258200dbe0280887f06e028a5ba247`; tester PASS `t_6be11146`;
-reviewer PASS `t_5ddd7738`). Slice 3 is not merged and not published; no
-merge SHA is invented here. Step 4 remains INCOMPLETE and is not
-coordination/enforcement; RESERVED remains `not_evaluated`; Steps 5/6 are
-NOT STARTED; runtime exposure is NO. The entry
+`step4-foundation-2`; merge
+`d54315325f37e777bd03b8781ca8b879c9da364d` / tree
+`76dc7d69ff6d27f16ef84fb6695423699178234b`). Historical code candidate
+`f4d09cedf374872c865125d4c27fdcc602af523d` remains candidate evidence,
+not a not-merged claim. Slice 4 selection (`t_b563da81` run 730)
+produced NO-GO; `STEP4_SLICE4_READY_TO_IMPLEMENT = NO`; SLICE4 = NOT
+STARTED; no Slice 4 merge SHA is invented. Next prerequisite is a
+producer-backed evidence contract (tracks A
+SYMBOL-RESOLUTION-EVIDENCE-CONTRACT and B
+DIRECT-COUPLING-EVIDENCE-CONTRACT recorded, neither chosen). Step 4
+remains INCOMPLETE and is not coordination/enforcement; RESERVED remains
+`not_evaluated`; Steps 5/6 are NOT STARTED; runtime exposure is NO. The entry
 contract's ef3df8d36561d56b90c535e1b8ad85993200a674 / SPECIFIED_NOT_STARTED
 text records its historical baseline, not current code. G1 remains REJECTED;
 R1/R2 remain OPEN/DEFERRED.
@@ -499,16 +504,22 @@ IMPLEMENTED + MERGED as `composeEffectiveTaskScopeFromEnvelopes` in
 `src/lib/effective-task-scope-adapter.js` (tests
 `tests/effective-task-scope-adapter.test.js`; implementation
 `02d5784701c4c0cbc1688e04a38b8a73dd238b38`; merge
-`c6be8caf436405924d22b812e3aa84b12f64f725`). Slice 3 is a local verified
-candidate only: source-bound explicit file deletion intent;
+`c6be8caf436405924d22b812e3aa84b12f64f725`). Slice 3 is MERGED via
+PR #46: source-bound explicit file deletion intent;
 schemaVersion=2 / effective-task-scope-v2 / policyVersion
-`step4-foundation-2`; candidate
-`f4d09cedf374872c865125d4c27fdcc602af523d` / tree
-`d0dac0ceeb258200dbe0280887f06e028a5ba247` (tester PASS `t_6be11146`,
-reviewer PASS `t_5ddd7738`). Slice 3 is not merged and not published; no
-merge SHA is invented here. Step 4 remains
-INCOMPLETE and is not coordination/enforcement; RESERVED is not_evaluated /
-coupling_evidence_not_supported; runtime
+`step4-foundation-2`; merge
+`d54315325f37e777bd03b8781ca8b879c9da364d` / tree
+`76dc7d69ff6d27f16ef84fb6695423699178234b`. Historical code candidate
+`f4d09cedf374872c865125d4c27fdcc602af523d` remains candidate evidence,
+not a not-merged claim. Slice 4 selection (`t_b563da81` run 730)
+produced NO-GO; `STEP4_SLICE4_READY_TO_IMPLEMENT = NO`; SLICE4 = NOT
+STARTED; no Slice 4 merge SHA is invented. Create / rename / directory
+expansion were not selected; delete is already Slice 3. Next
+prerequisite is a producer-backed evidence contract (tracks A
+SYMBOL-RESOLUTION-EVIDENCE-CONTRACT and B
+DIRECT-COUPLING-EVIDENCE-CONTRACT recorded, neither chosen). Step 4
+remains INCOMPLETE and is not coordination/enforcement; RESERVED is
+not_evaluated / coupling_evidence_not_supported; runtime
 exposure is NO. Frozen v1 adoption is separate. The prepared entry contract
 describes its historical baseline; see CURRENT_STATUS for the implemented
 foundation.

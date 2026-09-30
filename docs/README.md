@@ -19,7 +19,9 @@ plus optional sandboxed Serena/Python semantic analysis. WRITE/WATCH classificat
 exists ([ETS profile exposure](ETS_PROFILE_EXPOSURE.md)) and is not Step 4
 coordination/enforcement; `provides_tools` remains two tools. Slice 1
 foundation is implemented as effective-task-scope-v2 pure domain; Slice 2
-data-only envelope adapter is merged. Step 4 remains INCOMPLETE and is
+data-only envelope adapter is merged; Slice 3 (source-bound explicit file
+deletion intent) is merged via PR #46; Slice 4 is NOT STARTED (selection
+NO-GO). Step 4 remains INCOMPLETE and is
 **not** coordination/enforcement; v2 runtime exposure is NO. Step 5
 (Conflict Engine) and Step 6 (Guard) are NOT STARTED;
 scope/conflicts, runtime guard integration and project knowledge remain planned.
