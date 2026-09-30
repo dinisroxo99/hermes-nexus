@@ -29,8 +29,22 @@ severity and LOW/non-blocking development priority. Nine legacy tools remain
 deferred. The frozen v1 WRITE/WATCH precursor is not Step 4. Step 4 Slice 1
 is IMPLEMENTED + VERIFIED + MERGED at
 bc0e4eaa71efb92f47f159770e240010d8b7f87a as effective-task-scope-v2 pure
-domain only. Step 4 remains INCOMPLETE; the RESERVED producer is NOT
-IMPLEMENTED; Steps 5/6 are NOT STARTED; runtime exposure is NO. The entry
+domain only. Slice 2 is the merged data-only envelope adapter
+`composeEffectiveTaskScopeFromEnvelopes`
+(`src/lib/effective-task-scope-adapter.js`,
+`tests/effective-task-scope-adapter.test.js`; implementation
+`02d5784701c4c0cbc1688e04a38b8a73dd238b38`; merge
+`c6be8caf436405924d22b812e3aa84b12f64f725`). Earlier "not Slice 2"
+wording described the Slice 1 delta, not current Git absence. Slice 3 is
+achieved locally only (source-bound explicit file deletion intent;
+schemaVersion=2 / effective-task-scope-v2 / policyVersion
+`step4-foundation-2`; candidate
+`f4d09cedf374872c865125d4c27fdcc602af523d` / tree
+`d0dac0ceeb258200dbe0280887f06e028a5ba247`; tester PASS `t_6be11146`;
+reviewer PASS `t_5ddd7738`). Slice 3 is not merged and not published; no
+merge SHA is invented here. Step 4 remains INCOMPLETE and is not
+coordination/enforcement; RESERVED remains `not_evaluated`; Steps 5/6 are
+NOT STARTED; runtime exposure is NO. The entry
 contract's ef3df8d36561d56b90c535e1b8ad85993200a674 / SPECIFIED_NOT_STARTED
 text records its historical baseline, not current code. G1 remains REJECTED;
 R1/R2 remain OPEN/DEFERRED.
@@ -480,8 +494,21 @@ Git-diff impact remains deferred. Step 4 is not authorized by this checkpoint.
 ### Step 4 — Effective Task Scope
 
 Slice 1 is IMPLEMENTED + VERIFIED + MERGED as effective-task-scope-v2 pure
-domain only at bc0e4eaa71efb92f47f159770e240010d8b7f87a. Step 4 remains
-INCOMPLETE; RESERVED is not_evaluated / producer NOT IMPLEMENTED; runtime
+domain only at bc0e4eaa71efb92f47f159770e240010d8b7f87a. Slice 2 is
+IMPLEMENTED + MERGED as `composeEffectiveTaskScopeFromEnvelopes` in
+`src/lib/effective-task-scope-adapter.js` (tests
+`tests/effective-task-scope-adapter.test.js`; implementation
+`02d5784701c4c0cbc1688e04a38b8a73dd238b38`; merge
+`c6be8caf436405924d22b812e3aa84b12f64f725`). Slice 3 is a local verified
+candidate only: source-bound explicit file deletion intent;
+schemaVersion=2 / effective-task-scope-v2 / policyVersion
+`step4-foundation-2`; candidate
+`f4d09cedf374872c865125d4c27fdcc602af523d` / tree
+`d0dac0ceeb258200dbe0280887f06e028a5ba247` (tester PASS `t_6be11146`,
+reviewer PASS `t_5ddd7738`). Slice 3 is not merged and not published; no
+merge SHA is invented here. Step 4 remains
+INCOMPLETE and is not coordination/enforcement; RESERVED is not_evaluated /
+coupling_evidence_not_supported; runtime
 exposure is NO. Frozen v1 adoption is separate. The prepared entry contract
 describes its historical baseline; see CURRENT_STATUS for the implemented
 foundation.

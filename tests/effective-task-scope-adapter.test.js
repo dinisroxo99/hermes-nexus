@@ -341,3 +341,32 @@ test("adapter: no runtime/provider/IO imports or production consumers", () => {
   }
   for (const dir of ["src/", "integrations/", "scripts/"]) inspect(new URL(dir, root));
 });
+
+test("adapter: deletion intent byte parity and exactly one unchanged delegation", () => {
+  function deletionFixture() {
+    const f = fixture(); const pack = f.envelopes.pack.data; const impact = f.envelopes.impact.data;
+    const provenance = { projectId: f.request.projectId, revisionRef: "revision", trust: "untrusted_repository_text", producer: "context-source-observation" };
+    pack.sections.task = { ...pack.sections.task, status: "available", limit: 1, truncated: false, provenance };
+    pack.sections.files = { status: "available", limit: 1, truncated: false, provenance, items: [{ path: "src/a.js",
+      provenance: { trust: "canonical_fact", reason: "task_path", source: { path: "src/a.js", sha256: "e".repeat(64) } } }] };
+    pack.analysis.status = "available";
+    pack.analysis.coverage = impact.coverage = { observed: ["javascript"], covered: ["javascript"], uncovered: [] };
+    impact.observation.digestCoverage = "bounded_collected_sources";
+    impact.targets[0] = { ...impact.targets[0], status: "available", findingState: "evidence_found", completeness: { source: [], provider: [], traversal: [], output: [] } };
+    f.request.operationIntent = { kind: "delete", targets: [{ oldPath: "src/a.js", newPath: null }] };
+    return f;
+  }
+  for (const [change, status] of [
+    [() => {}, "incomplete"],
+    [f => { f.envelopes.pack.data.sections.files.items = []; }, "not_evaluated"],
+    [f => { f.envelopes.impact.data.targets[0].findingState = "not_evaluated"; }, "not_evaluated"],
+    [f => { f.request.operationIntent.targets[0].newPath = "destination"; }, "rejected"],
+    [f => { f.request.expectedRevision.commitSha = "f".repeat(40); }, "stale"]
+  ]) {
+    const f = deletionFixture(); change(f); const expected = parity(f, status);
+    state.calls = 0;
+    assert.equal(JSON.stringify(countedCompose(f.request, f.envelopes)), JSON.stringify(expected));
+    assert.equal(state.calls, 1);
+    assert.equal(JSON.stringify(state.args[0]), JSON.stringify(f.request));
+  }
+});

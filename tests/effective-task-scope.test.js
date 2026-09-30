@@ -137,7 +137,7 @@ test("composer: returns incomplete for missing target sources, write available e
   const res = composeEffectiveTaskScope(BASE_REQ, { pack: MIN_PACK, impact: MIN_IMPACT });
   assert.equal(res.schemaVersion, 2);
   assert.equal(res.analysisVersion, "effective-task-scope-v2");
-  assert.equal(res.policyVersion, "step4-foundation-1");
+  assert.equal(res.policyVersion, "step4-foundation-2");
   assert.equal(res.status, "incomplete");
   assert.ok(Array.isArray(res.reasons));
   assert.deepEqual(res.task.paths, BASE_REQ.task.paths);
