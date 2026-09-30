@@ -91,8 +91,11 @@ health.
 
 **Steps 1, 2, 2.5 and 3 are complete.** Roadmap Step 4 Slice 1 is
 implemented as **effective-task-scope-v2** pure domain; Slice 2 is the
-merged data-only envelope adapter; Slice 3 is a **local** verified
-candidate only (not merged, not published). Step 4 remains
+merged data-only envelope adapter; Slice 3 is **merged** via PR #46
+(`d54315325f37e777bd03b8781ca8b879c9da364d`, tree
+`76dc7d69ff6d27f16ef84fb6695423699178234b`) as source-bound explicit
+file deletion intent. Slice 4 is **NOT STARTED**
+(`STEP4_SLICE4_READY_TO_IMPLEMENT = NO`). Step 4 remains
 **incomplete**. This is **not** STEP4_COMPLETE, **not** runtime
 exposure, **not** coordination/enforcement, and **not** a RESERVED
 producer. RESERVED remains `not_evaluated`. Step 5 (Conflict Engine)
@@ -163,16 +166,17 @@ Dated **2026-09-30**, Slice 2 is implemented as
 `c6be8caf436405924d22b812e3aa84b12f64f725`. Data-only envelope adapter;
 not runtime exposure; not coordination/enforcement.
 
-### Step 4 Slice 3 (local verified candidate only)
+### Step 4 Slice 3 (merged source-bound deletion intent)
 
-Dated **2026-09-30**, Slice 3 is recorded as **achieved locally** only:
+Dated **2026-09-30**, Slice 3 is **MERGED** via PR #46:
 source-bound explicit file deletion intent; `schemaVersion=2` /
-`effective-task-scope-v2` / `policyVersion` `step4-foundation-2`. Local
-verified candidate
+`effective-task-scope-v2` / `policyVersion` `step4-foundation-2`. Merge
+SHA `d54315325f37e777bd03b8781ca8b879c9da364d` (tree
+`76dc7d69ff6d27f16ef84fb6695423699178234b`). Historical code candidate
 `f4d09cedf374872c865125d4c27fdcc602af523d` (tree
 `d0dac0ceeb258200dbe0280887f06e028a5ba247`; tester PASS `t_6be11146`;
-reviewer PASS `t_5ddd7738`). Slice 3 is **not merged** and **not
-published**. This note does not invent a merge SHA.
+reviewer PASS `t_5ddd7738`) remains candidate evidence, not a
+“not merged” claim.
 
 - Step 4 remains **INCOMPLETE**. Not STEP4_COMPLETE. Not
   coordination/enforcement.
@@ -180,6 +184,36 @@ published**. This note does not invent a merge SHA.
 - v2 runtime exposure remains **NO**.
 - Step 5 **NOT STARTED**. Step 6 **NOT STARTED**.
 - **G1 REJECTED**; **R1/R2 OPEN / DEFERRED**.
+
+### Step 4 Slice 4 (NOT STARTED — selection NO-GO)
+
+Dated **2026-09-30**, Slice 4 selection was evaluated (`t_b563da81`
+run 730) and produced **NO-GO**.
+`STEP4_SLICE4_READY_TO_IMPLEMENT = NO`. **SLICE4 = NOT STARTED**.
+No implementation slice was selected. This note does not invent a
+Slice 4 merge SHA and does not call any prerequisite itself “Slice 4”.
+Create / rename / directory expansion were not selected. Delete is
+already Slice 3.
+
+No implementation slice was selected because:
+
+1. RESERVED lacks approved producer-backed strong-coupling evidence.
+   Impact v2 currently proves only imports / uses / references; those
+   and minimumDistance do **not** prove strong direct coupling. No
+   heuristic fallback is authorized.
+2. Complete symbol-target support lacks producer-backed
+   uniqueness/completeness evidence. Retained Context Pack symbols do
+   not prove unique resolution inside the explicit task-path domain.
+   Partial/truncated ≠ uniqueness.
+
+Future Step 4 implementation requires a **separate upstream
+evidence-contract mission** before selecting another Slice 4
+candidate. Possible tracks (neither chosen nor implemented here):
+
+- A. SYMBOL-RESOLUTION-EVIDENCE-CONTRACT
+- B. DIRECT-COUPLING-EVIDENCE-CONTRACT
+
+`NEXT_PREREQUISITE = producer-backed evidence contract`
 
 ### Canonicalization of the native caller (RESOLVIDO as Git on main)
 
@@ -474,7 +508,8 @@ candidate verification or plugin lifecycle acceptance.
 | Step 3 — Impact v2 | Bounded file/multi-file reverse-impact evidence and optional affected-test candidates, resolved against persisted project/worktree/revision, with reobservation and independent output caps. | [Impact contract](project-intelligence/06_SCOPE_IMPACT_CONFLICTS.md), [HTTP route](../src/routes/project-impact.routes.js), [service tests](../tests/project-impact-service.test.js) |
 | Step 4 foundation (pure domain) | First Roadmap Step 4 foundation slice implemented on this checkout (`b3026dcc…`): `analysisVersion` `effective-task-scope-v2`, `policyVersion` `step4-foundation-1`. Pure `composeEffectiveTaskScope` in `src/lib/` with isolated tests. No HTTP, tool, or plugin wiring. RESERVED producer not implemented. Step 4 remains incomplete. | [policy](../src/lib/effective-task-scope-policy.js), [composer](../src/lib/effective-task-scope.js) |
 | Step 4 Slice 2 (data-only adapter) | Merged data-only envelope adapter `composeEffectiveTaskScopeFromEnvelopes`. Implementation `02d5784701c4c0cbc1688e04a38b8a73dd238b38`; merge `c6be8caf436405924d22b812e3aa84b12f64f725`. Not runtime exposure; not coordination/enforcement. | [adapter](../src/lib/effective-task-scope-adapter.js), [adapter tests](../tests/effective-task-scope-adapter.test.js) |
-| Step 4 Slice 3 (local candidate) | Local verified candidate only: source-bound explicit file deletion intent; `schemaVersion=2` / `effective-task-scope-v2` / `policyVersion` `step4-foundation-2`. Candidate `f4d09cedf374872c865125d4c27fdcc602af523d` / tree `d0dac0ceeb258200dbe0280887f06e028a5ba247`. Not merged; not published; no merge SHA invented. Step 4 remains incomplete. RESERVED `not_evaluated`. Runtime exposure NO. | [policy](../src/lib/effective-task-scope-policy.js), [composer](../src/lib/effective-task-scope.js) |
+| Step 4 Slice 3 (merged deletion intent) | Merged via PR #46: source-bound explicit file deletion intent; `schemaVersion=2` / `effective-task-scope-v2` / `policyVersion` `step4-foundation-2`. Merge `d54315325f37e777bd03b8781ca8b879c9da364d` / tree `76dc7d69ff6d27f16ef84fb6695423699178234b`. Historical code candidate `f4d09cedf374872c865125d4c27fdcc602af523d` remains candidate evidence, not a not-merged claim. Step 4 remains incomplete. RESERVED `not_evaluated`. Runtime exposure NO. | [policy](../src/lib/effective-task-scope-policy.js), [composer](../src/lib/effective-task-scope.js) |
+| Step 4 Slice 4 (NOT STARTED) | Selection evaluated (`t_b563da81` run 730) produced NO-GO. `STEP4_SLICE4_READY_TO_IMPLEMENT = NO`. No slice selected: RESERVED lacks producer-backed strong-coupling evidence; complete symbol-target support lacks uniqueness/completeness evidence. Create/rename/directory expansion not selected. Delete is Slice 3. Next prerequisite: producer-backed evidence contract (tracks A/B recorded, neither chosen). No Slice 4 merge SHA. | [active plan](../.hermes/plans/2026-09-17_002050-project-intelligence-service-active.md) |
 | Hermes thin plugin | Exactly two tracked read-only tools (`project_task_context`, `project_impact`); `compose_effective_task_scope` exists in plugin at historical `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5`, read-only local, without HTTP tool/route/schemas; labels only WRITE and WATCH; RESERVED/IMPACT `not_emitted`. `feat/legacy-project-map-t_d032c9fe@787f662df941ea8461efeb0db86f51ad569a461c` / adapter 1A do not enter this delta. Two-tool publication is accepted as recorded in the installation contract, not automatic installation or Guard. | [Usage contract](hermes-tool-integration.md#dev-adoption-1--two-tool-usage-contract), [open limitations](KNOWN_ISSUES.md), [composer](../integrations/hermes-nexus/effective_task_scope.py) |
 | Gated ETS caller | `project_effective_task_scope` (local compose from accepted pack+impact) exists at ancestor `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb`. Hidden via `register_tool` omission unless `scope_enabled` is exactly true. `provides_tools` lists exactly the two core tools. Dated 2026-09-28 six-profile install handoff: independent copies with `scope_enabled: true`; `default` and `workspace-manager` excluded from install/config/exposure (not a ban on the workspace-manager role). Canonical Git `tools.py` overlay is on main at `643eb3ab` and remains at checkpoint `050540d0`; that is not byte equality of every installed file, and the `6152cea` `schemas.py` text is in this revision and is **not copied into local installations**. Read-only classification, not Step 4 coordination/enforcement. | [ETS profile exposure](ETS_PROFILE_EXPOSURE.md); [effective_task_scope](../integrations/hermes-nexus/effective_task_scope.py) |
 | Request-preflight helper CLI | Present in the code baseline (`4d6a78632e772e7ca43fadf37b287213d6f9ea93`) via PR #39 merge `07845ba0fc86440a080f81ffe4ad3fe125ec726d`. Invoke `python3 -B -m scripts.nexus_request_preflight`. Syntax-only local helper; not a Hermes tool; not pending merge; not Step 4. Helper classification is a documentation delta, not content of that baseline commit. | [request-preflight](development/request-preflight.md), [`scripts/nexus_request_preflight/__main__.py`](../scripts/nexus_request_preflight/__main__.py) |
@@ -547,9 +582,10 @@ See [the full matrix](project-intelligence/19_ANALYZER_PROVIDER_LAYER.md#languag
 Following the [active implementation plan](../.hermes/plans/2026-09-17_002050-project-intelligence-service-active.md):
 
 **Effective Task Scope (Step 4: Slice 1 v2 pure domain implemented;
-Slice 2 data-only adapter merged; Slice 3 local candidate only, not
-merged; Step 4 remains incomplete and is not coordination/enforcement;
-RESERVED remains `not_evaluated`; no v2 runtime exposure)** →
+Slice 2 data-only adapter merged; Slice 3 merged via PR #46; Slice 4
+NOT STARTED / NO-GO; Step 4 remains incomplete and is not
+coordination/enforcement; RESERVED remains `not_evaluated`; no v2
+runtime exposure)** →
 Conflict Engine (Step 5, **not started**) →
 Hermes Guard integration (Step 6, **not started**) → Telemetry / validated project history → Project Expert
 → Learning / evaluation.
