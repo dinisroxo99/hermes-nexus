@@ -7,6 +7,19 @@ limitations) is recorded in
 [CURRENT_STATUS](../../docs/CURRENT_STATUS.md). This plan is not a rival pin
 list and does not auto-track `origin/main` HEAD.
 
+Dated **2026-10-01**, accepted Option B (`t_00e97e20` run 766;
+independent PASS `t_e3f0d399` run 767) defers Track A and keeps the held
+Step 4/Track A path operationally blocked on a missing Hermes-owned runtime
+capability; the confinement epic is not being started. See
+[the Option B checkpoint](../../docs/CURRENT_STATUS.md#accepted-option-b--deferred-hermes-runtime-dependency)
+for exact flags and UNKNOWNs. WRITE remains classification, not Nexus
+execution/admission/mutation-permission authority. The hostile-agent
+requirement and previous findings/holds remain intact; implementation is
+not authorized and no enforcement model is selected. This roadmap deferral
+is neither safety acceptance nor an OS-sandbox mandate and does not replace
+missing producer-backed evidence. The isolated-core-development risk
+dispositions below do not authorize this held path.
+
 Dated 2026-09-28: observed `origin/main`
 `643eb3ab6433389f99264bc2b0a1aff7389ddc5d` (PR #37 `--merge`) is a dated
 observation, now an ancestor of public checkpoint
@@ -47,7 +60,8 @@ produced NO-GO; `STEP4_SLICE4_READY_TO_IMPLEMENT = NO`; SLICE4 = NOT
 STARTED; no Slice 4 merge SHA is invented. Next prerequisite is a
 producer-backed evidence contract (tracks A
 SYMBOL-RESOLUTION-EVIDENCE-CONTRACT and B
-DIRECT-COUPLING-EVIDENCE-CONTRACT recorded, neither chosen). Step 4
+DIRECT-COUPLING-EVIDENCE-CONTRACT recorded, neither chosen at that
+selection checkpoint; Track A is now DEFERRED as recorded above). Step 4
 remains INCOMPLETE and is not coordination/enforcement; RESERVED remains
 `not_evaluated`; Steps 5/6 are NOT STARTED; runtime exposure is NO. The entry
 contract's ef3df8d36561d56b90c535e1b8ad85993200a674 / SPECIFIED_NOT_STARTED
@@ -517,7 +531,8 @@ STARTED; no Slice 4 merge SHA is invented. Create / rename / directory
 expansion were not selected; delete is already Slice 3. Next
 prerequisite is a producer-backed evidence contract (tracks A
 SYMBOL-RESOLUTION-EVIDENCE-CONTRACT and B
-DIRECT-COUPLING-EVIDENCE-CONTRACT recorded, neither chosen). Step 4
+DIRECT-COUPLING-EVIDENCE-CONTRACT recorded, neither chosen at that
+selection checkpoint; Track A is now DEFERRED as recorded above). Step 4
 remains INCOMPLETE and is not coordination/enforcement; RESERVED is
 not_evaluated / coupling_evidence_not_supported; runtime
 exposure is NO. Frozen v1 adoption is separate. The prepared entry contract
