@@ -12,6 +12,7 @@
 | What can I use now? | [Current status](CURRENT_STATUS.md) |
 | What defects remain open or deferred? | [Known issues and deferred technical debt](KNOWN_ISSUES.md) |
 | How do I run it or call the API? | [Service reference](SERVICE_REFERENCE.md) |
+| How is bounded specialist work planned and admitted? | [Orchestration V1](orchestration/00_OVERVIEW.md) |
 
 The [current checkpoint](CURRENT_STATUS.md) includes completed Project Identity /
 Revision, Task Context Pack, Analyzer Provider Layer and accepted Step 3 Impact v2,
