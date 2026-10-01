@@ -215,6 +215,54 @@ candidate. Possible tracks (neither chosen nor implemented here):
 
 `NEXT_PREREQUISITE = producer-backed evidence contract`
 
+### Accepted Option B — deferred Hermes runtime dependency
+
+Dated **2026-10-01**, architecture decision `t_00e97e20` (run 766)
+and independent review **PASS** `t_e3f0d399` (run 767) accept **Option B**:
+do not start `HERMES_PROJECT_MUTATION_CONFINEMENT_EPIC` now. Those are
+named decision/review handoffs, not new runtime probes. This documentation
+delta is based on observed Git baseline
+`8553325d82d942943bc9845d4ede60e379664d4f` (tree
+`d70bb9cdec74ca75fe8743c5d8859fb56a5eeb32`), not a future merge or
+deployment claim.
+
+```text
+START_CONFINEMENT_EPIC_NOW=NO
+STEP4_BLOCKED_BY_HERMES_CONFINEMENT=YES
+CONFINEMENT_EPIC_FEASIBLE=UNKNOWN
+CONFINEMENT_EPIC_REQUIRED_FOR_CURRENT_THREAT_MODEL=UNKNOWN
+TRACK_A_STATUS=DEFERRED
+SLICE4=NOT_STARTED
+STEP4=INCOMPLETE
+IMPLEMENTATION_AUTHORIZED=NO
+SELECTED_MODEL=NONE
+OS_CONFINEMENT_REQUIRED=UNKNOWN
+CURRENT_POLICY_DISPOSITION=keep
+G1=REJECTED
+R1/R2=OPEN / DEFERRED
+```
+
+The accepted pre-edit runtime candidate has no defined effect boundary,
+closed guarded surface or immutable run toolset and does not satisfy the
+documented hostile-agent requirement. The held Step 4/Track A path therefore
+remains blocked on a missing Hermes-owned runtime capability. WRITE remains
+classification; Nexus has no execution/admission/mutation-permission
+authority. No enforcement model or backend is selected.
+
+Deferral is a **roadmap choice**, not safety acceptance, proof of
+impossibility or an OS-sandbox mandate. The inspected Hermes primitives do
+not establish end-to-end confinement across integrations and lifecycle;
+feasibility and necessity of this specific epic remain UNKNOWN. The
+hostile-agent requirement remains intact and unsatisfied. This operational
+hold does not prove that pure classification intrinsically needs an OS
+sandbox and does not replace the separate missing producer-backed symbol
+resolution/direct-coupling evidence. Track A is deferred, not implemented;
+Slice 4 remains unselected and NOT STARTED. No previous finding or hold is
+closed, including `t_b563da81`, `t_89d07972` and `t_09a34d2b`. Steps 5/6
+remain NOT STARTED, RESERVED remains `not_evaluated`, and v2 runtime
+exposure remains NO. This documentation authorization is not implementation,
+push, publication or merge permission.
+
 ### Canonicalization of the native caller (RESOLVIDO as Git on main)
 
 At `643eb3ab` and still at checkpoint `050540d0`, canonical Git
@@ -593,8 +641,10 @@ Hermes Guard integration (Step 6, **not started**) → Telemetry / validated pro
 See
 [38_STEP4_ENTRY_CONTRACT.md](project-intelligence/38_STEP4_ENTRY_CONTRACT.md)
 for the prepared entry contract. G1 remains REJECTED; R1/R2 remain OPEN /
-DEFERRED. Core-dev of an isolated later slice is allowed with those
-deferred risks; runtime exposure needs a separate risk gate.
+DEFERRED. The historical isolated-core-development disposition does not
+authorize the currently held Step 4/Track A path; the accepted Option B
+checkpoint above records its operational hold. Runtime exposure still
+needs a separate risk gate.
 
 E0–E7 merged as PRs #17–#24: E0 #17
 `d929a125b6a975c16c5630984c9bc8b835f1d02d`; E1 #18
