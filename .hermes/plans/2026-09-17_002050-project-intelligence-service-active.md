@@ -71,6 +71,107 @@ R1/R2 remain OPEN/DEFERRED.
 `RUNTIME_EXPOSURE_REQUIRES_SEPARATE_RISK_GATE`. Canonical:
 [38_STEP4_ENTRY_CONTRACT.md](../../docs/project-intelligence/38_STEP4_ENTRY_CONTRACT.md).
 
+### DIRECT-COUPLING-EVIDENCE-CONTRACT — accepted definition
+
+**ACCEPTED AS DEFINITION / NOT IMPLEMENTATION**
+
+Dated **2026-10-02**, the operator accepted the definition from `t_5ca6c036`
+(run 794) and examples from `t_3e470c07` (run 795), recorded by
+`t_777f8aec` against baseline `9ebb0587cdb69cb3b410388d15f597df2d15d332`.
+`adopted_as_implementation = false`. This record accepts evidence semantics
+only, not a wire schema, producer implementation or downstream classification
+rule. There is no producer, and Slice 4 is not selected.
+
+#### Definition
+
+Strong direct coupling means that two identified source artifacts are bound
+by an explicit, machine-checkable cross-artifact invariant, and that a
+precisely stated change to the first would violate that invariant unless the
+second is changed consistently. This is a direct co-change obligation under
+stated conditions, not merely possible downstream impact, and not a claim
+that every edit to either artifact requires editing the other.
+
+A producer would have to emit:
+
+- The exact pair and direction of the obligation, with source locations for both.
+- The invariant and its source-backed authority, rather than an agent-authored assertion.
+- The triggering change conditions and a checkable witness explaining the
+  one-sided violation and the required consistency obligation at the other endpoint.
+- Producer identity/version, the rule and analysis capability used, and common
+  project/repository/worktree/revision/source-observation binding.
+- Explicit coverage, assumptions and unresolved/omitted evidence affecting
+  this particular witness.
+
+Direct means the invariant itself binds the two endpoints, not that a
+traversal reaches one from the other. Strong means the witness establishes
+the conditional consistency obligation, not a confidence score. Missing or
+ambiguous support for any required part leaves the candidate unestablished;
+partial evidence does not establish safety or absence of coupling.
+
+Imports, uses and references identify relationships, not an obligation to
+change both endpoints. `minimumDistance`, including `minimumDistance = 1`,
+establishes neither the invariant nor the co-change necessity. Heuristic
+inference, naming or directory similarity, co-change frequency, confidence
+scores and affected-test candidates do not count. Calling an edge semantic,
+adding provenance or retaining a direct traversal witness does not supply
+the missing positive evidence; no heuristic fallback is authorized.
+
+#### Positive producer-evidence example
+
+Illustrative fixture only, not a claim about files, a producer or executed
+results in Hermes Nexus.
+
+- **Pair:** A = `example/order-schema.json` at `/properties/status/enum`,
+  containing `["pending", "paid"]`; B = `example/status-labels.json` at its
+  root object, containing `{"pending":"Pending","paid":"Paid"}`.
+- **Direction:** A → B for the specific change adding `"refunded"` to A's
+  status enum while retaining the existing members.
+- **Invariant:** the keys of B must equal the members of A's status enum,
+  with a nonempty string label for every member. Its authority would be the
+  fixture's explicit contract `example/order-label-contract.json` at
+  `/rules/status-labels`, identifying both locations and requiring exact
+  enum/key equality and nonempty labels; this authority is stipulated for
+  the example, not inferred from naming.
+- **Witness:** a producer would emit the observed enum members and label
+  keys, the exact proposed addition, and a checkable set-difference witness
+  identifying `"refunded"` as absent from B after the A-only change. With
+  that change retained and the contract fixed, B must gain a nonempty
+  `"refunded"` label; adding `"refunded":"Refunded"` illustrates a
+  consistent B-side change, not the uniquely required wording. The witness
+  must establish both the initially satisfied invariant and the conditional
+  one-sided violation, rather than merely report a possible effect.
+- **Binding:** the producer would emit its actual identity/version, exact
+  enum/key-equality rule/version and supported analysis capability, and one
+  common persisted project ID, repository ID, worktree ID, revision and
+  source-observation binding for A, B and the authority, including their
+  observed content hashes and locations; the proposed A-side delta must be
+  bound to that observed A content. These are required real observations,
+  not fabricated IDs or hashes supplied by this example.
+- **Coverage:** the complete literal enum, complete label object and
+  authority, assuming unique enum members, no duplicate JSON keys, no
+  computed/merged content, and the stated change and fixed contract;
+  unresolved or omitted witness inputs leave the candidate unestablished.
+
+No such producer output was obtained in the example handoff or this record.
+
+#### Negative import / minimumDistance example
+
+Illustrative fixture only: `example/checkout.js` imports `formatMoney` from
+`example/money.js`, and an Impact result for `example/money.js` retains
+`example/checkout.js` with `minimumDistance = 1`. This establishes the import
+relationship and its proximity, not a source-authorized cross-artifact
+invariant or a change-specific witness proving that `checkout.js` must also
+change. A `money.js` implementation edit can preserve the exported interface
+and behavior without requiring a `checkout.js` edit. Thus the import and
+`minimumDistance = 1` fail the positive definition; even genuine
+revision/provenance binding would not supply the missing obligation witness.
+This does not prove absence of coupling or safety.
+
+#### Non-authorization
+
+Accepting these examples still leaves IMPLEMENTATION_AUTHORIZED=NO, does not
+create a producer, and does not select Slice 4.
+
 ### Historical pin list (not current)
 
 2026-09-27 text previously said this checkout is

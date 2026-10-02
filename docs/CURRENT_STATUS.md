@@ -215,6 +215,8 @@ candidate. Possible tracks (neither chosen nor implemented here):
 
 `NEXT_PREREQUISITE = producer-backed evidence contract`
 
+The [DIRECT-COUPLING-EVIDENCE-CONTRACT record in the active plan](../.hermes/plans/2026-09-17_002050-project-intelligence-service-active.md#direct-coupling-evidence-contract--accepted-definition) is ACCEPTED AS DEFINITION / NOT IMPLEMENTATION.
+
 ### Accepted Option B — deferred Hermes runtime dependency
 
 Dated **2026-10-01**, architecture decision `t_00e97e20` (run 766)
