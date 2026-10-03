@@ -19,6 +19,7 @@ import {
   MAX_COMPACT_OUTPUT,
   compareStrings
 } from "./effective-task-scope-policy.js";
+import { reservedItemFromTrackBWitness } from "./reserved-from-track-b-witness.js";
 
 function deepClone(o) {
   return JSON.parse(JSON.stringify(o));
@@ -507,7 +508,10 @@ export function composeEffectiveTaskScope(request, evidence) {
     reasons: [],
     truncated: false
   };
-  const reservedCat = buildEmptyCategory("not_evaluated", ["coupling_evidence_not_supported"]);
+  const trackBReservedItem = reservedItemFromTrackBWitness(evidence && evidence.directCouplingWitness);
+  const reservedCat = trackBReservedItem
+    ? { status: "incomplete", items: [trackBReservedItem], reasons: [], truncated: false }
+    : buildEmptyCategory("not_evaluated", ["coupling_evidence_not_supported"]);
 
   let watchItems = [];
   let impactItems = [];
