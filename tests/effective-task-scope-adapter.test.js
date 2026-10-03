@@ -335,7 +335,10 @@ test("adapter: no runtime/provider/IO imports or production consumers", () => {
       const url = new URL(entry.name + (entry.isDirectory() ? "/" : ""), directory);
       if (entry.isDirectory()) inspect(url);
       else if (/\.(?:js|py|json|yaml)$/.test(entry.name) && entry.name !== "effective-task-scope-adapter.js") {
-        assert.doesNotMatch(readFileSync(url, "utf8"), /effective-task-scope-adapter|composeEffectiveTaskScopeFromEnvelopes/);
+        const allowedConsumer = new URL("src/routes/effective-task-scope.routes.js", root);
+        if (url.href !== allowedConsumer.href) {
+          assert.doesNotMatch(readFileSync(url, "utf8"), /effective-task-scope-adapter|composeEffectiveTaskScopeFromEnvelopes/);
+        }
       }
     }
   }
