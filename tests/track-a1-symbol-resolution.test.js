@@ -368,6 +368,18 @@ const FIXTURE_FOO_PLUS_NAMESPACE = [
   ""
 ].join("\n");
 
+const FIXTURE_TWO_FOO_PLUS_DESTRUCTURE = [
+  "// synthetic fixture: two top-level foo functions plus a destructuring binding",
+  "function foo() {",
+  "  return 1;",
+  "}",
+  "function foo() {",
+  "  return 2;",
+  "}",
+  "const { other } = { other: 1 };",
+  ""
+].join("\n");
+
 test("11. only a nested function foo is outside the domain: census 0 and not_evaluated", () => {
   const sourceSha256 = sha256Text(FIXTURE_ONLY_NESTED_FUNCTION_FOO);
   const result = resolveTrackA1({
@@ -383,7 +395,7 @@ test("11. only a nested function foo is outside the domain: census 0 and not_eva
   assertNoIdentityFields(result);
 });
 
-test("12. two top-level function declarations named foo: census 2 and not_evaluated", () => {
+test("12. two top-level function declarations named foo: census 2 and ambiguous", () => {
   const sourceSha256 = sha256Text(FIXTURE_TWO_TOP_LEVEL_FOO);
   const result = resolveTrackA1({
     name: "foo",
@@ -391,10 +403,21 @@ test("12. two top-level function declarations named foo: census 2 and not_evalua
     binding: { sourceSha256 }
   });
 
-  assert.equal(result.status, "not_evaluated");
+  assert.equal(result.status, "ambiguous");
+  assert.notEqual(result.status, "not_evaluated");
+  assert.notEqual(result.status, "not_found");
   assert.equal(result.census, 2);
+  assert.equal(result.coverage.wholeByteString, true);
+  assert.equal(result.coverage.syntacticDiagnosticCount, 0);
   assertNoStableId(result);
   assertNoIdentityFields(result);
+  assert.equal(Object.hasOwn(result, "symbolId"), false);
+  assert.equal(Object.hasOwn(result, "declarationId"), false);
+  assert.ok(Array.isArray(result.notes));
+  assert.ok(
+    result.notes.some((note) => note.includes("more than one direct declaration")),
+    "note must say the name has more than one direct declaration"
+  );
 });
 
 test("13. top-level foo plus destructuring or namespace stays not_evaluated as an incomplete unsupported form", () => {
@@ -407,7 +430,10 @@ test("13. top-level foo plus destructuring or namespace stays not_evaluated as a
     });
 
     assert.equal(result.status, "not_evaluated");
+    assert.notEqual(result.status, "ambiguous");
+    assert.notEqual(result.status, "not_found");
     assert.notEqual(result.status, "positive");
+    assert.equal(result.census, 1);
     assertNoStableId(result);
     assertNoIdentityFields(result);
     assert.ok(Array.isArray(result.notes));
@@ -421,4 +447,38 @@ test("13. top-level foo plus destructuring or namespace stays not_evaluated as a
     assert.equal(serialized.includes("positive"), false);
     assert.equal(serialized.includes("resolved_unique"), false);
   }
+});
+
+test("14. two top-level foo functions plus a destructuring binding: ambiguous, incomplete note remains", () => {
+  const sourceSha256 = sha256Text(FIXTURE_TWO_FOO_PLUS_DESTRUCTURE);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_TWO_FOO_PLUS_DESTRUCTURE, "utf8"),
+    binding: { sourceSha256 }
+  });
+
+  assert.equal(result.status, "ambiguous");
+  assert.notEqual(result.status, "not_evaluated");
+  assert.notEqual(result.status, "not_found");
+  assert.equal(result.census, 2);
+  assert.equal(result.coverage.wholeByteString, true);
+  assert.equal(result.coverage.syntacticDiagnosticCount, 0);
+  assertNoStableId(result);
+  assertNoIdentityFields(result);
+  assert.equal(Object.hasOwn(result, "symbolId"), false);
+  assert.equal(Object.hasOwn(result, "declarationId"), false);
+  assert.ok(Array.isArray(result.notes));
+  assert.ok(
+    result.notes.some((note) =>
+      note.includes("incomplete") && note.includes("unsupported declaration form")
+    ),
+    "incomplete-form note must remain when ambiguity wins"
+  );
+  assert.ok(
+    result.notes.some((note) => note.includes("more than one direct declaration")),
+    "note must say the name has more than one direct declaration"
+  );
+  const serialized = JSON.stringify(result);
+  assert.equal(serialized.includes("positive"), false);
+  assert.equal(serialized.includes("resolved_unique"), false);
 });

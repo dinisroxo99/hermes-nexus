@@ -13,6 +13,8 @@ const QUALIFYING_DIRECT_KINDS = new Set([
 const UNSUPPORTED_FORM_NOTE =
   "path is incomplete because of an unsupported declaration form";
 
+const AMBIGUOUS_DIRECT_NOTE = "name has more than one direct declaration";
+
 const NOT_ACCEPTED_NOTE =
   "source-hash match is not full observation binding and is not accepted A1 evidence";
 
@@ -28,8 +30,21 @@ const HEX64 = /^[a-f0-9]{64}$/;
 
 function notEvaluated(extra = {}, providerNode) {
   const result = { status: "not_evaluated", ...extra };
-  // Ambiguity and insufficient evidence stay not_evaluated with no stable id.
+  // Insufficient evidence stays not_evaluated with no stable id.
   if (Object.hasOwn(result, "stableId")) delete result.stableId;
+  if (providerNodeSuppliedId(providerNode)) {
+    const notes = Array.isArray(result.notes) ? result.notes.slice() : [];
+    if (!notes.includes(PROVIDER_ID_NOT_COPIED_NOTE)) notes.push(PROVIDER_ID_NOT_COPIED_NOTE);
+    result.notes = notes;
+  }
+  return result;
+}
+
+function ambiguous(extra = {}, providerNode) {
+  const result = { status: "ambiguous", ...extra };
+  for (const key of ["stableId", "symbolId", "declarationId"]) {
+    if (Object.hasOwn(result, key)) delete result[key];
+  }
   if (providerNodeSuppliedId(providerNode)) {
     const notes = Array.isArray(result.notes) ? result.notes.slice() : [];
     if (!notes.includes(PROVIDER_ID_NOT_COPIED_NOTE)) notes.push(PROVIDER_ID_NOT_COPIED_NOTE);
@@ -186,9 +201,13 @@ function recomputeSnapshotToken(snapshot, bytes, binding, actualSha) {
  * variable binding or a namespace/module declaration leaves the path incomplete
  * and a remaining top-level name match is not accepted evidence.
  * Fail closed unless the bytes, source sha256, UTF-8 roundtrip, syntactic
- * diagnostics, and declaration census are all usable. A census of 1 plus a
- * matching source sha256 is still not full observation binding and is not
- * accepted A1 evidence. Provider node ids are never copied. Extra binding
+ * diagnostics, and declaration census are all usable. Two or more qualifying
+ * direct declarations are ambiguous even when the snapshot is absent or an
+ * unsupported form limits completeness; that result keeps census and coverage
+ * and does not emit stable, symbol, or declaration ids. A census of 0 or 1,
+ * including a matching source sha256, stays not_evaluated and is still not
+ * full observation binding and is not accepted A1 evidence. Provider node ids
+ * are never copied. Extra binding
  * fields are ignored. Does not invent project, repository, worktree, snapshot,
  * or path identity, and does not consult composeEffectiveTaskScope / providers.
  */
@@ -259,14 +278,31 @@ export function resolveTrackA1(input = {}) {
   };
 
   // Destructuring and namespace/module forms are not dropped silently.
-  // Do not treat a remaining top-level name match as accepted evidence.
+  // Ambiguity wins over the incomplete note when two or more direct
+  // declarations qualify. A single remaining name match is not accepted evidence.
   if (fileHasUnsupportedDeclarationForm(sourceFile)) {
     const notes = [UNSUPPORTED_FORM_NOTE];
     if (snapshotTokenMatched) notes.push(SNAPSHOT_TOKEN_MATCHED_NOTE);
+    if (census >= 2) {
+      notes.push(AMBIGUOUS_DIRECT_NOTE);
+      return ambiguous({
+        census,
+        coverage,
+        notes
+      }, providerNode);
+    }
     return notEvaluated({
       census,
       coverage,
       notes
+    }, providerNode);
+  }
+
+  if (census >= 2) {
+    return ambiguous({
+      census,
+      coverage,
+      notes: [AMBIGUOUS_DIRECT_NOTE]
     }, providerNode);
   }
 
