@@ -1,0 +1,172 @@
+{
+  "producer": {
+    "id": "hermes-nexus.track-b.direct-coupling",
+    "version": "1"
+  },
+  "rule": {
+    "id": "agent-manifest.machine-id-rule-source-equality",
+    "version": "1"
+  },
+  "analysisCapability": "literal-source-equality-and-one-sided-substitution",
+  "pair": {
+    "direction": "A_to_B",
+    "A": {
+      "artifactPath": "src/lib/agent-manifest.js",
+      "locus": {
+        "symbol": "ID_PATTERN",
+        "line": 32,
+        "excerpt": "const ID_PATTERN = /^[a-z0-9](?:[a-z0-9.-]{0,98}[a-z0-9])?$/;"
+      }
+    },
+    "B": {
+      "artifactPath": "docs/project-icm.md",
+      "locus": {
+        "heading": "## Machine-ID rule",
+        "line": 124,
+        "excerpt": "^[a-z0-9](?:[a-z0-9.-]{0,98}[a-z0-9])?$"
+      }
+    }
+  },
+  "invariant": {
+    "statement": "ID_PATTERN's regex source in src/lib/agent-manifest.js must equal the single fenced Machine-ID rule in docs/project-icm.md, and normalizeId must reject values containing \"..\" because that same rule rejects them.",
+    "check": "extracted ID_PATTERN source === fenced Machine-ID regex, and normalizeId contains value.includes(\"..\"), and the authority contains the dot-dot rejection sentence."
+  },
+  "authority": {
+    "artifactPath": "docs/project-icm.md",
+    "locus": {
+      "parserCitationLine": 11,
+      "parserCitation": "- `src/lib/agent-manifest.js`: canonical `AGENT.md` parser.",
+      "ruleSentenceLine": 121,
+      "ruleSentence": "Machine IDs for workspace IDs and agent IDs must match the implemented parser rule:",
+      "dotDotSentenceLine": 127,
+      "dotDotSentence": "Additional parser rule: IDs containing `..` are rejected.",
+      "regexLine": 124,
+      "regex": "^[a-z0-9](?:[a-z0-9.-]{0,98}[a-z0-9])?$"
+    }
+  },
+  "triggeringChange": {
+    "on": "A",
+    "condition": "In ID_PATTERN only, replace the unique interior class [a-z0-9.-] with [a-z0-9._-]. Leave every other byte of A, and all of B, unchanged.",
+    "discriminatingId": "a_b"
+  },
+  "initialSatisfaction": {
+    "satisfied": true,
+    "idPatternSource": "^[a-z0-9](?:[a-z0-9.-]{0,98}[a-z0-9])?$",
+    "documentedRegex": "^[a-z0-9](?:[a-z0-9.-]{0,98}[a-z0-9])?$",
+    "equal": true,
+    "normalizeIdRejectsDotDot": true,
+    "normalizeIdDotDotLine": 413,
+    "authorityRejectsDotDot": true
+  },
+  "oneSidedViolation": {
+    "shown": true,
+    "aOnly": true,
+    "bChanged": false,
+    "idPatternSourceAfter": "^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?$",
+    "documentedRegexAfter": "^[a-z0-9](?:[a-z0-9.-]{0,98}[a-z0-9])?$",
+    "equalAfter": false,
+    "probe": "a_b",
+    "probeMatchesChangedA": true,
+    "probeMatchesUnchangedDocumentedRule": false,
+    "probeContainsDotDot": false
+  },
+  "consistencyObligation": {
+    "at": "B",
+    "mustChange": "The fenced Machine-ID regex must become ^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?$ so it equals the changed ID_PATTERN source. An unchanged fence still rejects a_b while the changed parser accepts it.",
+    "requiredRegex": "^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?$"
+  },
+  "binding": {
+    "projectId": "prj_9b3567c4-a762-4079-92f9-ac837e45a289",
+    "repositoryIdentity": "625548e238e137b783df17041ea7b0537446cb3fbf9f9aa31bcb05d18add68ec",
+    "repositoryIdentityObservedField": "data.revision.repositoryIdentity",
+    "packContainedRepositoryIdKey": false,
+    "worktreeId": "2668fe48bb00cc3025daaae2041d6a2e46ef3c0e263b43c5444be3fe9e832f41",
+    "worktreeIdObservedField": "data.revision.worktreeId",
+    "revision": "f29eab452eeecf9b9df63e2e357aec37b9ca4763",
+    "gitBranch": "track-b-producer",
+    "packBranch": "track-b-producer",
+    "branchesMatch": true,
+    "packDirty": true,
+    "packCommitSha": "f29eab452eeecf9b9df63e2e357aec37b9ca4763",
+    "packHttpStatus": 200,
+    "howObserved": {
+      "projectId": "POST http://127.0.0.1:8771/api/intelligence/projects/prj_9b3567c4-a762-4079-92f9-ac837e45a289/task-context body {\"task\":{\"title\":\"reobserve revision binding\"}} field data.projectId, HTTP 200",
+      "worktreeId": "same response data.revision.worktreeId",
+      "revision": "git rev-parse HEAD, required equal to data.revision.commitSha",
+      "gitBranch": "git branch --show-current",
+      "packBranch": "same response data.revision.branch",
+      "contentHashes": "A: sha256 of worktree bytes, checked byte-equal to git cat-file -p HEAD:src/lib/agent-manifest.js. B and authority: sha256 of git cat-file -p HEAD:docs/project-icm.md.",
+      "repositoryIdentity": "same response data.revision.repositoryIdentity; the revision object has no repositoryId key"
+    },
+    "contentHashes": {
+      "A": {
+        "artifactPath": "src/lib/agent-manifest.js",
+        "sha256": "3e3d117e571aff13ade9c27ff8f7426541b1aad7c312e0646035f33d9204438c",
+        "hashIsRevisionBytes": true,
+        "bytesSource": "worktree file bytes, byte-equal to git cat-file -p HEAD:src/lib/agent-manifest.js",
+        "hashCommand": "sha256 of the exact worktree bytes from fs.readFileSync, via node:crypto createHash('sha256').update(buffer).digest('hex')",
+        "gitHashObject": "6b01388abe299b5191cb278e4c684dbd5dd63357",
+        "headBlob": "6b01388abe299b5191cb278e4c684dbd5dd63357",
+        "worktreeBytesMatchHeadBlob": true,
+        "note": "Worktree bytes match the HEAD blob."
+      },
+      "B": {
+        "artifactPath": "docs/project-icm.md",
+        "sha256": "ae5841a11e450a16edffc621b256e2d95bfdb2cdca46d003f1b5acb65c60f96e",
+        "hashIsRevisionBytes": true,
+        "bytesSource": "git cat-file -p HEAD:docs/project-icm.md",
+        "hashCommand": "sha256 of the exact bytes from git cat-file -p HEAD:<path>, via node:crypto createHash('sha256').update(buffer).digest('hex')",
+        "gitHashObject": "20e3a766707b1a4d6828aeee9a7178abc3dfd194",
+        "headBlob": "692a0761df20458e69a78b55eea30b5ff24d4436",
+        "worktreeBytesMatchHeadBlob": false,
+        "machineIdLocusMatchesHeadBlob": true,
+        "note": "sha256 is of git cat-file -p HEAD:docs/project-icm.md at the bound revision. The worktree file differs from that blob, so dirty worktree bytes are not this hash. Invariant, initial satisfaction, and the one-sided check use the revision bytes."
+      },
+      "authority": {
+        "artifactPath": "docs/project-icm.md",
+        "sha256": "ae5841a11e450a16edffc621b256e2d95bfdb2cdca46d003f1b5acb65c60f96e",
+        "hashIsRevisionBytes": true,
+        "bytesSource": "git cat-file -p HEAD:docs/project-icm.md",
+        "sameBytesAsB": true,
+        "hashCommand": "sha256 of the exact bytes from git cat-file -p HEAD:<path>, via node:crypto createHash('sha256').update(buffer).digest('hex')",
+        "gitHashObject": "20e3a766707b1a4d6828aeee9a7178abc3dfd194",
+        "headBlob": "692a0761df20458e69a78b55eea30b5ff24d4436",
+        "worktreeBytesMatchHeadBlob": false,
+        "authorityLocusMatchesHeadBlob": true,
+        "note": "sha256 is of git cat-file -p HEAD:docs/project-icm.md at the bound revision. The worktree file differs from that blob, so dirty worktree bytes are not this hash. Invariant, initial satisfaction, and the one-sided check use the revision bytes."
+      }
+    }
+  },
+  "proposedSourceDelta": {
+    "notACommit": true,
+    "boundToArtifact": "src/lib/agent-manifest.js",
+    "boundToRevision": "f29eab452eeecf9b9df63e2e357aec37b9ca4763",
+    "boundToContentSha256": "3e3d117e571aff13ade9c27ff8f7426541b1aad7c312e0646035f33d9204438c",
+    "revisionCoversHashedBytes": true,
+    "from": "^[a-z0-9](?:[a-z0-9.-]{0,98}[a-z0-9])?$",
+    "to": "^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?$",
+    "occurrencesInsideIdPattern": 1
+  },
+  "coverage": {
+    "covers": [
+      "the single ID_PATTERN literal",
+      "the single fenced Machine-ID regex",
+      "the '..' rejection in normalizeId and in the authority sentence"
+    ],
+    "assumptions": [
+      "The Machine-ID section is normative for the canonical parser it names, so the fenced regex must stay equal to ID_PATTERN.",
+      "The fence and ID_PATTERN are each unique and are literal text, not computed or merged.",
+      "Compared regex text excludes the JavaScript / delimiters.",
+      "Binding ids are copied from the supplied task-context re-observation and checked against git rev-parse. This producer has no built-in project, repository, worktree, revision, or hash constants."
+    ],
+    "unresolvedOrOmitted": {
+      "requiredPartsUnresolved": [],
+      "requiredPartsOmitted": [],
+      "declaredOutOfScope": [
+        "src/lib/workspace-scope.js WORKSPACE_ID_PATTERN repeats this regex but is not named by the authority. This witness does not establish or deny coupling for that file.",
+        "Other AGENT.md bounds in the same document are outside this pair.",
+        "Track A symbol uniqueness is not claimed. No RESERVED item is emitted."
+      ]
+    }
+  }
+}
