@@ -68,6 +68,7 @@ test("1. single declaration with matching source hash is not accepted A1 evidenc
 
 test("2. two declarations including nested: not_evaluated even if provider returns one node", () => {
   // Fixture text has a top-level function foo and a nested method foo.
+  // The nested declaration is outside the domain and is not a second qualifying occurrence.
   const functionFoo = [...FIXTURE_TWO_FOO_NESTED.matchAll(/\bfunction\s+foo\b/g)];
   const methodFoo = [...FIXTURE_TWO_FOO_NESTED.matchAll(/^\s+foo\s*\(/gm)];
   assert.equal(functionFoo.length, 1, "fixture must include top-level function foo");
@@ -83,7 +84,7 @@ test("2. two declarations including nested: not_evaluated even if provider retur
   });
 
   assert.equal(result.status, "not_evaluated");
-  assert.equal(result.census, 2);
+  assert.equal(result.census, 1);
   assertNoStableId(result);
   assert.equal(JSON.stringify(result).includes("synthetic-provider-node-not-a-real-identity"), false);
 });
@@ -323,4 +324,101 @@ test("10. revision with repositoryIdentity and no repositoryId is not_evaluated"
   assert.equal(Object.hasOwn(result, "census"), false, "repositoryIdentity must not be ignored in favor of a bytes-only census");
   assert.equal(JSON.stringify(result).includes(SYNTHETIC_REPOSITORY_ID), false);
   assert.equal(JSON.stringify(result).includes("repositoryIdentity"), false);
+});
+
+const FIXTURE_ONLY_NESTED_FUNCTION_FOO = [
+  "// synthetic fixture: only a nested function named foo",
+  "function outer() {",
+  "  function foo() {",
+  "    return 1;",
+  "  }",
+  "  return 0;",
+  "}",
+  ""
+].join("\n");
+
+const FIXTURE_TWO_TOP_LEVEL_FOO = [
+  "// synthetic fixture: two top-level function declarations named foo",
+  "function foo() {",
+  "  return 1;",
+  "}",
+  "function foo() {",
+  "  return 2;",
+  "}",
+  ""
+].join("\n");
+
+const FIXTURE_FOO_PLUS_DESTRUCTURE = [
+  "// synthetic fixture: top-level foo plus a destructuring variable",
+  "function foo() {",
+  "  return 1;",
+  "}",
+  "const { other } = { other: 1 };",
+  ""
+].join("\n");
+
+const FIXTURE_FOO_PLUS_NAMESPACE = [
+  "// synthetic fixture: top-level foo plus a namespace declaration",
+  "function foo() {",
+  "  return 1;",
+  "}",
+  "namespace Other {",
+  "  export const value = 1;",
+  "}",
+  ""
+].join("\n");
+
+test("11. only a nested function foo is outside the domain: census 0 and not_evaluated", () => {
+  const sourceSha256 = sha256Text(FIXTURE_ONLY_NESTED_FUNCTION_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_ONLY_NESTED_FUNCTION_FOO, "utf8"),
+    binding: { sourceSha256 }
+  });
+
+  assert.equal(result.status, "not_evaluated");
+  assert.notEqual(result.status, "not_found");
+  assert.equal(result.census, 0);
+  assertNoStableId(result);
+  assertNoIdentityFields(result);
+});
+
+test("12. two top-level function declarations named foo: census 2 and not_evaluated", () => {
+  const sourceSha256 = sha256Text(FIXTURE_TWO_TOP_LEVEL_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_TWO_TOP_LEVEL_FOO, "utf8"),
+    binding: { sourceSha256 }
+  });
+
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(result.census, 2);
+  assertNoStableId(result);
+  assertNoIdentityFields(result);
+});
+
+test("13. top-level foo plus destructuring or namespace stays not_evaluated as an incomplete unsupported form", () => {
+  for (const fixture of [FIXTURE_FOO_PLUS_DESTRUCTURE, FIXTURE_FOO_PLUS_NAMESPACE]) {
+    const sourceSha256 = sha256Text(fixture);
+    const result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(fixture, "utf8"),
+      binding: { sourceSha256 }
+    });
+
+    assert.equal(result.status, "not_evaluated");
+    assert.notEqual(result.status, "positive");
+    assertNoStableId(result);
+    assertNoIdentityFields(result);
+    assert.ok(Array.isArray(result.notes));
+    assert.ok(
+      result.notes.some((note) =>
+        note.includes("incomplete") && note.includes("unsupported declaration form")
+      ),
+      "note must say the path is incomplete because of an unsupported declaration form"
+    );
+    const serialized = JSON.stringify(result);
+    assert.equal(serialized.includes("positive"), false);
+    assert.equal(serialized.includes("resolved_unique"), false);
+  }
 });
