@@ -18,6 +18,7 @@ import { sendOk, sendError } from "../utils/response.js";
 import { parseLimit, validateProjectName } from "../utils/validation.js";
 import { createProjectImpactHandler } from "./project-impact.routes.js";
 import { createTaskContextHandler } from "./task-context.routes.js";
+import { createEffectiveTaskScopeHandler } from "./effective-task-scope.routes.js";
 
 const MAX_REGISTRATION_PROJECTS = 100;
 const DEFAULT_BODY_LIMIT_BYTES = 64 * 1024;
@@ -28,6 +29,7 @@ export function registerIntelligenceRoutes(router, dependencies = {}) {
   router.add("GET", "/api/intelligence/projects/:name/overview", createProjectOverviewHandler(dependencies));
   router.add("POST", "/api/intelligence/projects/:projectId/task-context", createTaskContextHandler(dependencies));
   router.add("POST", "/api/intelligence/projects/:projectId/impact", createProjectImpactHandler(dependencies));
+  router.add("POST", "/api/intelligence/projects/:projectId/effective-task-scope", createEffectiveTaskScopeHandler(dependencies));
 }
 
 export function createDiscoverProjectsHandler(dependencies = {}) {
