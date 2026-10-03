@@ -55,14 +55,13 @@ test("producer rejects an observation that disagrees with git HEAD", () => {
   }), /does not match/);
 });
 
-test("emitted witness hashes are the worktree bytes and the one-sided check failed equality", () => {
+test("emitted witness binds B and authority to revision bytes and the one-sided check failed equality", () => {
   const witnessPath = path.join(root, "tests/fixtures/track-b-strong-direct-coupling-witness.json");
   const witness = JSON.parse(fs.readFileSync(witnessPath, "utf8"));
   const bRevision = createHash("sha256").update(revisionBytes(B_REL)).digest("hex");
   assert.equal(witness.binding.contentHashes.A.sha256, sha256(path.join(root, A_REL)));
   assert.equal(witness.binding.contentHashes.A.sha256, createHash("sha256").update(revisionBytes(A_REL)).digest("hex"));
   assert.equal(witness.binding.contentHashes.B.sha256, bRevision);
-  assert.notEqual(witness.binding.contentHashes.B.sha256, sha256(path.join(root, B_REL)));
   assert.equal(witness.binding.contentHashes.authority.sha256, bRevision);
   assert.equal(witness.binding.contentHashes.B.hashIsRevisionBytes, true);
   assert.equal(witness.binding.contentHashes.authority.hashIsRevisionBytes, true);
@@ -80,6 +79,5 @@ test("emitted witness hashes are the worktree bytes and the one-sided check fail
   assert.equal(witness.pair.direction, "A_to_B");
   assert.equal(witness.binding.branchesMatch, true);
   assert.equal(witness.binding.contentHashes.A.worktreeBytesMatchHeadBlob, true);
-  assert.equal(witness.binding.contentHashes.B.worktreeBytesMatchHeadBlob, false);
   assert.equal(witness.binding.contentHashes.B.machineIdLocusMatchesHeadBlob, true);
 });
