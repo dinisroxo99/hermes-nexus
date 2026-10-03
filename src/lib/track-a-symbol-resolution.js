@@ -11,15 +11,30 @@ const DECLARATION_KINDS = new Set([
   SyntaxKind.VariableDeclaration
 ]);
 
-function notEvaluated(extra = {}) {
+const NOT_ACCEPTED_NOTE =
+  "source-hash match is not full observation binding and is not accepted A1 evidence";
+
+const PROVIDER_ID_NOT_COPIED_NOTE =
+  "provider node id was not validated against the symbol, file, and snapshot and was not copied";
+
+function notEvaluated(extra = {}, providerNode) {
   const result = { status: "not_evaluated", ...extra };
   // Ambiguity and insufficient evidence stay not_evaluated with no stable id.
   if (Object.hasOwn(result, "stableId")) delete result.stableId;
+  if (providerNodeSuppliedId(providerNode)) {
+    const notes = Array.isArray(result.notes) ? result.notes.slice() : [];
+    if (!notes.includes(PROVIDER_ID_NOT_COPIED_NOTE)) notes.push(PROVIDER_ID_NOT_COPIED_NOTE);
+    result.notes = notes;
+  }
   return result;
 }
 
 function isPlainObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function providerNodeSuppliedId(providerNode) {
+  return isPlainObject(providerNode) && Object.hasOwn(providerNode, "id") && providerNode.id != null && providerNode.id !== "";
 }
 
 function sha256Bytes(bytes) {
@@ -54,30 +69,32 @@ function censusDeclarations(sourceFile, name) {
  * Track A1 symbol-resolution producer.
  *
  * Census declarations of `name` in the supplied bytes (including nested).
- * Positive only when census === 1, the whole byte string has no syntactic
- * parse diagnostics, and the caller-supplied binding matches the source sha256.
- * Does not invent provider identities; does not copy repositoryIdentity into
- * repositoryId; does not consult composeEffectiveTaskScope / providers.
+ * Fail closed unless the bytes, source sha256, UTF-8 roundtrip, syntactic
+ * diagnostics, and declaration census are all usable. A census of 1 plus a
+ * matching source sha256 is still not full observation binding and is not
+ * accepted A1 evidence. Provider node ids are never copied. Extra binding
+ * fields are ignored. Does not invent project, repository, worktree, snapshot,
+ * or path identity, and does not consult composeEffectiveTaskScope / providers.
  */
 export function resolveTrackA1(input = {}) {
   const { name, sourceBytes, binding, providerNode } = input;
 
   if (typeof name !== "string" || name.length === 0) {
-    return notEvaluated();
+    return notEvaluated({}, providerNode);
   }
 
   const bytes = toBuffer(sourceBytes);
   if (!bytes) {
-    return notEvaluated();
+    return notEvaluated({}, providerNode);
   }
 
   if (!isPlainObject(binding) || typeof binding.sourceSha256 !== "string" || binding.sourceSha256.length === 0) {
-    return notEvaluated();
+    return notEvaluated({}, providerNode);
   }
 
   const actualSha = sha256Bytes(bytes);
   if (actualSha !== binding.sourceSha256) {
-    return notEvaluated();
+    return notEvaluated({}, providerNode);
   }
 
   const text = bytes.toString("utf8");
@@ -94,7 +111,7 @@ export function resolveTrackA1(input = {}) {
   const sourceFile = project.createSourceFile("synthetic-fixture.ts", text);
   // Coverage: the source file text must be exactly the supplied byte string.
   if (sourceFile.getFullText() !== text) {
-    return notEvaluated();
+    return notEvaluated({}, providerNode);
   }
 
   const program = project.getProgram().compilerObject;
@@ -106,7 +123,7 @@ export function resolveTrackA1(input = {}) {
         wholeByteString: true,
         syntacticDiagnosticCount: syntacticDiagnostics.length
       }
-    });
+    }, providerNode);
   }
 
   const matches = censusDeclarations(sourceFile, name);
@@ -119,26 +136,18 @@ export function resolveTrackA1(input = {}) {
         wholeByteString: true,
         syntacticDiagnosticCount: 0
       }
-    });
+    }, providerNode);
   }
 
-  const result = {
-    status: "positive",
+  // Matching sourceSha256 and census === 1 are not observation binding.
+  // Do not copy providerNode.id or any other provider field. Ignore unknown
+  // binding fields; they are not proof.
+  return notEvaluated({
     census: 1,
     coverage: {
       wholeByteString: true,
       syntacticDiagnosticCount: 0
     },
-    binding: { sourceSha256: binding.sourceSha256 }
-  };
-
-  // Stable id may be copied from one provider node only AFTER census === 1.
-  // If we cannot obtain one without inventing identity, omit it and say so.
-  if (isPlainObject(providerNode) && typeof providerNode.id === "string" && providerNode.id.length > 0) {
-    result.stableId = providerNode.id;
-  } else {
-    result.notes = ["stable id omitted: no provider node id supplied; refusing to invent identity"];
-  }
-
-  return result;
+    notes: [NOT_ACCEPTED_NOTE]
+  }, providerNode);
 }
