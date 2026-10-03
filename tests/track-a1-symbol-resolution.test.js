@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { resolveTrackA1 } from "../src/lib/track-a-symbol-resolution.js";
+import { createProviderSnapshot } from "../src/analyzers/common/analyzer-provider-contract.js";
 
 function sha256Text(text) {
   return createHash("sha256").update(text, "utf8").digest("hex");
@@ -165,4 +166,161 @@ test("6. extra binding fields do not flip a source-hash match to positive", () =
     result.notes.some((note) => note.includes("not accepted A1 evidence")),
     "extra binding fields are still not accepted A1 evidence"
   );
+});
+
+const SYNTHETIC_REPOSITORY_ID = "ab".repeat(32);
+const SYNTHETIC_WORKTREE_ID = "cd".repeat(32);
+const SYNTHETIC_PROJECT_ID = "prj_synthetic";
+const SYNTHETIC_COMMIT_SHA = "11".repeat(20);
+const SYNTHETIC_PATH = "src/example.js";
+
+function syntheticRevision() {
+  return {
+    repositoryId: SYNTHETIC_REPOSITORY_ID,
+    worktreeId: SYNTHETIC_WORKTREE_ID,
+    status: "available",
+    commitSha: SYNTHETIC_COMMIT_SHA,
+    branch: null,
+    dirty: false,
+    isLinkedWorktree: false
+  };
+}
+
+function providerRevision(revision) {
+  return {
+    repositoryId: revision.repositoryId,
+    worktreeId: revision.worktreeId,
+    status: revision.status,
+    commitSha: revision.commitSha,
+    branch: revision.branch,
+    dirty: revision.dirty,
+    isLinkedWorktree: revision.isLinkedWorktree
+  };
+}
+
+function snapshotFromBytes(text, { token, sourceSha256, revision } = {}) {
+  const bytes = Buffer.from(text, "utf8");
+  const hash = sha256Text(text);
+  const rev = revision ?? syntheticRevision();
+  const produced = createProviderSnapshot(
+    { projectId: SYNTHETIC_PROJECT_ID },
+    [{ path: SYNTHETIC_PATH, text }],
+    providerRevision(rev)
+  );
+  return {
+    projectId: SYNTHETIC_PROJECT_ID,
+    path: SYNTHETIC_PATH,
+    sourceSha256: sourceSha256 ?? hash,
+    byteSize: bytes.length,
+    revision: rev,
+    token: token ?? produced.token
+  };
+}
+
+function flipLastHex(token) {
+  const last = token[token.length - 1];
+  return token.slice(0, -1) + (last === "0" ? "1" : "0");
+}
+
+function assertNoIdentityFields(result) {
+  assertNoStableId(result);
+  assert.equal(Object.hasOwn(result, "symbolId"), false);
+  assert.equal(Object.hasOwn(result, "declarationId"), false);
+  assert.notEqual(result.status, "positive");
+  assert.notEqual(result.status, "resolved_unique");
+}
+
+test("7. matching snapshot token for one declaration is still not accepted A1 evidence", () => {
+  const sourceSha256 = sha256Text(FIXTURE_SINGLE_FOO);
+  const snapshot = snapshotFromBytes(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256 },
+    snapshot
+  });
+
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(result.census, 1);
+  assert.equal(result.coverage.wholeByteString, true);
+  assert.equal(result.coverage.syntacticDiagnosticCount, 0);
+  assertNoIdentityFields(result);
+  assert.equal(JSON.stringify(result).includes(snapshot.token), false);
+  assert.ok(Array.isArray(result.notes));
+  assert.ok(
+    result.notes.some((note) =>
+      note.includes("snapshot token matched") &&
+      note.includes("supplied bytes") &&
+      note.includes("not accepted") &&
+      note.includes("declaration identity") &&
+      note.includes("completeness")
+    ),
+    "note must say the snapshot token matched and this is not accepted A1 evidence"
+  );
+});
+
+test("8. flipped snapshot token does not recompute and is not_evaluated", () => {
+  const sourceSha256 = sha256Text(FIXTURE_SINGLE_FOO);
+  const real = snapshotFromBytes(FIXTURE_SINGLE_FOO);
+  const snapshot = { ...real, token: flipLastHex(real.token) };
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256 },
+    snapshot
+  });
+
+  assert.equal(result.status, "not_evaluated");
+  assertNoIdentityFields(result);
+  assert.equal(JSON.stringify(result).includes(real.token), false);
+  assert.equal(JSON.stringify(result).includes(snapshot.token), false);
+  assert.ok(Array.isArray(result.notes));
+  assert.ok(
+    result.notes.some((note) => note.includes("snapshot token") && note.includes("did not recompute")),
+    "note must say the snapshot token did not recompute"
+  );
+});
+
+test("9. snapshot sourceSha256 that is not the hash of the bytes is not_evaluated", () => {
+  const sourceSha256 = sha256Text(FIXTURE_SINGLE_FOO);
+  const snapshot = snapshotFromBytes(FIXTURE_SINGLE_FOO, { sourceSha256: "0".repeat(64) });
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256 },
+    snapshot
+  });
+
+  assert.equal(result.status, "not_evaluated");
+  assertNoIdentityFields(result);
+  assert.equal(Object.hasOwn(result, "census"), false, "a forged snapshot hash must not be ignored in favor of a bytes-only census");
+  assert.equal(JSON.stringify(result).includes(snapshot.token), false);
+  assert.equal(Object.hasOwn(result, "stableId"), false);
+});
+
+test("10. revision with repositoryIdentity and no repositoryId is not_evaluated", () => {
+  const sourceSha256 = sha256Text(FIXTURE_SINGLE_FOO);
+  const revision = syntheticRevision();
+  delete revision.repositoryId;
+  revision.repositoryIdentity = SYNTHETIC_REPOSITORY_ID;
+  const snapshot = {
+    projectId: SYNTHETIC_PROJECT_ID,
+    path: SYNTHETIC_PATH,
+    sourceSha256,
+    byteSize: Buffer.byteLength(FIXTURE_SINGLE_FOO),
+    revision,
+    token: "ee".repeat(32)
+  };
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256 },
+    snapshot
+  });
+
+  assert.equal(result.status, "not_evaluated");
+  assertNoIdentityFields(result);
+  assert.equal(Object.hasOwn(result, "census"), false, "repositoryIdentity must not be ignored in favor of a bytes-only census");
+  assert.equal(JSON.stringify(result).includes(SYNTHETIC_REPOSITORY_ID), false);
+  assert.equal(JSON.stringify(result).includes("repositoryIdentity"), false);
 });

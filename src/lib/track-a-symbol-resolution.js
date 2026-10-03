@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Project, SyntaxKind } from "ts-morph";
+import { createProviderSnapshot } from "../analyzers/common/analyzer-provider-contract.js";
 
 const DECLARATION_KINDS = new Set([
   SyntaxKind.FunctionDeclaration,
@@ -16,6 +17,13 @@ const NOT_ACCEPTED_NOTE =
 
 const PROVIDER_ID_NOT_COPIED_NOTE =
   "provider node id was not validated against the symbol, file, and snapshot and was not copied";
+
+const SNAPSHOT_TOKEN_MISMATCH_NOTE = "snapshot token did not recompute";
+
+const SNAPSHOT_TOKEN_MATCHED_NOTE =
+  "snapshot token matched the supplied bytes but this is not accepted A1 evidence (declaration identity and completeness are not produced here)";
+
+const HEX64 = /^[a-f0-9]{64}$/;
 
 function notEvaluated(extra = {}, providerNode) {
   const result = { status: "not_evaluated", ...extra };
@@ -65,6 +73,64 @@ function censusDeclarations(sourceFile, name) {
   return matches;
 }
 
+
+function snapshotRejection(note) {
+  return note ? { ok: false, note } : { ok: false };
+}
+
+function recomputeSnapshotToken(snapshot, bytes, binding, actualSha) {
+  if (!isPlainObject(snapshot)) return snapshotRejection();
+  if (typeof snapshot.projectId !== "string" || snapshot.projectId.length === 0) return snapshotRejection();
+  if (typeof snapshot.path !== "string" || snapshot.path.length === 0) return snapshotRejection();
+  if (typeof snapshot.sourceSha256 !== "string" || snapshot.sourceSha256.length === 0) return snapshotRejection();
+  if (snapshot.sourceSha256 !== actualSha || snapshot.sourceSha256 !== binding.sourceSha256) return snapshotRejection();
+  if (typeof snapshot.byteSize !== "number" || !Number.isFinite(snapshot.byteSize) || snapshot.byteSize !== bytes.length) {
+    return snapshotRejection();
+  }
+  if (typeof snapshot.token !== "string" || snapshot.token.length === 0) return snapshotRejection();
+
+  const revision = snapshot.revision;
+  if (!isPlainObject(revision)) return snapshotRejection();
+  // repositoryIdentity is not a substitute for repositoryId and must not be projected.
+  if (Object.hasOwn(revision, "repositoryIdentity")) return snapshotRejection();
+  if (typeof revision.repositoryId !== "string" || !HEX64.test(revision.repositoryId)) return snapshotRejection();
+  if (typeof revision.worktreeId !== "string" || !HEX64.test(revision.worktreeId)) return snapshotRejection();
+  if (typeof revision.status !== "string" || revision.status.length === 0) return snapshotRejection();
+  if (typeof revision.commitSha !== "string" || revision.commitSha.length === 0) return snapshotRejection();
+  if (!(revision.branch === null || typeof revision.branch === "string")) return snapshotRejection();
+  if (typeof revision.dirty !== "boolean") return snapshotRejection();
+  if (typeof revision.isLinkedWorktree !== "boolean") return snapshotRejection();
+
+  const text = bytes.toString("utf8");
+  if (!Buffer.from(text, "utf8").equals(bytes)) return snapshotRejection();
+
+  let recomputed;
+  try {
+    // The helper requires file text and recomputes sha256 from those bytes.
+    // Pass repositoryId only so it cannot project repositoryIdentity.
+    recomputed = createProviderSnapshot(
+      { projectId: snapshot.projectId },
+      [{ path: snapshot.path, text }],
+      {
+        status: revision.status,
+        commitSha: revision.commitSha,
+        branch: revision.branch,
+        repositoryId: revision.repositoryId,
+        worktreeId: revision.worktreeId,
+        dirty: revision.dirty,
+        isLinkedWorktree: revision.isLinkedWorktree
+      }
+    );
+  } catch {
+    return snapshotRejection();
+  }
+
+  if (!recomputed || recomputed.token !== snapshot.token) {
+    return snapshotRejection(SNAPSHOT_TOKEN_MISMATCH_NOTE);
+  }
+  return { ok: true };
+}
+
 /**
  * Track A1 symbol-resolution producer.
  *
@@ -77,7 +143,7 @@ function censusDeclarations(sourceFile, name) {
  * or path identity, and does not consult composeEffectiveTaskScope / providers.
  */
 export function resolveTrackA1(input = {}) {
-  const { name, sourceBytes, binding, providerNode } = input;
+  const { name, sourceBytes, binding, providerNode, snapshot } = input;
 
   if (typeof name !== "string" || name.length === 0) {
     return notEvaluated({}, providerNode);
@@ -95,6 +161,15 @@ export function resolveTrackA1(input = {}) {
   const actualSha = sha256Bytes(bytes);
   if (actualSha !== binding.sourceSha256) {
     return notEvaluated({}, providerNode);
+  }
+
+  let snapshotTokenMatched = false;
+  if (snapshot !== undefined) {
+    const checked = recomputeSnapshotToken(snapshot, bytes, binding, actualSha);
+    if (!checked.ok) {
+      return notEvaluated(checked.note ? { notes: [checked.note] } : {}, providerNode);
+    }
+    snapshotTokenMatched = true;
   }
 
   const text = bytes.toString("utf8");
@@ -148,6 +223,6 @@ export function resolveTrackA1(input = {}) {
       wholeByteString: true,
       syntacticDiagnosticCount: 0
     },
-    notes: [NOT_ACCEPTED_NOTE]
+    notes: snapshotTokenMatched ? [NOT_ACCEPTED_NOTE, SNAPSHOT_TOKEN_MATCHED_NOTE] : [NOT_ACCEPTED_NOTE]
   }, providerNode);
 }
