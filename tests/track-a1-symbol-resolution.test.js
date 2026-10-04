@@ -2271,3 +2271,153 @@ test("68. an invalid compactBytes override is not_evaluated before parse and doe
     Buffer.prototype.toString = originalToString;
   }
 });
+
+const NAME_LENGTH_NOTE = "name exceeds 128 characters";
+const NAME_128 = "n".repeat(128);
+const NAME_129 = "n".repeat(129);
+
+function assertNoNameLengthNote(result) {
+  const notes = Array.isArray(result.notes) ? result.notes : [];
+  assert.equal(notes.includes(NAME_LENGTH_NOTE), false);
+  assert.equal(JSON.stringify(result).includes(NAME_LENGTH_NOTE), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+}
+
+function resolveWithoutDecode(sourceBytesList, run) {
+  const watched = sourceBytesList;
+  const originalToString = Buffer.prototype.toString;
+  let decoded = false;
+  Buffer.prototype.toString = function trackNameLengthToString(...args) {
+    if (watched.includes(this)) decoded = true;
+    return originalToString.apply(this, args);
+  };
+  try {
+    const result = run();
+    return { result, decoded };
+  } finally {
+    Buffer.prototype.toString = originalToString;
+  }
+}
+
+test("69. a 129-character name is not_evaluated before the buffer is decoded", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1({
+    name: NAME_129,
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  }));
+
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.deepEqual(result.notes, [NAME_LENGTH_NOTE]);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("70. a 129-character query.name is not_evaluated before the buffer is decoded", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1({
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: { name: NAME_129, domain: parts.query.domain }
+  }));
+
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.deepEqual(result.notes, [NAME_LENGTH_NOTE]);
+  assertContractIdentity(result);
+});
+
+test("71. a 128-character name does not get the length note", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const result = resolveTrackA1({
+    name: NAME_128,
+    sourceBytes: Buffer.from(source, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: { name: NAME_128, domain: parts.query.domain }
+  });
+
+  assert.notEqual(result.status, undefined);
+  assertNoNameLengthNote(result);
+  assert.equal(NAME_128.length, 128);
+});
+
+test("72. an empty name stays rejected without the length note", () => {
+  const result = resolveTrackA1({
+    name: "",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    query: { name: "", domain: SYMBOL_QUERY_DOMAIN }
+  });
+  assert.equal(result.status, "not_evaluated");
+  assertNoNameLengthNote(result);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("73. a 129-character name on two paths is not_evaluated before either buffer is decoded", () => {
+  const fileA = Buffer.from(FIXTURE_SINGLE_FOO, "utf8");
+  const fileB = Buffer.from("export function bar() { return 2; }\n", "utf8");
+  const { result, decoded } = resolveWithoutDecode([fileA, fileB], () => resolveTrackA1({
+    name: NAME_129,
+    files: [
+      { path: PATH_A, sourceBytes: fileA },
+      { path: PATH_B, sourceBytes: fileB }
+    ],
+    task: { id: SYNTHETIC_TASK_ID, paths: [PATH_A, PATH_B] },
+    project: {
+      projectId: SYNTHETIC_PROJECT_ID,
+      rootId: SYNTHETIC_ROOT_ID,
+      relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+    },
+    query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+  }));
+
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.deepEqual(result.notes, [NAME_LENGTH_NOTE]);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+});
+
+test("74. a name of 129 code units is not normalized or trimmed before the length check", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const name = "e\u0301".repeat(64) + "x";
+  assert.equal(name.length, 129);
+  assert.equal(name.normalize("NFC").length < 128, true);
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1({
+    name,
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  }));
+
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [NAME_LENGTH_NOTE]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});

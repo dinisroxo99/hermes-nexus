@@ -1091,6 +1091,11 @@ function resolveTrackA1Body(input = {}) {
     return notEvaluated({}, providerNode);
   }
 
+  const queryName = isPlainObject(query) ? query.name : undefined;
+  if (name.length > 128 || (typeof queryName === "string" && queryName.length > 128)) {
+    return notEvaluated({ notes: ["name exceeds 128 characters"] }, providerNode);
+  }
+
   const earlyScope = resolveTaskPathScope(task);
   if (earlyScope.kind === "multi") {
     return resolveMulti(input, earlyScope.paths);
