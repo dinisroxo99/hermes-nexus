@@ -56,6 +56,20 @@ test("1. single declaration with matching source hash is not accepted A1 evidenc
   assert.equal(result.coverage.wholeByteString, true);
   assert.equal(result.coverage.syntacticDiagnosticCount, 0);
   assertNoStableId(result);
+  {
+    const start = FIXTURE_SINGLE_FOO.indexOf("export function foo");
+    const nameStart = start + "export function ".length;
+    const end = FIXTURE_SINGLE_FOO.indexOf("}", start) + 1;
+    assertQualifyingOccurrences(result, [{
+      source: FIXTURE_SINGLE_FOO,
+      name: "foo",
+      kind: "function",
+      path: null,
+      range: { start, end },
+      nameRange: { start: nameStart, end: nameStart + 3 },
+      text: FIXTURE_SINGLE_FOO.slice(start, end)
+    }]);
+  }
   assert.ok(Array.isArray(result.notes));
   assert.ok(
     result.notes.some((note) =>
@@ -85,6 +99,18 @@ test("2. two declarations including nested: not_evaluated even if provider retur
 
   assert.equal(result.status, "not_evaluated");
   assert.equal(result.census, 1);
+  assert.equal(result.occurrences.length, 1);
+  assert.equal(result.occurrences[0].name, "foo");
+  assert.equal(result.occurrences[0].kind, "function");
+  assert.equal(result.occurrences[0].path, null);
+  assert.equal(
+    FIXTURE_TWO_FOO_NESTED.slice(result.occurrences[0].range.start, result.occurrences[0].range.end).includes("foo()"),
+    true
+  );
+  assert.equal(
+    FIXTURE_TWO_FOO_NESTED.slice(result.occurrences[0].range.start, result.occurrences[0].range.end).includes("class Container"),
+    false
+  );
   assertNoStableId(result);
   assert.equal(JSON.stringify(result).includes("synthetic-provider-node-not-a-real-identity"), false);
 });
@@ -100,6 +126,7 @@ test("3. invalid/truncated source that does not parse: not_evaluated", () => {
   assert.equal(result.status, "not_evaluated");
   assertNoStableId(result);
   assert.ok(result.coverage.syntacticDiagnosticCount > 0);
+  assert.equal(Object.hasOwn(result, "occurrences") ? result.occurrences.length : 0, 0);
 });
 
 test("4. incompatible or omitted binding: not_evaluated", () => {
@@ -109,6 +136,7 @@ test("4. incompatible or omitted binding: not_evaluated", () => {
   });
   assert.equal(omitted.status, "not_evaluated");
   assertNoStableId(omitted);
+  assertNoOccurrencesKey(omitted);
 
   const incompatible = resolveTrackA1({
     name: "foo",
@@ -117,6 +145,7 @@ test("4. incompatible or omitted binding: not_evaluated", () => {
   });
   assert.equal(incompatible.status, "not_evaluated");
   assertNoStableId(incompatible);
+  assertNoOccurrencesKey(incompatible);
 });
 
 test("5. provider node id is not copied and is not treated as a stable id", () => {
@@ -130,6 +159,9 @@ test("5. provider node id is not copied and is not treated as a stable id", () =
 
   assert.equal(result.status, "not_evaluated");
   assert.equal(result.census, 1);
+  assert.equal(result.occurrences.length, 1);
+  assert.equal(result.occurrences[0].kind, "function");
+  assert.equal(result.occurrences[0].path, null);
   assert.ok(result.coverage);
   assertNoStableId(result);
   assert.equal(JSON.stringify(result).includes("symbol_anything"), false);
@@ -157,6 +189,9 @@ test("6. extra binding fields do not flip a source-hash match to positive", () =
 
   assert.equal(result.status, "not_evaluated");
   assert.equal(result.census, 1);
+  assert.equal(result.occurrences.length, 1);
+  assert.equal(result.occurrences[0].name, "foo");
+  assert.equal(result.occurrences[0].kind, "function");
   assert.equal(result.coverage.wholeByteString, true);
   assert.equal(result.coverage.syntacticDiagnosticCount, 0);
   assertNoStableId(result);
@@ -223,6 +258,56 @@ function flipLastHex(token) {
   return token.slice(0, -1) + (last === "0" ? "1" : "0");
 }
 
+
+function utf16Location(text, offset) {
+  let line = 1;
+  let column = 1;
+  for (let i = 0; i < offset; i += 1) {
+    if (text[i] === "\n") {
+      line += 1;
+      column = 1;
+    } else {
+      column += 1;
+    }
+  }
+  return { line, column };
+}
+
+function assertNoOccurrencesKey(result) {
+  assert.equal(Object.hasOwn(result, "occurrences"), false);
+}
+
+function assertOccurrenceIdentityAbsent(occurrence) {
+  assert.equal(Object.hasOwn(occurrence, "stableId"), false);
+  assert.equal(Object.hasOwn(occurrence, "symbolId"), false);
+  assert.equal(Object.hasOwn(occurrence, "declarationId"), false);
+}
+
+function assertQualifyingOccurrences(result, expected) {
+  assert.ok(Array.isArray(result.occurrences));
+  assert.equal(result.occurrences.length, expected.length);
+  for (let i = 0; i < expected.length; i += 1) {
+    const occurrence = result.occurrences[i];
+    const spec = expected[i];
+    assert.equal(occurrence.name, spec.name);
+    assert.equal(occurrence.kind, spec.kind);
+    assert.equal(occurrence.path, spec.path);
+    assert.deepEqual(occurrence.range, spec.range);
+    assert.deepEqual(occurrence.nameRange, spec.nameRange);
+    assert.deepEqual(occurrence.location, {
+      start: utf16Location(spec.source, spec.range.start),
+      end: utf16Location(spec.source, spec.range.end)
+    });
+    assert.equal(spec.source.slice(occurrence.nameRange.start, occurrence.nameRange.end), spec.name);
+    assert.equal(spec.source.slice(occurrence.range.start, occurrence.range.end), spec.text);
+    assertOccurrenceIdentityAbsent(occurrence);
+    assert.deepEqual(
+      Object.keys(occurrence).sort(),
+      ["kind", "location", "name", "nameRange", "path", "range"]
+    );
+  }
+}
+
 function assertNoIdentityFields(result) {
   assertNoStableId(result);
   assert.equal(Object.hasOwn(result, "symbolId"), false);
@@ -243,6 +328,9 @@ test("7. matching snapshot token for one declaration is still not accepted A1 ev
 
   assert.equal(result.status, "not_evaluated");
   assert.equal(result.census, 1);
+  assert.equal(result.occurrences.length, 1);
+  assert.equal(result.occurrences[0].kind, "function");
+  assert.equal(result.occurrences[0].path, null);
   assert.equal(result.coverage.wholeByteString, true);
   assert.equal(result.coverage.syntacticDiagnosticCount, 0);
   assertNoIdentityFields(result);
@@ -273,6 +361,7 @@ test("8. flipped snapshot token does not recompute and is not_evaluated", () => 
 
   assert.equal(result.status, "not_evaluated");
   assertNoIdentityFields(result);
+  assertNoOccurrencesKey(result);
   assert.equal(JSON.stringify(result).includes(real.token), false);
   assert.equal(JSON.stringify(result).includes(snapshot.token), false);
   assert.ok(Array.isArray(result.notes));
@@ -294,6 +383,7 @@ test("9. snapshot sourceSha256 that is not the hash of the bytes is not_evaluate
 
   assert.equal(result.status, "not_evaluated");
   assertNoIdentityFields(result);
+  assertNoOccurrencesKey(result);
   assert.equal(Object.hasOwn(result, "census"), false, "a forged snapshot hash must not be ignored in favor of a bytes-only census");
   assert.equal(JSON.stringify(result).includes(snapshot.token), false);
   assert.equal(Object.hasOwn(result, "stableId"), false);
@@ -321,6 +411,7 @@ test("10. revision with repositoryIdentity and no repositoryId is not_evaluated"
 
   assert.equal(result.status, "not_evaluated");
   assertNoIdentityFields(result);
+  assertNoOccurrencesKey(result);
   assert.equal(Object.hasOwn(result, "census"), false, "repositoryIdentity must not be ignored in favor of a bytes-only census");
   assert.equal(JSON.stringify(result).includes(SYNTHETIC_REPOSITORY_ID), false);
   assert.equal(JSON.stringify(result).includes("repositoryIdentity"), false);
@@ -391,6 +482,7 @@ test("11. only a nested function foo is outside the domain: census 0 and not_eva
   assert.equal(result.status, "not_evaluated");
   assert.notEqual(result.status, "not_found");
   assert.equal(result.census, 0);
+  assert.deepEqual(result.occurrences, []);
   assertNoStableId(result);
   assertNoIdentityFields(result);
 });
@@ -407,6 +499,16 @@ test("12. two top-level function declarations named foo: census 2 and ambiguous"
   assert.notEqual(result.status, "not_evaluated");
   assert.notEqual(result.status, "not_found");
   assert.equal(result.census, 2);
+  assert.equal(result.occurrences.length, 2);
+  assert.equal(result.occurrences[0].name, "foo");
+  assert.equal(result.occurrences[1].name, "foo");
+  assert.equal(result.occurrences[0].kind, "function");
+  assert.equal(result.occurrences[1].kind, "function");
+  assert.equal(result.occurrences[0].path, null);
+  assert.equal(result.occurrences[1].path, null);
+  assert.ok(result.occurrences[0].range.start < result.occurrences[1].range.start);
+  assertOccurrenceIdentityAbsent(result.occurrences[0]);
+  assertOccurrenceIdentityAbsent(result.occurrences[1]);
   assert.equal(result.coverage.wholeByteString, true);
   assert.equal(result.coverage.syntacticDiagnosticCount, 0);
   assertNoStableId(result);
@@ -434,6 +536,11 @@ test("13. top-level foo plus destructuring or namespace stays not_evaluated as a
     assert.notEqual(result.status, "not_found");
     assert.notEqual(result.status, "positive");
     assert.equal(result.census, 1);
+    assert.equal(result.occurrences.length, 1);
+    assert.equal(result.occurrences[0].name, "foo");
+    assert.equal(result.occurrences[0].kind, "function");
+    assert.equal(result.occurrences[0].path, null);
+    assertOccurrenceIdentityAbsent(result.occurrences[0]);
     assertNoStableId(result);
     assertNoIdentityFields(result);
     assert.ok(Array.isArray(result.notes));
@@ -461,6 +568,11 @@ test("14. two top-level foo functions plus a destructuring binding: ambiguous, i
   assert.notEqual(result.status, "not_evaluated");
   assert.notEqual(result.status, "not_found");
   assert.equal(result.census, 2);
+  assert.equal(result.occurrences.length, 2);
+  assert.equal(result.occurrences[0].kind, "function");
+  assert.equal(result.occurrences[1].kind, "function");
+  assert.equal(result.occurrences[0].path, null);
+  assert.ok(result.occurrences[0].range.end <= result.occurrences[1].range.start);
   assert.equal(result.coverage.wholeByteString, true);
   assert.equal(result.coverage.syntacticDiagnosticCount, 0);
   assertNoStableId(result);
@@ -497,6 +609,7 @@ test("15. one path + truncated invalid source => partial with parse completeness
   assert.equal(result.status, "partial");
   assert.notEqual(result.status, "not_found");
   assert.notEqual(result.status, "resolved_unique");
+  assert.equal(Object.hasOwn(result, "occurrences") ? result.occurrences.length : 0, 0);
   assert.ok(result.coverage.syntacticDiagnosticCount > 0);
   assert.equal(result.completeness.parse, "partial");
   assert.equal(result.completeness.output, "not_evaluated");
@@ -518,6 +631,11 @@ test("16. one path + destructuring and no second qualifying declaration => parti
   assert.notEqual(result.status, "not_found");
   assert.notEqual(result.status, "resolved_unique");
   assert.equal(result.census, 1);
+  assert.equal(result.occurrences.length, 1);
+  assert.equal(result.occurrences[0].name, "foo");
+  assert.equal(result.occurrences[0].kind, "function");
+  assert.equal(result.occurrences[0].path, SYNTHETIC_PATH);
+  assertOccurrenceIdentityAbsent(result.occurrences[0]);
   assert.equal(result.completeness.enumeration, "partial");
   assert.equal(result.completeness.output, "not_evaluated");
   assertNoIdentityFields(result);
@@ -542,6 +660,11 @@ test("17. one path + two top-level foo declarations => ambiguous, not partial", 
   assert.equal(result.status, "ambiguous");
   assert.notEqual(result.status, "partial");
   assert.equal(result.census, 2);
+  assert.equal(result.occurrences.length, 2);
+  assert.equal(result.occurrences[0].path, SYNTHETIC_PATH);
+  assert.equal(result.occurrences[1].path, SYNTHETIC_PATH);
+  assert.equal(result.occurrences[0].kind, "function");
+  assert.equal(result.occurrences[1].kind, "function");
   assert.equal(result.completeness.parse, "complete");
   assert.equal(result.completeness.enumeration, "complete");
   assert.equal(result.completeness.output, "not_evaluated");
@@ -561,6 +684,11 @@ test("18. one path + one clean top-level foo, no snapshot => not_evaluated with 
   assert.notEqual(result.status, "resolved_unique");
   assert.notEqual(result.status, "not_found");
   assert.equal(result.census, 1);
+  assert.equal(result.occurrences.length, 1);
+  assert.equal(result.occurrences[0].name, "foo");
+  assert.equal(result.occurrences[0].kind, "function");
+  assert.equal(result.occurrences[0].path, SYNTHETIC_PATH);
+  assertOccurrenceIdentityAbsent(result.occurrences[0]);
   assert.equal(result.completeness.parse, "complete");
   assert.equal(result.completeness.output, "not_evaluated");
   assert.equal(result.completeness.source, "not_evaluated");
@@ -590,6 +718,7 @@ test("19. absolute or parent-segment paths => not_evaluated", () => {
     assert.notEqual(result.status, "partial");
     assert.notEqual(result.status, "resolved_unique");
     assertNoIdentityFields(result);
+    assertNoOccurrencesKey(result);
   }
 });
 
@@ -607,6 +736,7 @@ test("20. paths length 2 => not_evaluated without parse claim of resolved_unique
   assert.notEqual(result.status, "partial");
   assert.equal(Object.hasOwn(result, "census"), false, "must not parse when more than one path is supplied");
   assertNoIdentityFields(result);
+  assertNoOccurrencesKey(result);
   assert.ok(Array.isArray(result.notes));
   assert.ok(
     result.notes.some((note) =>
@@ -626,6 +756,7 @@ test("21. inputs that omit task.paths keep status and do not gain completeness",
 
   assert.equal(result.status, "not_evaluated");
   assert.equal(Object.hasOwn(result, "completeness"), false);
+  assert.equal(Object.hasOwn(result, "occurrences") ? result.occurrences.length : 0, 0);
 });
 
 test("22. mismatched snapshot token with task.paths stays not_evaluated, not partial", () => {
@@ -647,5 +778,230 @@ test("22. mismatched snapshot token with task.paths stays not_evaluated, not par
 
   assert.equal(result.status, "not_evaluated");
   assert.notEqual(result.status, "partial");
+  assertNoIdentityFields(result);
+  assertNoOccurrencesKey(result);
+});
+
+const FIXTURE_FOO_AT_START = [
+  "function foo() {",
+  "  return 1;",
+  "}",
+  ""
+].join("\n");
+
+const FIXTURE_FOO_MULTILINE = [
+  "function foo(",
+  "  value",
+  ") {",
+  "  return value;",
+  "}",
+  ""
+].join("\n");
+
+const FIXTURE_TOP_LEVEL_AND_NESTED_FOO = [
+  "function foo() {",
+  "  return 1;",
+  "}",
+  "function outer() {",
+  "  function foo() {",
+  "    return 2;",
+  "  }",
+  "  return 0;",
+  "}",
+  "class Container {",
+  "  foo() {",
+  "    return 3;",
+  "  }",
+  "}",
+  ""
+].join("\n");
+
+const FIXTURE_TWO_FOO_AT_START = [
+  "function foo() {",
+  "  return 1;",
+  "}",
+  "function foo() {",
+  "  return 2;",
+  "}",
+  ""
+].join("\n");
+
+test("23. function foo at the start of the file records one occurrence and stays not_evaluated", () => {
+  const source = FIXTURE_FOO_AT_START;
+  const sourceSha256 = sha256Text(source);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(source, "utf8"),
+    binding: { sourceSha256 }
+  });
+  const start = 0;
+  const nameStart = source.indexOf("foo");
+  const end = source.indexOf("}") + 1;
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(result.census, 1);
+  assertNoIdentityFields(result);
+  assertQualifyingOccurrences(result, [{
+    source,
+    name: "foo",
+    kind: "function",
+    path: null,
+    range: { start, end },
+    nameRange: { start: nameStart, end: nameStart + 3 },
+    text: source.slice(start, end)
+  }]);
+  assert.deepEqual(result.occurrences[0].location.start, { line: 1, column: 1 });
+  assert.equal(JSON.stringify(result).includes("resolved_unique"), false);
+  assert.equal(JSON.stringify(result).includes("symbolId"), false);
+  assert.equal(JSON.stringify(result).includes("declarationId"), false);
+  assert.equal(JSON.stringify(result).includes("stableId"), false);
+});
+
+test("24. two top-level function foo declarations record two occurrences and stay ambiguous", () => {
+  const source = FIXTURE_TWO_FOO_AT_START;
+  const sourceSha256 = sha256Text(source);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(source, "utf8"),
+    binding: { sourceSha256 }
+  });
+  const firstStart = 0;
+  const firstName = source.indexOf("foo");
+  const firstEnd = source.indexOf("}") + 1;
+  const secondStart = source.indexOf("function foo", firstEnd);
+  const secondName = source.indexOf("foo", secondStart);
+  const secondEnd = source.indexOf("}", secondStart) + 1;
+  assert.equal(result.status, "ambiguous");
+  assert.equal(result.census, 2);
+  assertNoIdentityFields(result);
+  assert.equal(Object.hasOwn(result, "symbolId"), false);
+  assert.equal(Object.hasOwn(result, "declarationId"), false);
+  assertQualifyingOccurrences(result, [
+    {
+      source,
+      name: "foo",
+      kind: "function",
+      path: null,
+      range: { start: firstStart, end: firstEnd },
+      nameRange: { start: firstName, end: firstName + 3 },
+      text: source.slice(firstStart, firstEnd)
+    },
+    {
+      source,
+      name: "foo",
+      kind: "function",
+      path: null,
+      range: { start: secondStart, end: secondEnd },
+      nameRange: { start: secondName, end: secondName + 3 },
+      text: source.slice(secondStart, secondEnd)
+    }
+  ]);
+});
+
+test("25. nested function and method named foo are not extra occurrences", () => {
+  const source = FIXTURE_TOP_LEVEL_AND_NESTED_FOO;
+  const sourceSha256 = sha256Text(source);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(source, "utf8"),
+    binding: { sourceSha256 }
+  });
+  const start = 0;
+  const nameStart = source.indexOf("foo");
+  const end = source.indexOf("}") + 1;
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(result.census, 1);
+  assertNoIdentityFields(result);
+  assertQualifyingOccurrences(result, [{
+    source,
+    name: "foo",
+    kind: "function",
+    path: null,
+    range: { start, end },
+    nameRange: { start: nameStart, end: nameStart + 3 },
+    text: source.slice(start, end)
+  }]);
+  assert.equal(result.occurrences.length, 1);
+});
+
+test("26. comment-free multiline function declaration records the whole node", () => {
+  const source = FIXTURE_FOO_MULTILINE;
+  const sourceSha256 = sha256Text(source);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(source, "utf8"),
+    binding: { sourceSha256 }
+  });
+  const start = 0;
+  const nameStart = source.indexOf("foo");
+  const end = source.lastIndexOf("}") + 1;
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(result.census, 1);
+  assertNoIdentityFields(result);
+  assertQualifyingOccurrences(result, [{
+    source,
+    name: "foo",
+    kind: "function",
+    path: null,
+    range: { start, end },
+    nameRange: { start: nameStart, end: nameStart + 3 },
+    text: source.slice(start, end)
+  }]);
+  assert.equal(result.occurrences[0].location.start.line, 1);
+  assert.equal(result.occurrences[0].location.start.column, 1);
+  assert.ok(result.occurrences[0].location.end.line > result.occurrences[0].location.start.line);
+});
+
+test("27. truncated source with one task path stays partial and has no occurrence", () => {
+  const sourceSha256 = sha256Text(FIXTURE_TRUNCATED);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_TRUNCATED, "utf8"),
+    binding: { sourceSha256 },
+    task: TASK_PATH_SINGLE
+  });
+
+  assert.equal(result.status, "partial");
+  assert.equal(Object.hasOwn(result, "occurrences") ? result.occurrences.length : 0, 0);
+  assertNoIdentityFields(result);
+});
+
+test("28. qualifying kinds are function, class, interface, type, enum, and variable", () => {
+  const cases = [
+    ["function foo() {}\n", "function", 0, "function foo() {}".length],
+    ["class foo {}\n", "class", 0, "class foo {}".length],
+    ["interface foo {}\n", "interface", 0, "interface foo {}".length],
+    ["type foo = number;\n", "type", 0, "type foo = number;".length],
+    ["enum foo { A }\n", "enum", 0, "enum foo { A }".length],
+    ["const foo = 1;\n", "variable", "const ".length, "const foo = 1".length]
+  ];
+  for (const [source, kind, start, end] of cases) {
+    const nameStart = source.indexOf("foo");
+    const result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: sha256Text(source) }
+    });
+    assert.equal(result.status, "not_evaluated");
+    assertNoIdentityFields(result);
+    assertQualifyingOccurrences(result, [{
+      source,
+      name: "foo",
+      kind,
+      path: null,
+      range: { start, end },
+      nameRange: { start: nameStart, end: nameStart + 3 },
+      text: source.slice(start, end)
+    }]);
+  }
+});
+
+test("29. bad name returns before parse and does not gain an occurrence", () => {
+  const result = resolveTrackA1({
+    name: "",
+    sourceBytes: Buffer.from(FIXTURE_FOO_AT_START, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_FOO_AT_START) }
+  });
+  assert.equal(result.status, "not_evaluated");
+  assertNoOccurrencesKey(result);
   assertNoIdentityFields(result);
 });

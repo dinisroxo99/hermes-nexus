@@ -149,6 +149,44 @@ function censusDeclarations(sourceFile, name) {
 }
 
 
+
+const DECLARATION_KIND = new Map([
+  [SyntaxKind.FunctionDeclaration, "function"],
+  [SyntaxKind.ClassDeclaration, "class"],
+  [SyntaxKind.InterfaceDeclaration, "interface"],
+  [SyntaxKind.TypeAliasDeclaration, "type"],
+  [SyntaxKind.EnumDeclaration, "enum"],
+  [SyntaxKind.VariableDeclaration, "variable"]
+]);
+
+function occurrencePoint(sourceFile, offset) {
+  const point = sourceFile.getLineAndColumnAtPos(offset);
+  return { line: point.line, column: point.column };
+}
+
+function occurrenceFromDeclaration(node, sourceFile, path) {
+  const nameNode = node.getNameNode();
+  const start = node.getStart();
+  const end = node.getEnd();
+  const nameStart = nameNode.getStart();
+  const nameEnd = nameNode.getEnd();
+  return {
+    name: nameNode.getText(),
+    kind: DECLARATION_KIND.get(node.getKind()),
+    path,
+    range: { start, end },
+    nameRange: { start: nameStart, end: nameEnd },
+    location: {
+      start: occurrencePoint(sourceFile, start),
+      end: occurrencePoint(sourceFile, end)
+    }
+  };
+}
+
+function qualifyingOccurrences(matches, sourceFile, path) {
+  return matches.map((node) => occurrenceFromDeclaration(node, sourceFile, path));
+}
+
 function snapshotRejection(note) {
   return note ? { ok: false, note } : { ok: false };
 }
@@ -263,7 +301,10 @@ function withCompleteness(extra, completeness) {
  * diagnostics, and declaration census are all usable. Two or more qualifying
  * direct declarations are ambiguous even when the snapshot is absent or an
  * unsupported form limits completeness; that result keeps census and coverage
- * and does not emit stable, symbol, or declaration ids. A census of 0 or 1,
+ * and does not emit stable, symbol, or declaration ids. A clean parse records
+ * each qualifying direct declaration as an occurrence (name, kind, optional
+ * single task path, declaration range, name range, and location) and still
+ * attaches no identity. Parse diagnostics contribute no occurrence records. A census of 0 or 1,
  * including a matching source sha256, stays not_evaluated and is still not
  * full observation binding and is not accepted A1 evidence. When task.paths
  * supplies exactly one relative path, incomplete parse or unsupported forms
@@ -399,6 +440,8 @@ export function resolveTrackA1(input = {}) {
 
   const matches = censusDeclarations(sourceFile, name);
   const census = matches.length;
+  const occurrencePath = pathScoped ? pathScope.path : null;
+  const occurrences = qualifyingOccurrences(matches, sourceFile, occurrencePath);
   const coverage = {
     wholeByteString: true,
     syntacticDiagnosticCount: 0
@@ -418,7 +461,7 @@ export function resolveTrackA1(input = {}) {
     if (snapshotTokenMatched) notes.push(SNAPSHOT_TOKEN_MATCHED_NOTE);
     if (census >= 2) {
       notes.push(AMBIGUOUS_DIRECT_NOTE);
-      const extra = { census, coverage, notes };
+      const extra = { census, coverage, notes, occurrences };
       return ambiguous(
         completeness ? withCompleteness(extra, completeness) : extra,
         providerNode
@@ -426,14 +469,15 @@ export function resolveTrackA1(input = {}) {
     }
     if (pathScoped) {
       return partial(
-        withCompleteness({ census, coverage, notes }, completeness),
+        withCompleteness({ census, coverage, notes, occurrences }, completeness),
         providerNode
       );
     }
     return notEvaluated({
       census,
       coverage,
-      notes
+      notes,
+      occurrences
     }, providerNode);
   }
 
@@ -441,7 +485,8 @@ export function resolveTrackA1(input = {}) {
     const extra = {
       census,
       coverage,
-      notes: [AMBIGUOUS_DIRECT_NOTE]
+      notes: [AMBIGUOUS_DIRECT_NOTE],
+      occurrences
     };
     return ambiguous(
       completeness ? withCompleteness(extra, completeness) : extra,
@@ -452,7 +497,7 @@ export function resolveTrackA1(input = {}) {
   if (census !== 1) {
     const notes = [];
     if (pathScoped) notes.push(OUTPUT_COVERAGE_INCOMPLETE_NOTE);
-    const extra = notes.length > 0 ? { census, coverage, notes } : { census, coverage };
+    const extra = notes.length > 0 ? { census, coverage, notes, occurrences } : { census, coverage, occurrences };
     return notEvaluated(
       completeness ? withCompleteness(extra, completeness) : extra,
       providerNode
@@ -466,7 +511,8 @@ export function resolveTrackA1(input = {}) {
   const extra = {
     census: 1,
     coverage,
-    notes
+    notes,
+    occurrences
   };
   return notEvaluated(
     completeness ? withCompleteness(extra, completeness) : extra,
