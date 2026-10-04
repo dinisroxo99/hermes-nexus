@@ -1968,3 +1968,68 @@ test("57. an unsupported form in one of two paths blocks resolved_unique", () =>
   assert.deepEqual(result.pathRecords.map((record) => record.parse), ["complete", "complete"]);
   assert.equal(result.status, "partial");
 });
+
+const PER_FILE_BYTE_CEILING = 131072;
+
+function sourceOfByteLength(byteLength) {
+  const head = "export function foo() {\n";
+  const bytes = Buffer.alloc(byteLength, 0x20);
+  bytes.write(head, 0, "utf8");
+  return bytes;
+}
+
+test("58. 131073 bytes with one task path and an otherwise full binding is not_evaluated before parse", () => {
+  const bytes = sourceOfByteLength(PER_FILE_BYTE_CEILING + 1);
+  const sourceSha256 = sha256Text(bytes.toString("utf8"));
+  const base = fullBindingParts(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: bytes,
+    binding: { sourceSha256 },
+    snapshot: {
+      projectId: base.snapshot.projectId,
+      path: base.snapshot.path,
+      sourceSha256,
+      byteSize: bytes.length,
+      revision: base.snapshot.revision,
+      token: base.snapshot.token
+    },
+    task: base.task,
+    project: base.project,
+    query: base.query
+  });
+
+  assert.equal(result.status, "not_evaluated");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.notEqual(result.status, "not_found");
+  assert.notEqual(result.status, "partial");
+  assert.notEqual(result.status, "ambiguous");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Array.isArray(result.notes), true);
+  assert.equal(result.notes.some((note) => note.includes("byte ceiling")), true);
+  for (const note of result.notes) {
+    assert.equal(note.includes("\u0000"), false);
+    assert.equal(note.includes("export function"), false);
+    assert.equal(note.length <= 160, true);
+  }
+  assert.equal(JSON.stringify(result).includes("resolved_unique"), false);
+});
+
+test("59. exactly 131072 bytes is not rejected for the source byte ceiling", () => {
+  const bytes = sourceOfByteLength(PER_FILE_BYTE_CEILING);
+  const text = bytes.toString("utf8");
+  const parts = fullBindingParts(text);
+  const result = resolveWithBinding(text, parts);
+  assert.notEqual(result.status, "resolved_unique");
+  const serialized = JSON.stringify(result);
+  assert.equal(serialized.includes("byte ceiling"), false);
+  assert.equal(serialized.includes("resolved_unique"), false);
+});
+
+test("60. existing small resolved_unique fixture stays resolved_unique", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const result = resolveWithBinding(source, parts);
+  assert.equal(result.status, "resolved_unique");
+  assert.ok(Buffer.byteLength(source) < PER_FILE_BYTE_CEILING);
+});

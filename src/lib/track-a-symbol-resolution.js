@@ -88,6 +88,30 @@ const SINGLE_PATH_ONLY_NOTE =
 const OUTPUT_COVERAGE_INCOMPLETE_NOTE =
   "output coverage is not complete, so this is neither not_found nor resolved_unique";
 
+const MAX_TRACK_A1_FILE_UTF8_BYTES = 131072;
+const MAX_TRACK_A1_TOTAL_SOURCE_BYTES = 4194304;
+const SOURCE_BYTE_CEILING_NOTE = "source byte ceiling was exceeded";
+
+function exceedsSourceByteCeiling(byteLengths) {
+  let total = 0;
+  for (const byteLength of byteLengths) {
+    if (byteLength > MAX_TRACK_A1_FILE_UTF8_BYTES) return true;
+    total += byteLength;
+    if (total > MAX_TRACK_A1_TOTAL_SOURCE_BYTES) return true;
+  }
+  return false;
+}
+
+function sourceByteCeilingResult(providerNode) {
+  return notEvaluated(
+    withCompleteness(
+      { notes: [SOURCE_BYTE_CEILING_NOTE] },
+      buildCompleteness()
+    ),
+    providerNode
+  );
+}
+
 const HEX64 = /^[a-f0-9]{64}$/;
 
 function stripIdentityFields(result) {
@@ -479,6 +503,9 @@ function withCompleteness(extra, completeness) {
  * (complete only with zero syntactic diagnostics on that path), enumeration
  * (partial only when that path has a direct unsupported form), and matched
  * (qualifying direct declarations of the requested name in that path).
+ * A file over 131072 UTF-8 bytes, or more than 4194304 source bytes across
+ * the requested files, is not_evaluated before createSourceFile. That result
+ * has a bounded note and no pathRecords.
  * Paths rejected before parse are not given pathRecords.
  */
 
@@ -856,6 +883,9 @@ function resolveMulti(input, paths) {
       providerNode
     );
   }
+  if (exceedsSourceByteCeiling(ordered.map((file) => file.bytes.length))) {
+    return sourceByteCeilingResult(providerNode);
+  }
 
   const combinedSha = sha256Bytes(Buffer.concat(ordered.map((file) => file.bytes)));
   if (!isPlainObject(binding) || typeof binding.sourceSha256 !== "string" || binding.sourceSha256.length === 0) {
@@ -1051,6 +1081,9 @@ export function resolveTrackA1(input = {}) {
   const bytes = toBuffer(sourceBytes);
   if (!bytes) {
     return notEvaluated({}, providerNode);
+  }
+  if (exceedsSourceByteCeiling([bytes.length])) {
+    return sourceByteCeilingResult(providerNode);
   }
 
   if (!isPlainObject(binding) || typeof binding.sourceSha256 !== "string" || binding.sourceSha256.length === 0) {
