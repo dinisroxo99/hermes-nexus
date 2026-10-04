@@ -3280,3 +3280,160 @@ test("116. a shallow request does not get the visited JSON values note", () => {
   assert.equal(result.status, "resolved_unique");
   assertNoVisitedJsonValuesNote(result);
 });
+
+const INSPECTED_ENTRY_NOTE = 'inspected entry ceiling was reached';
+const USUAL_OTHER_LINE = 'export function other() { return 1; }\n';
+const USUAL_FOO_LINE = 'export function foo() { return 1; }\n';
+
+function chunkUsualFunctions(total, line) {
+  const chunks = [];
+  let remaining = total;
+  let index = 0;
+  while (remaining > 0) {
+    let count = 0;
+    let size = 0;
+    while (count < remaining && size + line.length <= 131072) {
+      size += line.length;
+      count += 1;
+    }
+    chunks.push(['src/fn' + index + '.js', line.repeat(count)]);
+    remaining -= count;
+    index += 1;
+  }
+  return chunks;
+}
+
+test('117. 20001 top-level functions stop before the last foo', () => {
+  const ordered = chunkUsualFunctions(20000, USUAL_OTHER_LINE);
+  ordered.push(['src/fn-last.js', USUAL_FOO_LINE]);
+  const parts = multiPathBinding(ordered);
+  const result = resolveAcrossPaths(ordered, parts);
+
+  assert.notEqual(result.status, 'resolved_unique');
+  assert.equal(result.status, 'partial');
+  assert.notEqual(result.status, 'not_found');
+  assert.equal(result.census, 0);
+  assert.equal(result.occurrences.some((item) => item.name === 'foo'), false);
+  assert.equal(result.notes.includes(INSPECTED_ENTRY_NOTE), true);
+  assert.equal(result.completeness.enumeration, 'partial');
+  assert.notEqual(result.completeness.output, 'complete');
+  assert.equal(result.counts.exactMatchCount, null);
+  assert.equal(result.counts.matchedLowerBound, result.counts.retained);
+  assert.equal(result.counts.processed, result.counts.requested);
+  assert.equal(containsNumber(result, 20001), false);
+});
+
+test('118. exactly 20000 non-matching functions stay not_found without the inspected note', () => {
+  const ordered = chunkUsualFunctions(20000, USUAL_OTHER_LINE);
+  const parts = multiPathBinding(ordered);
+  const result = resolveAcrossPaths(ordered, parts);
+
+  assert.equal(result.status, 'not_found');
+  assert.notEqual(result.status, 'partial');
+  assert.equal(result.completeness.enumeration, 'complete');
+  assert.equal(result.notes.includes(INSPECTED_ENTRY_NOTE), false);
+  assert.equal(result.counts.exactMatchCount, 0);
+  assert.equal(result.counts.matchedLowerBound, result.counts.retained);
+  assert.equal(result.counts.processed, result.counts.requested);
+  assert.equal(containsNumber(result, 20001), false);
+});
+
+function declaratorNames(count) {
+  const first = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ' + String.fromCharCode(36) + '_';
+  const rest = first + '0123456789';
+  const names = [];
+  const reserved = new Set(['break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do', 'else', 'enum', 'export', 'extends', 'false', 'finally', 'for', 'function', 'if', 'implements', 'import', 'in', 'instanceof', 'interface', 'let', 'new', 'null', 'package', 'private', 'protected', 'public', 'return', 'static', 'super', 'switch', 'this', 'throw', 'true', 'try', 'typeof', 'var', 'void', 'while', 'with', 'yield', 'await', 'of', 'as', 'any', 'type', 'get', 'set', 'async', 'from', 'namespace', 'module', 'declare', 'abstract', 'readonly', 'require', 'constructor', 'number', 'string', 'boolean', 'symbol', 'undefined', 'never', 'unknown', 'object', 'asserts', 'infer', 'keyof', 'unique', 'is']);
+  const push = (name) => {
+    if (name === 'foo' || reserved.has(name)) return;
+    names.push(name);
+  };
+  for (let i = 0; i < first.length; i += 1) push(first[i]);
+  for (let i = 0; i < first.length && names.length < count; i += 1) {
+    for (let j = 0; j < rest.length && names.length < count; j += 1) {
+      push(first[i] + rest[j]);
+    }
+  }
+  for (let i = 0; i < first.length && names.length < count; i += 1) {
+    for (let j = 0; j < rest.length && names.length < count; j += 1) {
+      for (let k = 0; k < rest.length && names.length < count; k += 1) {
+        push(first[i] + rest[j] + rest[k]);
+      }
+    }
+  }
+  return names;
+}
+
+test('119. a 20000-declarator statement does not inspect the last foo', () => {
+  const names = declaratorNames(19999);
+  names.push('foo');
+  const source = 'export const ' + names.map((name) => name + '=1').join(',') + ';\n';
+  const parts = fullBindingParts(source);
+  const result = resolveWithBinding(source, parts);
+
+  assert.equal(result.status, 'partial');
+  assert.notEqual(result.status, 'resolved_unique');
+  assert.notEqual(result.status, 'not_found');
+  assert.equal(result.census, 0);
+  assert.equal(result.occurrences.some((item) => item.name === 'foo'), false);
+  assert.equal(result.notes.includes(INSPECTED_ENTRY_NOTE), true);
+  assert.equal(result.completeness.enumeration, 'partial');
+  assert.equal(result.counts.exactMatchCount, null);
+  assert.equal(result.counts.matchedLowerBound, result.counts.retained);
+  assert.equal(containsNumber(result, 20001), false);
+});
+
+test('120. 257 top-level foo functions do not get the inspected entry note', () => {
+  const result = resolveRepeatedFoo(257);
+
+  assert.equal(result.status, 'ambiguous');
+  assert.equal(result.census, 256);
+  assert.equal(result.notes.includes(RETAINED_MATCH_NOTE), true);
+  assert.equal(result.notes.includes(INSPECTED_ENTRY_NOTE), false);
+  assert.equal(containsNumber(result, 257), false);
+});
+
+test('121. retained and inspected ceilings both leave notes', () => {
+  const lines = [];
+  for (let index = 0; index < 256; index += 1) lines.push(USUAL_FOO_LINE);
+  for (let index = 0; index < 19743; index += 1) lines.push(USUAL_OTHER_LINE);
+  lines.push(USUAL_FOO_LINE);
+  lines.push(USUAL_OTHER_LINE);
+  const ordered = [];
+  let fileIndex = 0;
+  let buf = '';
+  for (const line of lines) {
+    if (buf.length + line.length > 131072) {
+      ordered.push(['src/both' + fileIndex + '.js', buf]);
+      fileIndex += 1;
+      buf = '';
+    }
+    buf += line;
+  }
+  if (buf.length > 0) ordered.push(['src/both' + fileIndex + '.js', buf]);
+  const texts = ordered.map((entry) => entry[1]);
+  const result = resolveTrackA1({
+    name: 'foo',
+    files: ordered.map(([path, text]) => ({ path, sourceBytes: Buffer.from(text, 'utf8') })),
+    binding: { sourceSha256: sha256Text(texts.join('')) },
+    task: { id: SYNTHETIC_TASK_ID, paths: ordered.map((entry) => entry[0]) },
+    project: {
+      projectId: SYNTHETIC_PROJECT_ID,
+      rootId: SYNTHETIC_ROOT_ID,
+      relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+    },
+    query: { name: 'foo', domain: SYMBOL_QUERY_DOMAIN },
+    limits: { compactBytes: 131072 }
+  });
+
+  assert.equal(result.status, 'ambiguous');
+  assert.equal(result.census, 256);
+  assert.equal(result.occurrences.length, 256);
+  assert.equal(result.notes.includes(RETAINED_MATCH_NOTE), true);
+  assert.equal(result.notes.includes(INSPECTED_ENTRY_NOTE), true);
+  assert.equal(result.completeness.enumeration, 'partial');
+  assert.notEqual(result.completeness.output, 'complete');
+  assert.equal(result.counts.exactMatchCount, null);
+  assert.equal(result.counts.retained, 256);
+  assert.equal(result.counts.matchedLowerBound, result.counts.retained);
+  assert.equal(containsNumber(result, 20001), false);
+});

@@ -235,10 +235,14 @@ function fileHasUnsupportedDeclarationForm(sourceFile) {
 
 const RETAINED_MATCH_CEILING = 256;
 const RETAINED_MATCH_NOTE = "retained match ceiling was reached";
+const INSPECTED_ENTRY_CEILING = 20000;
+const INSPECTED_ENTRY_NOTE = "inspected entry ceiling was reached";
 
-function censusDeclarations(sourceFile, name, budget = RETAINED_MATCH_CEILING) {
+function censusDeclarations(sourceFile, name, budget = RETAINED_MATCH_CEILING, inspectionBudget = INSPECTED_ENTRY_CEILING) {
   const matches = [];
   let exhausted = false;
+  let inspected = 0;
+  let inspectionExhausted = false;
   const take = (declaration) => {
     if (identifierName(declaration) !== name) return false;
     if (matches.length >= budget) {
@@ -250,7 +254,12 @@ function censusDeclarations(sourceFile, name, budget = RETAINED_MATCH_CEILING) {
   };
 
   for (const statement of sourceFile.getStatements()) {
+    if (inspected >= inspectionBudget) {
+      inspectionExhausted = true;
+      break;
+    }
     if (exhausted) break;
+    inspected += 1;
     const kind = statement.getKind();
     if (QUALIFYING_DIRECT_KINDS.has(kind)) {
       take(statement);
@@ -259,32 +268,44 @@ function censusDeclarations(sourceFile, name, budget = RETAINED_MATCH_CEILING) {
     if (kind !== SyntaxKind.VariableStatement) continue;
     const declarationList = statement.getDeclarationList();
     for (const declaration of declarationList.getDeclarations()) {
+      if (inspected >= inspectionBudget) {
+        inspectionExhausted = true;
+        break;
+      }
+      if (exhausted) break;
+      inspected += 1;
       if (!isSourceFileVariableDeclaration(declaration)) continue;
       if (take(declaration)) break;
     }
+    if (inspectionExhausted || exhausted) break;
   }
-  return { matches, exhausted };
+  return { matches, exhausted, inspectionExhausted, inspected };
 }
 
 function retainParsedMatches(parsedFiles, name) {
   let remaining = RETAINED_MATCH_CEILING;
+  let inspectionRemaining = INSPECTED_ENTRY_CEILING;
   let exhausted = false;
+  let inspectionExhausted = false;
   const files = [];
   for (const file of parsedFiles) {
-    if (exhausted) {
+    if (exhausted || inspectionRemaining === 0) {
       files.push({ file, matches: [], enumerationPartial: true });
+      if (inspectionRemaining === 0) inspectionExhausted = true;
       continue;
     }
-    const collected = censusDeclarations(file.sourceFile, name, remaining);
+    const collected = censusDeclarations(file.sourceFile, name, remaining, inspectionRemaining);
     files.push({
       file,
       matches: collected.matches,
-      enumerationPartial: collected.exhausted
+      enumerationPartial: collected.exhausted || collected.inspectionExhausted
     });
     remaining -= collected.matches.length;
+    inspectionRemaining -= collected.inspected;
     if (collected.exhausted) exhausted = true;
+    if (collected.inspectionExhausted) inspectionExhausted = true;
   }
-  return { files, exhausted };
+  return { files, exhausted, inspectionExhausted };
 }
 
 function applyMatchCeiling(extra, completeness, exhausted) {
@@ -299,6 +320,26 @@ function applyMatchCeiling(extra, completeness, exhausted) {
       matchedLowerBound: RETAINED_MATCH_CEILING,
       exactMatchCount: null
     }
+  };
+  if (!completeness) return { extra: nextExtra, completeness };
+  const output = completeness.output === "complete" ? "not_evaluated" : completeness.output;
+  return {
+    extra: nextExtra,
+    completeness: {
+      ...completeness,
+      enumeration: "partial",
+      output
+    }
+  };
+}
+
+function applyInspectionCeiling(extra, completeness, exhausted) {
+  if (!exhausted) return { extra, completeness };
+  const notes = Array.isArray(extra.notes) ? extra.notes.slice() : [];
+  if (!notes.includes(INSPECTED_ENTRY_NOTE)) notes.push(INSPECTED_ENTRY_NOTE);
+  const nextExtra = {
+    ...extra,
+    notes
   };
   if (!completeness) return { extra: nextExtra, completeness };
   const output = completeness.output === "complete" ? "not_evaluated" : completeness.output;
@@ -1050,17 +1091,19 @@ function resolveMulti(input, paths) {
     });
     const base = { census, coverage: coverageWithDiagnostics };
     if (census >= 2) {
-      const applied = applyMatchCeiling(
+      const matched = applyMatchCeiling(
         { ...base, notes: [AMBIGUOUS_DIRECT_NOTE] },
         completeness,
         retained.exhausted
       );
+      const applied = applyInspectionCeiling(matched.extra, matched.completeness, retained.inspectionExhausted);
       return deliverParsed(ambiguous(
         withMatchCounts(withCompleteness(applied.extra, applied.completeness), task.paths.length, task.paths.length),
         providerNode
       ), pathRecords);
     }
-    return deliverParsed(partial(withMatchCounts(withCompleteness(base, completeness), task.paths.length, task.paths.length), providerNode), pathRecords);
+    const applied = applyInspectionCeiling(base, completeness, retained.inspectionExhausted);
+    return deliverParsed(partial(withMatchCounts(withCompleteness(applied.extra, applied.completeness), task.paths.length, task.paths.length), providerNode), pathRecords);
   }
 
   let unsupportedForm = false;
@@ -1089,30 +1132,37 @@ function resolveMulti(input, paths) {
     if (census >= 2) {
       notes.push(AMBIGUOUS_DIRECT_NOTE);
       withSymbolIdSnapshotNote(notes, occurrences);
-      const applied = applyMatchCeiling(
+      const matched = applyMatchCeiling(
         { census, coverage, notes, occurrences },
         completeness,
         retained.exhausted
       );
+      const applied = applyInspectionCeiling(matched.extra, matched.completeness, retained.inspectionExhausted);
       return deliverParsed(ambiguous(
         withMatchCounts(withCompleteness(applied.extra, applied.completeness), task.paths.length, task.paths.length),
         providerNode
       ), pathRecords);
     }
     withSymbolIdSnapshotNote(notes, occurrences);
+    const inspectedPartial = applyInspectionCeiling(
+      { census, coverage, notes, occurrences },
+      completeness,
+      retained.inspectionExhausted
+    );
     return deliverParsed(partial(
-      withMatchCounts(withCompleteness({ census, coverage, notes, occurrences }, completeness), task.paths.length, task.paths.length),
+      withMatchCounts(withCompleteness(inspectedPartial.extra, inspectedPartial.completeness), task.paths.length, task.paths.length),
       providerNode
     ), pathRecords);
   }
 
   if (census >= 2) {
     const notes = withSymbolIdSnapshotNote([AMBIGUOUS_DIRECT_NOTE], occurrences);
-    const applied = applyMatchCeiling(
+    const matched = applyMatchCeiling(
       { census, coverage, notes, occurrences },
       completeness,
       retained.exhausted
     );
+    const applied = applyInspectionCeiling(matched.extra, matched.completeness, retained.inspectionExhausted);
     return deliverParsed(ambiguous(
       withMatchCounts(withCompleteness(applied.extra, applied.completeness), task.paths.length, task.paths.length),
       providerNode
@@ -1120,6 +1170,17 @@ function resolveMulti(input, paths) {
   }
 
   if (census === 0) {
+    if (retained.inspectionExhausted) {
+      const stopped = applyInspectionCeiling(
+        { census, coverage, notes: withSymbolIdSnapshotNote([], occurrences), occurrences },
+        completeness,
+        true
+      );
+      return deliverParsed(partial(
+        withMatchCounts(withCompleteness(stopped.extra, stopped.completeness), task.paths.length, task.paths.length),
+        providerNode
+      ), pathRecords);
+    }
     if (multiSymbolBindingReady({
       name,
       query,
@@ -1148,6 +1209,17 @@ function resolveMulti(input, paths) {
     ), pathRecords);
   }
 
+  if (retained.inspectionExhausted) {
+    const stopped = applyInspectionCeiling(
+      { census: 1, coverage, notes: withSymbolIdSnapshotNote([], occurrences), occurrences },
+      completeness,
+      true
+    );
+    return deliverParsed(partial(
+      withMatchCounts(withCompleteness(stopped.extra, stopped.completeness), task.paths.length, task.paths.length),
+      providerNode
+    ), pathRecords);
+  }
   const notes = [NOT_ACCEPTED_NOTE];
   if (snapshotTokenMatched && !occurrencesHaveDeclarationId(occurrences)) {
     notes.push(SNAPSHOT_TOKEN_MATCHED_NOTE);
@@ -1322,8 +1394,8 @@ function resolveTrackA1Body(input = {}) {
   const program = morphProject.getProgram().compilerObject;
   const syntacticDiagnostics = program.getSyntacticDiagnostics(sourceFile.compilerNode);
   const syntacticDiagnosticCount = syntacticDiagnostics.length;
-  const earlyCensus = censusDeclarations(sourceFile, name);
-  const censusEarly = earlyCensus.matches.length;
+  const collectedMatches = censusDeclarations(sourceFile, name);
+  const censusEarly = collectedMatches.matches.length;
   const pathRecords = pathScoped
     ? [buildPathRecord({
         path: pathScope.path,
@@ -1332,7 +1404,7 @@ function resolveTrackA1Body(input = {}) {
         syntacticDiagnosticCount,
         unsupportedForm: fileHasUnsupportedDeclarationForm(sourceFile),
         matched: censusEarly,
-        enumerationPartial: earlyCensus.exhausted
+        enumerationPartial: collectedMatches.exhausted || collectedMatches.inspectionExhausted
       })]
     : null;
   const coverageWithDiagnostics = {
@@ -1342,24 +1414,26 @@ function resolveTrackA1Body(input = {}) {
 
   if (syntacticDiagnosticCount > 0) {
     if (pathScoped && censusEarly < 2) {
+      const stopped = applyInspectionCeiling(
+        {
+          census: censusEarly,
+          coverage: coverageWithDiagnostics
+        },
+        buildCompleteness({
+          snapshotTokenMatched,
+          parsed: true,
+          syntacticDiagnosticCount,
+          unsupportedForm: false
+        }),
+        collectedMatches.inspectionExhausted
+      );
       return deliverParsed(partial(
-        withMatchCounts(withCompleteness(
-          {
-            census: censusEarly,
-            coverage: coverageWithDiagnostics
-          },
-          buildCompleteness({
-            snapshotTokenMatched,
-            parsed: true,
-            syntacticDiagnosticCount,
-            unsupportedForm: false
-          })
-        ), pathCount(task), pathCount(task)),
+        withMatchCounts(withCompleteness(stopped.extra, stopped.completeness), pathCount(task), pathCount(task)),
         providerNode
       ), pathRecords);
     }
     if (pathScoped) {
-      const applied = applyMatchCeiling(
+      const matched = applyMatchCeiling(
         {
           census: censusEarly,
           coverage: coverageWithDiagnostics,
@@ -1371,28 +1445,30 @@ function resolveTrackA1Body(input = {}) {
           syntacticDiagnosticCount,
           unsupportedForm: false
         }),
-        earlyCensus.exhausted
+        collectedMatches.exhausted
       );
+      const applied = applyInspectionCeiling(matched.extra, matched.completeness, collectedMatches.inspectionExhausted);
       return deliverParsed(ambiguous(
         withMatchCounts(withCompleteness(applied.extra, applied.completeness), task.paths.length, task.paths.length),
         providerNode
       ), pathRecords);
     }
-    const unevaluated = applyMatchCeiling(
+    const matched = applyMatchCeiling(
       {
         census: censusEarly,
         coverage: coverageWithDiagnostics
       },
       null,
-      earlyCensus.exhausted
+      collectedMatches.exhausted
     );
+    const unevaluated = applyInspectionCeiling(matched.extra, matched.completeness, collectedMatches.inspectionExhausted);
     return deliverParsed(notEvaluated(unevaluated.extra, providerNode), pathRecords);
   }
 
-  const collectedMatches = censusDeclarations(sourceFile, name);
   const matches = collectedMatches.matches;
   const census = matches.length;
   const matchExhausted = collectedMatches.exhausted;
+  const inspectionExhausted = collectedMatches.inspectionExhausted;
   const occurrencePath = pathScoped ? pathScope.path : null;
   const occurrences = attachDeclarationIds(
     qualifyingOccurrences(matches, sourceFile, occurrencePath),
@@ -1422,38 +1498,40 @@ function resolveTrackA1Body(input = {}) {
     if (census >= 2) {
       notes.push(AMBIGUOUS_DIRECT_NOTE);
       withSymbolIdSnapshotNote(notes, occurrences);
-      const applied = applyMatchCeiling(
+      const matched = applyMatchCeiling(
         { census, coverage, notes, occurrences },
         completeness,
         matchExhausted
       );
+      const applied = applyInspectionCeiling(matched.extra, matched.completeness, inspectionExhausted);
       return deliverParsed(ambiguous(
         withMatchCounts(applied.completeness ? withCompleteness(applied.extra, applied.completeness) : applied.extra, pathCount(task), pathScoped ? 1 : 0),
         providerNode
       ), pathRecords);
     }
     withSymbolIdSnapshotNote(notes, occurrences);
+    const inspectedPartial = applyInspectionCeiling(
+      { census, coverage, notes, occurrences },
+      completeness,
+      inspectionExhausted
+    );
     if (pathScoped) {
       return deliverParsed(partial(
-        withMatchCounts(withCompleteness({ census, coverage, notes, occurrences }, completeness), pathCount(task), pathCount(task)),
+        withMatchCounts(withCompleteness(inspectedPartial.extra, inspectedPartial.completeness), pathCount(task), pathCount(task)),
         providerNode
       ), pathRecords);
     }
-    return deliverParsed(notEvaluated({
-      census,
-      coverage,
-      notes,
-      occurrences
-    }, providerNode), pathRecords);
+    return deliverParsed(notEvaluated(inspectedPartial.extra, providerNode), pathRecords);
   }
 
   if (census >= 2) {
     const notes = withSymbolIdSnapshotNote([AMBIGUOUS_DIRECT_NOTE], occurrences);
-    const applied = applyMatchCeiling(
+    const matched = applyMatchCeiling(
       { census, coverage, notes, occurrences },
       completeness,
       matchExhausted
     );
+    const applied = applyInspectionCeiling(matched.extra, matched.completeness, inspectionExhausted);
     return deliverParsed(ambiguous(
       withMatchCounts(applied.completeness ? withCompleteness(applied.extra, applied.completeness) : applied.extra, pathCount(task), pathScoped ? 1 : 0),
       providerNode
@@ -1461,6 +1539,18 @@ function resolveTrackA1Body(input = {}) {
   }
 
   if (census !== 1) {
+    if (census === 0 && inspectionExhausted) {
+      const stopped = applyInspectionCeiling(
+        { census, coverage, notes: withSymbolIdSnapshotNote([], occurrences), occurrences },
+        completeness,
+        true
+      );
+      const stoppedExtra = completeness ? withCompleteness(stopped.extra, stopped.completeness) : stopped.extra;
+      return deliverParsed(partial(
+        withMatchCounts(stoppedExtra, pathCount(task), pathScoped ? 1 : 0),
+        providerNode
+      ), pathRecords);
+    }
     if (census === 0 && symbolBindingReady({
       name,
       query,
@@ -1504,6 +1594,18 @@ function resolveTrackA1Body(input = {}) {
     occurrences
   };
   const evaluated = completeness ? withCompleteness(extra, completeness) : extra;
+  if (inspectionExhausted) {
+    const stopped = applyInspectionCeiling(
+      { census: 1, coverage, notes: withSymbolIdSnapshotNote([], occurrences), occurrences },
+      completeness,
+      true
+    );
+    const stoppedExtra = completeness ? withCompleteness(stopped.extra, stopped.completeness) : stopped.extra;
+    return deliverParsed(partial(
+      withMatchCounts(stoppedExtra, pathCount(task), pathScoped ? 1 : 0),
+      providerNode
+    ), pathRecords);
+  }
   if (uniqueBindingReady({
     name,
     query,
