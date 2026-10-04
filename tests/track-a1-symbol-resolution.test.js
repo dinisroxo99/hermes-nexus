@@ -1005,3 +1005,161 @@ test("29. bad name returns before parse and does not gain an occurrence", () => 
   assertNoOccurrencesKey(result);
   assertNoIdentityFields(result);
 });
+
+const FIXTURE_NESTED_BODY_DESTRUCTURE = [
+  "// synthetic fixture: destructuring only inside the body of top-level foo",
+  "function foo() {",
+  "  const { a } = value;",
+  "}",
+  ""
+].join("\n");
+
+const FIXTURE_DIRECT_DESTRUCTURE_A = [
+  "// synthetic fixture: direct source-file destructuring",
+  "function foo() {",
+  "  return 1;",
+  "}",
+  "const { a } = value;",
+  ""
+].join("\n");
+
+const FIXTURE_DIRECT_NAMESPACE_N = [
+  "// synthetic fixture: direct source-file namespace",
+  "namespace N { export function foo() {} }",
+  ""
+].join("\n");
+
+const FIXTURE_NESTED_BODY_NAMESPACE = [
+  "// synthetic fixture: namespace only inside the body of top-level foo",
+  "function foo() {",
+  "  namespace N { export function foo() {} }",
+  "}",
+  ""
+].join("\n");
+
+const FIXTURE_NESTED_BODY_FOR_OF_DESTRUCTURE = [
+  "// synthetic fixture: for-of destructuring only inside the body of top-level foo",
+  "function foo() {",
+  "  for (const { a } of items) {}",
+  "}",
+  ""
+].join("\n");
+
+test("30. one path + destructuring nested in the body of foo stays not_evaluated with complete enumeration", () => {
+  const sourceSha256 = sha256Text(FIXTURE_NESTED_BODY_DESTRUCTURE);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_NESTED_BODY_DESTRUCTURE, "utf8"),
+    binding: { sourceSha256 },
+    task: TASK_PATH_SINGLE
+  });
+
+  assert.equal(result.status, "not_evaluated");
+  assert.notEqual(result.status, "partial");
+  assert.notEqual(result.status, "not_found");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.equal(result.census, 1);
+  assert.equal(result.completeness.enumeration, "complete");
+  assert.equal(result.occurrences.length, 1);
+  assert.equal(result.occurrences[0].name, "foo");
+  assert.equal(result.occurrences[0].kind, "function");
+  assert.equal(result.occurrences[0].path, SYNTHETIC_PATH);
+  assertOccurrenceIdentityAbsent(result.occurrences[0]);
+  assertNoIdentityFields(result);
+  assert.equal(Object.hasOwn(result, "symbolId"), false);
+  assert.equal(Object.hasOwn(result, "declarationId"), false);
+  assert.equal(Object.hasOwn(result, "stableId"), false);
+  assert.ok(
+    !result.notes.some((note) => note.includes("unsupported declaration form")),
+    "nested body destructuring must not be an unsupported declaration form"
+  );
+});
+
+test("31. one path + direct source-file const { a } = value stays partial with enumeration partial", () => {
+  const sourceSha256 = sha256Text(FIXTURE_DIRECT_DESTRUCTURE_A);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_DIRECT_DESTRUCTURE_A, "utf8"),
+    binding: { sourceSha256 },
+    task: TASK_PATH_SINGLE
+  });
+
+  assert.equal(result.status, "partial");
+  assert.equal(result.census, 1);
+  assert.equal(result.occurrences.length, 1);
+  assert.equal(result.occurrences[0].name, "foo");
+  assert.equal(result.completeness.enumeration, "partial");
+  assertOccurrenceIdentityAbsent(result.occurrences[0]);
+  assertNoIdentityFields(result);
+  assert.ok(
+    result.notes.some((note) =>
+      note.includes("incomplete") && note.includes("unsupported declaration form")
+    ),
+    "direct source-file destructuring stays an unsupported declaration form"
+  );
+});
+
+test("32. one path + direct source-file namespace N stays partial with enumeration partial", () => {
+  const sourceSha256 = sha256Text(FIXTURE_DIRECT_NAMESPACE_N);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_DIRECT_NAMESPACE_N, "utf8"),
+    binding: { sourceSha256 },
+    task: TASK_PATH_SINGLE
+  });
+
+  assert.equal(result.status, "partial");
+  assert.equal(result.census, 0);
+  assert.deepEqual(result.occurrences, []);
+  assert.equal(result.completeness.enumeration, "partial");
+  assertNoIdentityFields(result);
+  assert.ok(
+    result.notes.some((note) =>
+      note.includes("incomplete") && note.includes("unsupported declaration form")
+    ),
+    "direct source-file namespace stays an unsupported declaration form"
+  );
+});
+
+test("33. one path + namespace nested in the body of foo does not make enumeration partial", () => {
+  const sourceSha256 = sha256Text(FIXTURE_NESTED_BODY_NAMESPACE);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_NESTED_BODY_NAMESPACE, "utf8"),
+    binding: { sourceSha256 },
+    task: TASK_PATH_SINGLE
+  });
+
+  assert.equal(result.status, "not_evaluated");
+  assert.notEqual(result.status, "partial");
+  assert.equal(result.census, 1);
+  assert.equal(result.completeness.enumeration, "complete");
+  assert.equal(result.occurrences.length, 1);
+  assert.equal(result.occurrences[0].name, "foo");
+  assert.equal(result.occurrences[0].kind, "function");
+  assertOccurrenceIdentityAbsent(result.occurrences[0]);
+  assertNoIdentityFields(result);
+  assert.ok(
+    !result.notes.some((note) => note.includes("unsupported declaration form")),
+    "a namespace inside a function body must not set enumeration partial"
+  );
+});
+
+test("34. one path + for-of destructuring nested in the body of foo does not make enumeration partial", () => {
+  const sourceSha256 = sha256Text(FIXTURE_NESTED_BODY_FOR_OF_DESTRUCTURE);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_NESTED_BODY_FOR_OF_DESTRUCTURE, "utf8"),
+    binding: { sourceSha256 },
+    task: TASK_PATH_SINGLE
+  });
+
+  assert.equal(result.status, "not_evaluated");
+  assert.notEqual(result.status, "partial");
+  assert.equal(result.census, 1);
+  assert.equal(result.completeness.enumeration, "complete");
+  assert.equal(result.occurrences.length, 1);
+  assert.equal(result.occurrences[0].name, "foo");
+  assertOccurrenceIdentityAbsent(result.occurrences[0]);
+  assertNoIdentityFields(result);
+});

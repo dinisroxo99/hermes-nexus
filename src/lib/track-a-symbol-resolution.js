@@ -114,10 +114,12 @@ function fileHasUnsupportedDeclarationForm(sourceFile) {
     if (found) return;
     const kind = node.getKind();
     if (kind === SyntaxKind.ModuleDeclaration) {
-      found = true;
+      const parent = node.getParent();
+      if (parent && parent.getKind() === SyntaxKind.SourceFile) found = true;
       return;
     }
     if (kind !== SyntaxKind.VariableDeclaration) return;
+    if (!isSourceFileVariableDeclaration(node)) return;
     let nameNode;
     try {
       nameNode = typeof node.getNameNode === "function" ? node.getNameNode() : undefined;
@@ -294,9 +296,11 @@ function withCompleteness(extra, completeness) {
  * Census only direct source-file declarations of `name` (identifier-named
  * function, class, interface, type alias, enum, or source-file variable).
  * Methods, parameters, members, nested declarations, and import/export aliases
- * are outside the domain and do not increase the census. A non-identifier
- * variable binding or a namespace/module declaration leaves the path incomplete
- * and a remaining top-level name match is not accepted evidence.
+ * are outside the domain and do not increase the census. A direct source-file
+ * variable whose name is not an identifier, or a namespace/module that is a
+ * direct child statement of the source file, leaves the path incomplete.
+ * Declarations nested in bodies, including destructuring and namespaces, do not.
+ * A remaining top-level name match is not accepted evidence.
  * Fail closed unless the bytes, source sha256, UTF-8 roundtrip, syntactic
  * diagnostics, and declaration census are all usable. Two or more qualifying
  * direct declarations are ambiguous even when the snapshot is absent or an
