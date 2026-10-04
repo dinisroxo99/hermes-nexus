@@ -26,12 +26,22 @@ const SNAPSHOT_TOKEN_MISMATCH_NOTE = "snapshot token did not recompute";
 const SNAPSHOT_TOKEN_MATCHED_NOTE =
   "snapshot token matched the supplied bytes but this is not accepted A1 evidence (declaration identity and completeness are not produced here)";
 
+const SINGLE_PATH_ONLY_NOTE =
+  "only a single explicit path is implemented";
+
+const OUTPUT_COVERAGE_INCOMPLETE_NOTE =
+  "output coverage is not complete, so this is neither not_found nor resolved_unique";
+
 const HEX64 = /^[a-f0-9]{64}$/;
 
-function notEvaluated(extra = {}, providerNode) {
-  const result = { status: "not_evaluated", ...extra };
-  // Insufficient evidence stays not_evaluated with no stable id.
-  if (Object.hasOwn(result, "stableId")) delete result.stableId;
+function stripIdentityFields(result) {
+  for (const key of ["stableId", "symbolId", "declarationId"]) {
+    if (Object.hasOwn(result, key)) delete result[key];
+  }
+  return result;
+}
+
+function attachProviderIdNote(result, providerNode) {
   if (providerNodeSuppliedId(providerNode)) {
     const notes = Array.isArray(result.notes) ? result.notes.slice() : [];
     if (!notes.includes(PROVIDER_ID_NOT_COPIED_NOTE)) notes.push(PROVIDER_ID_NOT_COPIED_NOTE);
@@ -40,17 +50,22 @@ function notEvaluated(extra = {}, providerNode) {
   return result;
 }
 
+function notEvaluated(extra = {}, providerNode) {
+  const result = { status: "not_evaluated", ...extra };
+  stripIdentityFields(result);
+  return attachProviderIdNote(result, providerNode);
+}
+
 function ambiguous(extra = {}, providerNode) {
   const result = { status: "ambiguous", ...extra };
-  for (const key of ["stableId", "symbolId", "declarationId"]) {
-    if (Object.hasOwn(result, key)) delete result[key];
-  }
-  if (providerNodeSuppliedId(providerNode)) {
-    const notes = Array.isArray(result.notes) ? result.notes.slice() : [];
-    if (!notes.includes(PROVIDER_ID_NOT_COPIED_NOTE)) notes.push(PROVIDER_ID_NOT_COPIED_NOTE);
-    result.notes = notes;
-  }
-  return result;
+  stripIdentityFields(result);
+  return attachProviderIdNote(result, providerNode);
+}
+
+function partial(extra = {}, providerNode) {
+  const result = { status: "partial", ...extra };
+  stripIdentityFields(result);
+  return attachProviderIdNote(result, providerNode);
 }
 
 function isPlainObject(value) {
@@ -151,7 +166,6 @@ function recomputeSnapshotToken(snapshot, bytes, binding, actualSha) {
 
   const revision = snapshot.revision;
   if (!isPlainObject(revision)) return snapshotRejection();
-  // repositoryIdentity is not a substitute for repositoryId and must not be projected.
   if (Object.hasOwn(revision, "repositoryIdentity")) return snapshotRejection();
   if (typeof revision.repositoryId !== "string" || !HEX64.test(revision.repositoryId)) return snapshotRejection();
   if (typeof revision.worktreeId !== "string" || !HEX64.test(revision.worktreeId)) return snapshotRejection();
@@ -166,8 +180,6 @@ function recomputeSnapshotToken(snapshot, bytes, binding, actualSha) {
 
   let recomputed;
   try {
-    // The helper requires file text and recomputes sha256 from those bytes.
-    // Pass repositoryId only so it cannot project repositoryIdentity.
     recomputed = createProviderSnapshot(
       { projectId: snapshot.projectId },
       [{ path: snapshot.path, text }],
@@ -191,6 +203,53 @@ function recomputeSnapshotToken(snapshot, bytes, binding, actualSha) {
   return { ok: true };
 }
 
+function isAbsolutePath(path) {
+  return path.startsWith("/") || path.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(path);
+}
+
+function resolveTaskPathScope(task) {
+  if (!isPlainObject(task) || !Array.isArray(task.paths) || task.paths.length === 0) {
+    return { kind: "absent" };
+  }
+  if (task.paths.length !== 1) {
+    return { kind: "unsupported_count" };
+  }
+  const path = task.paths[0];
+  if (typeof path !== "string" || path.length === 0) {
+    return { kind: "invalid" };
+  }
+  if (isAbsolutePath(path) || path.includes("..")) {
+    return { kind: "invalid" };
+  }
+  return { kind: "single", path };
+}
+
+function buildCompleteness({
+  snapshotTokenMatched = false,
+  parsed = false,
+  syntacticDiagnosticCount = 0,
+  unsupportedForm = false
+} = {}) {
+  return {
+    source: snapshotTokenMatched ? "complete" : "not_evaluated",
+    parse: !parsed
+      ? "not_evaluated"
+      : syntacticDiagnosticCount === 0
+        ? "complete"
+        : "partial",
+    enumeration: !parsed
+      ? "not_evaluated"
+      : unsupportedForm
+        ? "partial"
+        : "complete",
+    output: "not_evaluated"
+  };
+}
+
+function withCompleteness(extra, completeness) {
+  return { ...extra, completeness };
+}
+
 /**
  * Track A1 symbol-resolution producer.
  *
@@ -206,13 +265,16 @@ function recomputeSnapshotToken(snapshot, bytes, binding, actualSha) {
  * unsupported form limits completeness; that result keeps census and coverage
  * and does not emit stable, symbol, or declaration ids. A census of 0 or 1,
  * including a matching source sha256, stays not_evaluated and is still not
- * full observation binding and is not accepted A1 evidence. Provider node ids
- * are never copied. Extra binding
- * fields are ignored. Does not invent project, repository, worktree, snapshot,
- * or path identity, and does not consult composeEffectiveTaskScope / providers.
+ * full observation binding and is not accepted A1 evidence. When task.paths
+ * supplies exactly one relative path, incomplete parse or unsupported forms
+ * with census < 2 become partial with an explicit completeness record; a clean
+ * single or zero match stays not_evaluated because output coverage is not
+ * complete. Provider node ids are never copied. Extra binding fields are
+ * ignored. Does not invent project, repository, worktree, snapshot, or path
+ * identity, and does not consult composeEffectiveTaskScope / providers.
  */
 export function resolveTrackA1(input = {}) {
-  const { name, sourceBytes, binding, providerNode, snapshot } = input;
+  const { name, sourceBytes, binding, providerNode, snapshot, task } = input;
 
   if (typeof name !== "string" || name.length === 0) {
     return notEvaluated({}, providerNode);
@@ -232,11 +294,35 @@ export function resolveTrackA1(input = {}) {
     return notEvaluated({}, providerNode);
   }
 
+  const pathScope = resolveTaskPathScope(task);
+  const pathScoped = pathScope.kind === "single";
+
+  if (pathScope.kind === "unsupported_count") {
+    return notEvaluated(
+      withCompleteness(
+        { notes: [SINGLE_PATH_ONLY_NOTE] },
+        buildCompleteness()
+      ),
+      providerNode
+    );
+  }
+
+  if (pathScope.kind === "invalid") {
+    return notEvaluated(
+      withCompleteness({}, buildCompleteness()),
+      providerNode
+    );
+  }
+
   let snapshotTokenMatched = false;
   if (snapshot !== undefined) {
     const checked = recomputeSnapshotToken(snapshot, bytes, binding, actualSha);
     if (!checked.ok) {
-      return notEvaluated(checked.note ? { notes: [checked.note] } : {}, providerNode);
+      const extra = checked.note ? { notes: [checked.note] } : {};
+      if (pathScoped) {
+        return notEvaluated(withCompleteness(extra, buildCompleteness()), providerNode);
+      }
+      return notEvaluated(extra, providerNode);
     }
     snapshotTokenMatched = true;
   }
@@ -253,20 +339,61 @@ export function resolveTrackA1(input = {}) {
   });
 
   const sourceFile = project.createSourceFile("synthetic-fixture.ts", text);
-  // Coverage: the source file text must be exactly the supplied byte string.
   if (sourceFile.getFullText() !== text) {
+    if (pathScoped) {
+      return notEvaluated(withCompleteness({}, buildCompleteness()), providerNode);
+    }
     return notEvaluated({}, providerNode);
   }
 
   const program = project.getProgram().compilerObject;
   const syntacticDiagnostics = program.getSyntacticDiagnostics(sourceFile.compilerNode);
-  if (syntacticDiagnostics.length > 0) {
+  const syntacticDiagnosticCount = syntacticDiagnostics.length;
+  const censusEarly = censusDeclarations(sourceFile, name).length;
+  const coverageWithDiagnostics = {
+    wholeByteString: true,
+    syntacticDiagnosticCount
+  };
+
+  if (syntacticDiagnosticCount > 0) {
+    if (pathScoped && censusEarly < 2) {
+      return partial(
+        withCompleteness(
+          {
+            census: censusEarly,
+            coverage: coverageWithDiagnostics
+          },
+          buildCompleteness({
+            snapshotTokenMatched,
+            parsed: true,
+            syntacticDiagnosticCount,
+            unsupportedForm: false
+          })
+        ),
+        providerNode
+      );
+    }
+    if (pathScoped) {
+      return ambiguous(
+        withCompleteness(
+          {
+            census: censusEarly,
+            coverage: coverageWithDiagnostics,
+            notes: [AMBIGUOUS_DIRECT_NOTE]
+          },
+          buildCompleteness({
+            snapshotTokenMatched,
+            parsed: true,
+            syntacticDiagnosticCount,
+            unsupportedForm: false
+          })
+        ),
+        providerNode
+      );
+    }
     return notEvaluated({
-      census: censusDeclarations(sourceFile, name).length,
-      coverage: {
-        wholeByteString: true,
-        syntacticDiagnosticCount: syntacticDiagnostics.length
-      }
+      census: censusEarly,
+      coverage: coverageWithDiagnostics
     }, providerNode);
   }
 
@@ -276,20 +403,32 @@ export function resolveTrackA1(input = {}) {
     wholeByteString: true,
     syntacticDiagnosticCount: 0
   };
+  const unsupportedForm = fileHasUnsupportedDeclarationForm(sourceFile);
+  const completeness = pathScoped
+    ? buildCompleteness({
+      snapshotTokenMatched,
+      parsed: true,
+      syntacticDiagnosticCount: 0,
+      unsupportedForm
+    })
+    : null;
 
-  // Destructuring and namespace/module forms are not dropped silently.
-  // Ambiguity wins over the incomplete note when two or more direct
-  // declarations qualify. A single remaining name match is not accepted evidence.
-  if (fileHasUnsupportedDeclarationForm(sourceFile)) {
+  if (unsupportedForm) {
     const notes = [UNSUPPORTED_FORM_NOTE];
     if (snapshotTokenMatched) notes.push(SNAPSHOT_TOKEN_MATCHED_NOTE);
     if (census >= 2) {
       notes.push(AMBIGUOUS_DIRECT_NOTE);
-      return ambiguous({
-        census,
-        coverage,
-        notes
-      }, providerNode);
+      const extra = { census, coverage, notes };
+      return ambiguous(
+        completeness ? withCompleteness(extra, completeness) : extra,
+        providerNode
+      );
+    }
+    if (pathScoped) {
+      return partial(
+        withCompleteness({ census, coverage, notes }, completeness),
+        providerNode
+      );
     }
     return notEvaluated({
       census,
@@ -299,26 +438,38 @@ export function resolveTrackA1(input = {}) {
   }
 
   if (census >= 2) {
-    return ambiguous({
+    const extra = {
       census,
       coverage,
       notes: [AMBIGUOUS_DIRECT_NOTE]
-    }, providerNode);
+    };
+    return ambiguous(
+      completeness ? withCompleteness(extra, completeness) : extra,
+      providerNode
+    );
   }
 
   if (census !== 1) {
-    return notEvaluated({
-      census,
-      coverage
-    }, providerNode);
+    const notes = [];
+    if (pathScoped) notes.push(OUTPUT_COVERAGE_INCOMPLETE_NOTE);
+    const extra = notes.length > 0 ? { census, coverage, notes } : { census, coverage };
+    return notEvaluated(
+      completeness ? withCompleteness(extra, completeness) : extra,
+      providerNode
+    );
   }
 
-  // Matching sourceSha256 and census === 1 are not observation binding.
-  // Do not copy providerNode.id or any other provider field. Ignore unknown
-  // binding fields; they are not proof.
-  return notEvaluated({
+  const notes = snapshotTokenMatched
+    ? [NOT_ACCEPTED_NOTE, SNAPSHOT_TOKEN_MATCHED_NOTE]
+    : [NOT_ACCEPTED_NOTE];
+  if (pathScoped) notes.push(OUTPUT_COVERAGE_INCOMPLETE_NOTE);
+  const extra = {
     census: 1,
     coverage,
-    notes: snapshotTokenMatched ? [NOT_ACCEPTED_NOTE, SNAPSHOT_TOKEN_MATCHED_NOTE] : [NOT_ACCEPTED_NOTE]
-  }, providerNode);
+    notes
+  };
+  return notEvaluated(
+    completeness ? withCompleteness(extra, completeness) : extra,
+    providerNode
+  );
 }

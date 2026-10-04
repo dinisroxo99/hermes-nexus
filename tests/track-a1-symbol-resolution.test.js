@@ -482,3 +482,170 @@ test("14. two top-level foo functions plus a destructuring binding: ambiguous, i
   assert.equal(serialized.includes("positive"), false);
   assert.equal(serialized.includes("resolved_unique"), false);
 });
+
+const TASK_PATH_SINGLE = { paths: [SYNTHETIC_PATH] };
+
+test("15. one path + truncated invalid source => partial with parse completeness partial", () => {
+  const sourceSha256 = sha256Text(FIXTURE_TRUNCATED);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_TRUNCATED, "utf8"),
+    binding: { sourceSha256 },
+    task: TASK_PATH_SINGLE
+  });
+
+  assert.equal(result.status, "partial");
+  assert.notEqual(result.status, "not_found");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.ok(result.coverage.syntacticDiagnosticCount > 0);
+  assert.equal(result.completeness.parse, "partial");
+  assert.equal(result.completeness.output, "not_evaluated");
+  assertNoIdentityFields(result);
+  assert.equal(Object.hasOwn(result, "symbolId"), false);
+  assert.equal(Object.hasOwn(result, "declarationId"), false);
+});
+
+test("16. one path + destructuring and no second qualifying declaration => partial", () => {
+  const sourceSha256 = sha256Text(FIXTURE_FOO_PLUS_DESTRUCTURE);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_FOO_PLUS_DESTRUCTURE, "utf8"),
+    binding: { sourceSha256 },
+    task: TASK_PATH_SINGLE
+  });
+
+  assert.equal(result.status, "partial");
+  assert.notEqual(result.status, "not_found");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.equal(result.census, 1);
+  assert.equal(result.completeness.enumeration, "partial");
+  assert.equal(result.completeness.output, "not_evaluated");
+  assertNoIdentityFields(result);
+  assert.ok(Array.isArray(result.notes));
+  assert.ok(
+    result.notes.some((note) =>
+      note.includes("incomplete") && note.includes("unsupported declaration form")
+    ),
+    "note must say the path is incomplete because of an unsupported declaration form"
+  );
+});
+
+test("17. one path + two top-level foo declarations => ambiguous, not partial", () => {
+  const sourceSha256 = sha256Text(FIXTURE_TWO_TOP_LEVEL_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_TWO_TOP_LEVEL_FOO, "utf8"),
+    binding: { sourceSha256 },
+    task: TASK_PATH_SINGLE
+  });
+
+  assert.equal(result.status, "ambiguous");
+  assert.notEqual(result.status, "partial");
+  assert.equal(result.census, 2);
+  assert.equal(result.completeness.parse, "complete");
+  assert.equal(result.completeness.enumeration, "complete");
+  assert.equal(result.completeness.output, "not_evaluated");
+  assertNoIdentityFields(result);
+});
+
+test("18. one path + one clean top-level foo, no snapshot => not_evaluated with output not_evaluated", () => {
+  const sourceSha256 = sha256Text(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256 },
+    task: TASK_PATH_SINGLE
+  });
+
+  assert.equal(result.status, "not_evaluated");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.notEqual(result.status, "not_found");
+  assert.equal(result.census, 1);
+  assert.equal(result.completeness.parse, "complete");
+  assert.equal(result.completeness.output, "not_evaluated");
+  assert.equal(result.completeness.source, "not_evaluated");
+  assert.equal(result.completeness.enumeration, "complete");
+  assertNoIdentityFields(result);
+  assert.ok(Array.isArray(result.notes));
+  assert.ok(
+    result.notes.some((note) =>
+      note.includes("output coverage is not complete") &&
+      note.includes("neither not_found nor resolved_unique")
+    ),
+    "note must say output coverage is not complete so this is neither not_found nor resolved_unique"
+  );
+});
+
+test("19. absolute or parent-segment paths => not_evaluated", () => {
+  const sourceSha256 = sha256Text(FIXTURE_SINGLE_FOO);
+  for (const paths of [["/tmp/x.js"], ["../x.js"]]) {
+    const result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+      binding: { sourceSha256 },
+      task: { paths }
+    });
+
+    assert.equal(result.status, "not_evaluated");
+    assert.notEqual(result.status, "partial");
+    assert.notEqual(result.status, "resolved_unique");
+    assertNoIdentityFields(result);
+  }
+});
+
+test("20. paths length 2 => not_evaluated without parse claim of resolved_unique", () => {
+  const sourceSha256 = sha256Text(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256 },
+    task: { paths: [SYNTHETIC_PATH, "src/other.js"] }
+  });
+
+  assert.equal(result.status, "not_evaluated");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.notEqual(result.status, "partial");
+  assert.equal(Object.hasOwn(result, "census"), false, "must not parse when more than one path is supplied");
+  assertNoIdentityFields(result);
+  assert.ok(Array.isArray(result.notes));
+  assert.ok(
+    result.notes.some((note) =>
+      note.includes("only a single explicit path") && note.includes("implemented")
+    ),
+    "note must say only a single explicit path is implemented"
+  );
+});
+
+test("21. inputs that omit task.paths keep status and do not gain completeness", () => {
+  const sourceSha256 = sha256Text(FIXTURE_TRUNCATED);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_TRUNCATED, "utf8"),
+    binding: { sourceSha256 }
+  });
+
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "completeness"), false);
+});
+
+test("22. mismatched snapshot token with task.paths stays not_evaluated, not partial", () => {
+  const sourceSha256 = sha256Text(FIXTURE_TRUNCATED);
+  const real = snapshotFromBytes(FIXTURE_SINGLE_FOO);
+  const snapshot = {
+    ...real,
+    sourceSha256,
+    byteSize: Buffer.byteLength(FIXTURE_TRUNCATED),
+    token: flipLastHex(real.token)
+  };
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_TRUNCATED, "utf8"),
+    binding: { sourceSha256 },
+    snapshot,
+    task: TASK_PATH_SINGLE
+  });
+
+  assert.equal(result.status, "not_evaluated");
+  assert.notEqual(result.status, "partial");
+  assertNoIdentityFields(result);
+});
