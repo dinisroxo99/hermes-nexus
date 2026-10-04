@@ -504,8 +504,8 @@ function withCompleteness(extra, completeness) {
  * (partial only when that path has a direct unsupported form), and matched
  * (qualifying direct declarations of the requested name in that path).
  * A file over 131072 UTF-8 bytes, or more than 4194304 source bytes across
- * the requested files, is not_evaluated before createSourceFile. That result
- * has a bounded note and no pathRecords.
+ * the requested files, is not_evaluated before UTF-8 decode and before
+ * createSourceFile. That result has a bounded note and no pathRecords.
  * Paths rejected before parse are not given pathRecords.
  */
 
@@ -736,7 +736,7 @@ function notFoundResult({
 }
 
 
-function loadOrderedFiles(paths, files) {
+function collectRawOrderedFiles(paths, files) {
   if (!Array.isArray(files) || files.length !== paths.length) return null;
   const byPath = new Map();
   for (const entry of files) {
@@ -744,21 +744,29 @@ function loadOrderedFiles(paths, files) {
     if (byPath.has(entry.path)) return null;
     const bytes = toBuffer(entry.sourceBytes);
     if (!bytes) return null;
-    const text = bytes.toString("utf8");
-    if (!Buffer.from(text, "utf8").equals(bytes)) return null;
-    byPath.set(entry.path, {
-      path: entry.path,
-      bytes,
-      text,
-      sha256: sha256Bytes(bytes)
-    });
+    byPath.set(entry.path, bytes);
   }
   if (byPath.size !== paths.length) return null;
   const ordered = [];
   for (const path of paths) {
-    const file = byPath.get(path);
-    if (!file) return null;
-    ordered.push(file);
+    const bytes = byPath.get(path);
+    if (!bytes) return null;
+    ordered.push({ path, bytes });
+  }
+  return ordered;
+}
+
+function decodeOrderedFiles(rawFiles) {
+  const ordered = [];
+  for (const file of rawFiles) {
+    const text = file.bytes.toString("utf8");
+    if (!Buffer.from(text, "utf8").equals(file.bytes)) return null;
+    ordered.push({
+      path: file.path,
+      bytes: file.bytes,
+      text,
+      sha256: sha256Bytes(file.bytes)
+    });
   }
   return ordered;
 }
@@ -873,8 +881,8 @@ function multiUniqueBindingReady(args) {
 
 function resolveMulti(input, paths) {
   const { name, files, binding, providerNode, snapshot, task, query, project } = input;
-  const ordered = loadOrderedFiles(paths, files);
-  if (!ordered) {
+  const rawFiles = collectRawOrderedFiles(paths, files);
+  if (!rawFiles) {
     return notEvaluated(
       withCompleteness(
         { notes: [SINGLE_PATH_ONLY_NOTE] },
@@ -883,8 +891,18 @@ function resolveMulti(input, paths) {
       providerNode
     );
   }
-  if (exceedsSourceByteCeiling(ordered.map((file) => file.bytes.length))) {
+  if (exceedsSourceByteCeiling(rawFiles.map((file) => file.bytes.byteLength))) {
     return sourceByteCeilingResult(providerNode);
+  }
+  const ordered = decodeOrderedFiles(rawFiles);
+  if (!ordered) {
+    return notEvaluated(
+      withCompleteness(
+        { notes: [SINGLE_PATH_ONLY_NOTE] },
+        buildCompleteness()
+      ),
+      providerNode
+    );
   }
 
   const combinedSha = sha256Bytes(Buffer.concat(ordered.map((file) => file.bytes)));
@@ -1082,7 +1100,7 @@ function resolveTrackA1Body(input = {}) {
   if (!bytes) {
     return notEvaluated({}, providerNode);
   }
-  if (exceedsSourceByteCeiling([bytes.length])) {
+  if (exceedsSourceByteCeiling([bytes.byteLength])) {
     return sourceByteCeilingResult(providerNode);
   }
 

@@ -2087,3 +2087,48 @@ test("63. ambiguous result includes contract identity", () => {
   assert.equal(result.census, 2);
   assertContractIdentity(result);
 });
+
+test("64. two paths, one small file and one 131073-byte buffer, are not_evaluated for the byte ceiling before decode", () => {
+  const small = Buffer.from(FIXTURE_SINGLE_FOO, "utf8");
+  const oversize = Buffer.alloc(PER_FILE_BYTE_CEILING + 1, 0x20);
+  assert.equal(Buffer.isBuffer(oversize), true);
+  assert.equal(typeof oversize, "object");
+  assert.equal(oversize.byteLength, 131073);
+  assert.ok(small.byteLength < PER_FILE_BYTE_CEILING);
+
+  const originalToString = Buffer.prototype.toString;
+  let decodedOversize = false;
+  Buffer.prototype.toString = function trackA1ByteCeilingToString(...args) {
+    if (Buffer.isBuffer(this) && this.byteLength > PER_FILE_BYTE_CEILING) {
+      decodedOversize = true;
+    }
+    return originalToString.apply(this, args);
+  };
+
+  try {
+    const result = resolveTrackA1({
+      name: "foo",
+      files: [
+        { path: PATH_A, sourceBytes: small },
+        { path: PATH_B, sourceBytes: oversize }
+      ],
+      binding: { sourceSha256: "a".repeat(64) },
+      task: { id: SYNTHETIC_TASK_ID, paths: [PATH_A, PATH_B] },
+      project: {
+        projectId: SYNTHETIC_PROJECT_ID,
+        rootId: SYNTHETIC_ROOT_ID,
+        relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+      },
+      query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+    });
+
+    assert.equal(result.status, "not_evaluated");
+    assert.notEqual(result.status, "resolved_unique");
+    assert.equal(Object.hasOwn(result, "pathRecords"), false);
+    assert.equal(Array.isArray(result.notes), true);
+    assert.equal(result.notes.some((note) => note.includes("byte ceiling")), true);
+    assert.equal(decodedOversize, false);
+  } finally {
+    Buffer.prototype.toString = originalToString;
+  }
+});
