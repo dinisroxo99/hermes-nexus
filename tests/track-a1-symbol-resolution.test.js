@@ -1247,7 +1247,7 @@ function expectedDeclarationId(spec, snapshotToken, sourceSha256) {
   ]));
 }
 
-test("38. matching snapshot token and one task path sets declarationId and omits symbolId", () => {
+test("38. matching snapshot token and one task path sets symbolId to symbol_ plus declarationId", () => {
   const source = FIXTURE_SINGLE_FOO;
   const sourceSha256 = sha256Text(source);
   const snapshot = snapshotFromBytes(source);
@@ -1285,23 +1285,28 @@ test("38. matching snapshot token and one task path sets declarationId and omits
   const declarationId = expectedDeclarationId(spec, snapshot.token, sourceSha256);
   assert.equal(occurrence.declarationId, declarationId);
   assert.match(occurrence.declarationId, /^[a-f0-9]{64}$/);
-  assert.equal(Object.hasOwn(occurrence, "symbolId"), false);
+  assert.equal(occurrence.symbolId, "symbol_" + occurrence.declarationId);
+  assert.equal(occurrence.symbolId, "symbol_" + declarationId);
   assert.equal(Object.hasOwn(occurrence, "stableId"), false);
   assert.equal(Object.hasOwn(result, "symbolId"), false);
   assert.equal(Object.hasOwn(result, "stableId"), false);
   assert.equal(Object.hasOwn(result, "declarationId"), false);
   assert.ok(Array.isArray(result.notes));
+  const symbolNotes = result.notes.filter((note) => note.includes("symbol id"));
+  assert.equal(symbolNotes.length, 1);
   assert.ok(
-    result.notes.some((note) =>
-      note.includes("symbolId") &&
-      note.includes("not minted") &&
-      note.includes("prefix")
-    ),
-    "note must say symbolId was not minted because the contract names no prefix"
+    symbolNotes[0].includes("declaration id") &&
+      symbolNotes[0].includes("this snapshot only") &&
+      symbolNotes[0].includes("not stable across snapshots"),
+    "note must say the symbol id is the declaration id for this snapshot only and is not stable across snapshots"
   );
+  assert.equal(symbolNotes[0].includes("not minted"), false);
+  assert.equal(symbolNotes[0].includes("prefix"), false);
+  assert.equal(symbolNotes[0].includes("accepted"), false);
+  assert.equal(symbolNotes[0].includes(declarationId), false);
   assert.ok(
     result.notes.every((note) => !note.includes(declarationId)),
-    "the symbolId note must not contain declarationId"
+    "notes must not contain the declaration digest"
   );
 });
 
@@ -1319,8 +1324,11 @@ test("39. same source with a snapshot token mismatch has no declarationId", () =
   });
 
   assert.equal(result.status, "not_evaluated");
+  assert.notEqual(result.status, "resolved_unique");
   assert.equal(Object.hasOwn(result, "declarationId"), false);
+  assert.equal(Object.hasOwn(result, "symbolId"), false);
   assert.equal(JSON.stringify(result).includes("declarationId"), false);
+  assert.equal(JSON.stringify(result).includes("symbolId"), false);
   assertNoOccurrencesKey(result);
   assertNoIdentityFields(result);
 });
@@ -1366,6 +1374,7 @@ test("40. matching snapshot token with census 2 stays ambiguous and hashes each 
   assert.equal(result.occurrences.length, 2);
   assert.notEqual(specs[0].range.start, specs[1].range.start);
   const ids = [];
+  const symbolIds = [];
   for (let i = 0; i < specs.length; i += 1) {
     const occurrence = result.occurrences[i];
     assert.equal(occurrence.kind, specs[i].kind);
@@ -1375,11 +1384,16 @@ test("40. matching snapshot token with census 2 stays ambiguous and hashes each 
     const declarationId = expectedDeclarationId(specs[i], snapshot.token, sourceSha256);
     assert.equal(occurrence.declarationId, declarationId);
     assert.match(occurrence.declarationId, /^[a-f0-9]{64}$/);
-    assert.equal(Object.hasOwn(occurrence, "symbolId"), false);
+    assert.equal(occurrence.symbolId, "symbol_" + occurrence.declarationId);
+    assert.equal(occurrence.symbolId, "symbol_" + declarationId);
     assert.equal(Object.hasOwn(occurrence, "stableId"), false);
     ids.push(declarationId);
+    symbolIds.push(occurrence.symbolId);
   }
   assert.notEqual(ids[0], ids[1]);
+  assert.notEqual(symbolIds[0], symbolIds[1]);
+  assert.equal(symbolIds[0], "symbol_" + ids[0]);
+  assert.equal(symbolIds[1], "symbol_" + ids[1]);
   assert.equal(Object.hasOwn(result, "symbolId"), false);
   assert.equal(Object.hasOwn(result, "stableId"), false);
   assert.equal(Object.hasOwn(result, "declarationId"), false);
@@ -1403,5 +1417,7 @@ test("41. parsed result with no snapshot has no declarationId", () => {
   assert.equal(Object.hasOwn(result.occurrences[0], "declarationId"), false);
   assert.equal(Object.hasOwn(result.occurrences[0], "symbolId"), false);
   assert.equal(JSON.stringify(result).includes("declarationId"), false);
+  assert.equal(JSON.stringify(result).includes("symbolId"), false);
+  assert.notEqual(result.status, "resolved_unique");
   assertNoIdentityFields(result);
 });
