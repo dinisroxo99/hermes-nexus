@@ -133,6 +133,7 @@ function attachProviderIdNote(result, providerNode) {
 function notEvaluated(extra = {}, providerNode) {
   const result = { status: "not_evaluated", ...extra };
   stripIdentityFields(result);
+  delete result.counts;
   return attachProviderIdNote(result, providerNode);
 }
 
@@ -151,6 +152,26 @@ function partial(extra = {}, providerNode) {
 function isPlainObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
+
+function pathCount(task) {
+  return isPlainObject(task) && Array.isArray(task.paths) ? task.paths.length : 0;
+}
+
+function withMatchCounts(extra, requested, processed) {
+  const retained = extra.census;
+  const enumeration = extra.completeness && extra.completeness.enumeration;
+  return {
+    ...extra,
+    counts: {
+      requested,
+      processed,
+      retained,
+      matchedLowerBound: retained,
+      exactMatchCount: enumeration === "complete" ? retained : null
+    }
+  };
+}
+
 
 function providerNodeSuppliedId(providerNode) {
   return isPlainObject(providerNode) && Object.hasOwn(providerNode, "id") && providerNode.id != null && providerNode.id !== "";
@@ -735,6 +756,7 @@ function resolvedUniqueResult({
       requested: task.paths.length,
       processed: task.paths.length,
       retained: 1,
+      matchedLowerBound: 1,
       exactMatchCount: 1
     },
     generatedAt: null
@@ -791,6 +813,7 @@ function notFoundResult({
       requested: task.paths.length,
       processed: task.paths.length,
       retained: 0,
+      matchedLowerBound: 0,
       exactMatchCount: 0
     },
     generatedAt: null
@@ -1033,11 +1056,11 @@ function resolveMulti(input, paths) {
         retained.exhausted
       );
       return deliverParsed(ambiguous(
-        withCompleteness(applied.extra, applied.completeness),
+        withMatchCounts(withCompleteness(applied.extra, applied.completeness), task.paths.length, task.paths.length),
         providerNode
       ), pathRecords);
     }
-    return deliverParsed(partial(withCompleteness(base, completeness), providerNode), pathRecords);
+    return deliverParsed(partial(withMatchCounts(withCompleteness(base, completeness), task.paths.length, task.paths.length), providerNode), pathRecords);
   }
 
   let unsupportedForm = false;
@@ -1072,13 +1095,13 @@ function resolveMulti(input, paths) {
         retained.exhausted
       );
       return deliverParsed(ambiguous(
-        withCompleteness(applied.extra, applied.completeness),
+        withMatchCounts(withCompleteness(applied.extra, applied.completeness), task.paths.length, task.paths.length),
         providerNode
       ), pathRecords);
     }
     withSymbolIdSnapshotNote(notes, occurrences);
     return deliverParsed(partial(
-      withCompleteness({ census, coverage, notes, occurrences }, completeness),
+      withMatchCounts(withCompleteness({ census, coverage, notes, occurrences }, completeness), task.paths.length, task.paths.length),
       providerNode
     ), pathRecords);
   }
@@ -1091,7 +1114,7 @@ function resolveMulti(input, paths) {
       retained.exhausted
     );
     return deliverParsed(ambiguous(
-      withCompleteness(applied.extra, applied.completeness),
+      withMatchCounts(withCompleteness(applied.extra, applied.completeness), task.paths.length, task.paths.length),
       providerNode
     ), pathRecords);
   }
@@ -1320,7 +1343,7 @@ function resolveTrackA1Body(input = {}) {
   if (syntacticDiagnosticCount > 0) {
     if (pathScoped && censusEarly < 2) {
       return deliverParsed(partial(
-        withCompleteness(
+        withMatchCounts(withCompleteness(
           {
             census: censusEarly,
             coverage: coverageWithDiagnostics
@@ -1331,7 +1354,7 @@ function resolveTrackA1Body(input = {}) {
             syntacticDiagnosticCount,
             unsupportedForm: false
           })
-        ),
+        ), pathCount(task), pathCount(task)),
         providerNode
       ), pathRecords);
     }
@@ -1351,7 +1374,7 @@ function resolveTrackA1Body(input = {}) {
         earlyCensus.exhausted
       );
       return deliverParsed(ambiguous(
-        withCompleteness(applied.extra, applied.completeness),
+        withMatchCounts(withCompleteness(applied.extra, applied.completeness), task.paths.length, task.paths.length),
         providerNode
       ), pathRecords);
     }
@@ -1405,14 +1428,14 @@ function resolveTrackA1Body(input = {}) {
         matchExhausted
       );
       return deliverParsed(ambiguous(
-        applied.completeness ? withCompleteness(applied.extra, applied.completeness) : applied.extra,
+        withMatchCounts(applied.completeness ? withCompleteness(applied.extra, applied.completeness) : applied.extra, pathCount(task), pathScoped ? 1 : 0),
         providerNode
       ), pathRecords);
     }
     withSymbolIdSnapshotNote(notes, occurrences);
     if (pathScoped) {
       return deliverParsed(partial(
-        withCompleteness({ census, coverage, notes, occurrences }, completeness),
+        withMatchCounts(withCompleteness({ census, coverage, notes, occurrences }, completeness), pathCount(task), pathCount(task)),
         providerNode
       ), pathRecords);
     }
@@ -1432,7 +1455,7 @@ function resolveTrackA1Body(input = {}) {
       matchExhausted
     );
     return deliverParsed(ambiguous(
-      applied.completeness ? withCompleteness(applied.extra, applied.completeness) : applied.extra,
+      withMatchCounts(applied.completeness ? withCompleteness(applied.extra, applied.completeness) : applied.extra, pathCount(task), pathScoped ? 1 : 0),
       providerNode
     ), pathRecords);
   }

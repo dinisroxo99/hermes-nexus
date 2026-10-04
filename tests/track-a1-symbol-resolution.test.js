@@ -1528,6 +1528,7 @@ test("42. full binding and one function is resolved_unique", () => {
     requested: 1,
     processed: 1,
     retained: 1,
+    matchedLowerBound: 1,
     exactMatchCount: 1
   });
   assert.deepEqual(result.revisionBinding, {
@@ -1639,6 +1640,7 @@ test("48. full binding and no matching name is not_found", () => {
     requested: 1,
     processed: 1,
     retained: 0,
+    matchedLowerBound: 0,
     exactMatchCount: 0
   });
   assert.equal(Object.hasOwn(result, "symbolId"), false);
@@ -1818,6 +1820,7 @@ test("52. foo only in src/a.js across two paths is resolved_unique", () => {
     requested: 2,
     processed: 2,
     retained: 1,
+    matchedLowerBound: 1,
     exactMatchCount: 1
   });
   assert.equal(result.requestToken, requestToken);
@@ -1887,6 +1890,7 @@ test("54. foo in neither clean path is not_found", () => {
     requested: 2,
     processed: 2,
     retained: 0,
+    matchedLowerBound: 0,
     exactMatchCount: 0
   });
   assert.equal(result.requestToken, requestToken);
@@ -2947,4 +2951,135 @@ test("95. the 257th qualifying match stops retention at 256 with a lower bound",
   assert.equal(Object.hasOwn(result, "limits"), false);
   assert.equal(Object.hasOwn(result, "reasons"), false);
   assert.equal(result.occurrences[0].range.start < result.occurrences[255].range.start, true);
+});
+
+test('96. matchedLowerBound contract resolved_unique', () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const result = resolveWithBinding(source, parts);
+  assert.equal(result.status, 'resolved_unique');
+  assert.equal(result.counts.exactMatchCount, 1);
+  assert.deepEqual(result.counts, {
+    requested: 1,
+    processed: 1,
+    retained: 1,
+    matchedLowerBound: 1,
+    exactMatchCount: 1
+  });
+});
+
+test('97. matchedLowerBound contract 257 ceiling', () => {
+  const result = resolveRepeatedFoo(257);
+  assert.equal(result.status, 'ambiguous');
+  assert.equal(result.census, 256);
+  assert.equal(result.completeness.enumeration, 'partial');
+  assert.equal(result.notes.includes(RETAINED_MATCH_NOTE), true);
+  assert.equal(containsNumber(result, 257), false);
+  assert.deepEqual(result.counts, {
+    requested: 1,
+    processed: 1,
+    retained: 256,
+    matchedLowerBound: 256,
+    exactMatchCount: null
+  });
+  assert.deepEqual(Object.keys(result.counts).sort(), [
+    'exactMatchCount',
+    'matchedLowerBound',
+    'processed',
+    'requested',
+    'retained'
+  ]);
+});
+
+test('98. matchedLowerBound contract 256 complete', () => {
+  const result = resolveRepeatedFoo(256);
+  assert.equal(result.status, 'ambiguous');
+  assert.equal(result.completeness.enumeration, 'complete');
+  assert.equal(result.notes.includes(RETAINED_MATCH_NOTE), false);
+  assert.deepEqual(result.counts, {
+    requested: 1,
+    processed: 1,
+    retained: 256,
+    matchedLowerBound: 256,
+    exactMatchCount: 256
+  });
+});
+
+test('99. matchedLowerBound contract census 2', () => {
+  const source = FIXTURE_TWO_TOP_LEVEL_FOO;
+  const parts = fullBindingParts(source);
+  const result = resolveWithBinding(source, parts);
+  assert.equal(result.status, 'ambiguous');
+  assert.equal(result.census, 2);
+  assert.equal(result.completeness.enumeration, 'complete');
+  assert.deepEqual(result.counts, {
+    requested: 1,
+    processed: 1,
+    retained: 2,
+    matchedLowerBound: 2,
+    exactMatchCount: 2
+  });
+});
+
+test('100. matchedLowerBound contract destructure partial', () => {
+  const source = FIXTURE_DIRECT_DESTRUCTURE_A;
+  const parts = fullBindingParts(source);
+  const result = resolveWithBinding(source, parts);
+  assert.equal(result.status, 'partial');
+  assert.equal(result.census, 1);
+  assert.notEqual(result.completeness.enumeration, 'complete');
+  assert.deepEqual(result.counts, {
+    requested: 1,
+    processed: 1,
+    retained: 1,
+    matchedLowerBound: 1,
+    exactMatchCount: null
+  });
+});
+
+test('101. matchedLowerBound contract not_found', () => {
+  const source = FIXTURE_NO_FOO;
+  const parts = fullBindingParts(source);
+  const result = resolveWithBinding(source, parts);
+  assert.equal(result.status, 'not_found');
+  assert.deepEqual(result.counts, {
+    requested: 1,
+    processed: 1,
+    retained: 0,
+    matchedLowerBound: 0,
+    exactMatchCount: 0
+  });
+});
+
+test('102. matchedLowerBound contract pre-parse not_evaluated', () => {
+  const result = resolveTrackA1({
+    name: '',
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, 'utf8'),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) }
+  });
+  assert.equal(result.status, 'not_evaluated');
+  assert.equal(Object.hasOwn(result, 'counts'), false);
+});
+
+test('103. matchedLowerBound contract partial enumeration complete', () => {
+  const ordered = [
+    [PATH_A, FIXTURE_TRUNCATED],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  const result = resolveAcrossPaths(ordered, parts);
+  assert.equal(result.status, 'partial');
+  assert.equal(result.completeness.enumeration, 'complete');
+  assert.equal(result.counts.requested, 2);
+  assert.equal(result.counts.processed, 2);
+  assert.equal(result.counts.matchedLowerBound, result.counts.retained);
+  assert.equal(result.counts.exactMatchCount, result.counts.retained);
+  assert.equal(result.counts.matchedLowerBound, result.census);
+  assert.deepEqual(Object.keys(result.counts).sort(), [
+    'exactMatchCount',
+    'matchedLowerBound',
+    'processed',
+    'requested',
+    'retained'
+  ]);
 });
