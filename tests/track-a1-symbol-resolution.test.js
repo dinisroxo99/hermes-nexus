@@ -2132,3 +2132,142 @@ test("64. two paths, one small file and one 131073-byte buffer, are not_evaluate
     Buffer.prototype.toString = originalToString;
   }
 });
+
+function compactByteLength(value) {
+  return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+
+function resolveBound(source, parts, limits) {
+  const input = {
+    name: "foo",
+    sourceBytes: Buffer.from(source, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  if (limits !== undefined) input.limits = limits;
+  return resolveTrackA1(input);
+}
+
+function assertBudgetExceeded(error) {
+  assert.equal(error instanceof Error, true);
+  assert.equal(error.code, "symbol_resolution_budget_exceeded");
+  assert.equal(error.message, "symbol_resolution_budget_exceeded");
+  return true;
+}
+
+test("65. small resolved_unique fixture returns without limits and with compactBytes 131072", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const withoutLimits = resolveWithBinding(source, parts);
+  const withoutKey = resolveBound(source, parts, {});
+  const withMax = resolveBound(source, parts, { compactBytes: 131072 });
+
+  assert.equal(withoutLimits.status, "resolved_unique");
+  assert.deepEqual(withoutKey, withoutLimits);
+  assert.deepEqual(withMax, withoutLimits);
+  assert.equal(withoutLimits.requestToken, expectedSymbolRequestToken(parts));
+  assert.equal(Object.hasOwn(withoutLimits, "limits"), false);
+  assert.equal(Object.hasOwn(withoutLimits, "reasons"), false);
+  assert.equal(Object.hasOwn(withMax, "limits"), false);
+  assert.equal(Object.hasOwn(withMax, "reasons"), false);
+});
+
+test("66. compactBytes equal to the JSON size returns and one byte under throws", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const baseline = resolveWithBinding(source, parts);
+  const size = compactByteLength(baseline);
+
+  const exact = resolveBound(source, parts, { compactBytes: size });
+  assert.deepEqual(exact, baseline);
+  assert.equal(compactByteLength(exact), size);
+
+  assert.throws(
+    () => resolveBound(source, parts, { compactBytes: size - 1 }),
+    assertBudgetExceeded
+  );
+});
+
+function repeatedFooSource(count) {
+  const lines = ["// synthetic fixture: many direct declarations of foo"];
+  for (let index = 0; index < count; index += 1) {
+    lines.push("export function foo() { return 1; }");
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
+test("67. a result above 65536 bytes that fits in 131072 throws without limits and returns at the maximum", () => {
+  let count = 80;
+  let sized = null;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const source = repeatedFooSource(count);
+    const parts = fullBindingParts(source);
+    const result = resolveBound(source, parts, { compactBytes: 131072 });
+    const size = compactByteLength(result);
+    if (size > 65536 && size <= 131072) {
+      sized = { count, source, parts, result, size };
+      break;
+    }
+    count = size <= 65536
+      ? Math.ceil(count * (70000 / Math.max(size, 1)))
+      : Math.max(2, Math.floor(count * (100000 / size)));
+  }
+  assert.notEqual(sized, null);
+  assert.equal(sized.result.status, "ambiguous");
+  assert.equal(sized.result.census, sized.count);
+  assert.equal(sized.result.occurrences.length, sized.count);
+  assert.equal(Object.hasOwn(sized.result, "limits"), false);
+  assert.equal(Object.hasOwn(sized.result, "reasons"), false);
+
+  assert.throws(() => resolveBound(sized.source, sized.parts), assertBudgetExceeded);
+  assert.throws(() => resolveBound(sized.source, sized.parts, {}), assertBudgetExceeded);
+
+  const atMax = resolveBound(sized.source, sized.parts, { compactBytes: 131072 });
+  assert.equal(atMax.status, "ambiguous");
+  assert.equal(atMax.census, sized.count);
+  assert.equal(atMax.occurrences.length, sized.count);
+  assert.equal(compactByteLength(atMax) > 65536, true);
+  assert.equal(compactByteLength(atMax) <= 131072, true);
+  assert.deepEqual(atMax, sized.result);
+});
+
+test("68. an invalid compactBytes override is not_evaluated before parse and does not throw", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const originalToString = Buffer.prototype.toString;
+  let decodedSource = false;
+  Buffer.prototype.toString = function trackCompactBytesToString(...args) {
+    if (this === sourceBytes) decodedSource = true;
+    return originalToString.apply(this, args);
+  };
+
+  try {
+    for (const compactBytes of [0, -1, 1.5, 131073, Number.POSITIVE_INFINITY, Number.NaN, "65536", null]) {
+      const result = resolveTrackA1({
+        name: "foo",
+        sourceBytes,
+        binding: { sourceSha256: parts.sourceSha256 },
+        snapshot: parts.snapshot,
+        task: parts.task,
+        project: parts.project,
+        query: parts.query,
+        limits: { compactBytes }
+      });
+      assert.equal(result.status, "not_evaluated");
+      assert.equal(Object.hasOwn(result, "pathRecords"), false);
+      assert.equal(Array.isArray(result.notes), true);
+      assert.equal(result.notes.includes("compactBytes override was rejected"), true);
+      assert.equal(Object.hasOwn(result, "limits"), false);
+      assert.equal(Object.hasOwn(result, "reasons"), false);
+      assertContractIdentity(result);
+    }
+    assert.equal(decodedSource, false);
+  } finally {
+    Buffer.prototype.toString = originalToString;
+  }
+});

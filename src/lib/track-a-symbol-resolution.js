@@ -1371,6 +1371,40 @@ function stampContractIdentity(result) {
   return result;
 }
 
+const COMPACT_BYTES_DEFAULT = 65536;
+const COMPACT_BYTES_MAX = 131072;
+const COMPACT_BYTES_REJECTED_NOTE = "compactBytes override was rejected";
+
+function compactBytesCeiling(limits) {
+  if (!isPlainObject(limits) || !Object.hasOwn(limits, "compactBytes")) {
+    return COMPACT_BYTES_DEFAULT;
+  }
+  const value = limits.compactBytes;
+  if (!Number.isSafeInteger(value) || value <= 0 || value > COMPACT_BYTES_MAX) {
+    return null;
+  }
+  return value;
+}
+
+function rejectCompactBytesOverride(providerNode) {
+  return notEvaluated({ notes: [COMPACT_BYTES_REJECTED_NOTE] }, providerNode);
+}
+
+function throwIfCompactBytesExceeded(result, ceiling) {
+  const size = Buffer.byteLength(JSON.stringify(result), "utf8");
+  if (size > ceiling) {
+    const error = new Error("symbol_resolution_budget_exceeded");
+    error.code = "symbol_resolution_budget_exceeded";
+    throw error;
+  }
+  return result;
+}
+
 export function resolveTrackA1(input = {}) {
-  return stampContractIdentity(resolveTrackA1Body(input));
+  const ceiling = compactBytesCeiling(input.limits);
+  if (ceiling === null) {
+    return stampContractIdentity(rejectCompactBytesOverride(input.providerNode));
+  }
+  const result = stampContractIdentity(resolveTrackA1Body(input));
+  return throwIfCompactBytesExceeded(result, ceiling);
 }
