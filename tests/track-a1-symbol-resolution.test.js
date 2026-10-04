@@ -3170,10 +3170,13 @@ test("107. a two-node cycle does not hang and does not get the nesting note", { 
   const right = {};
   left.other = right;
   right.other = left;
-  const { input } = shallowNestedInput(left);
-  const result = resolveTrackA1(input);
-  assert.equal(result.status, "resolved_unique");
+  const { sourceBytes, input } = shallowNestedInput(left);
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input));
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, ["cyclic input was rejected"]);
   assertNoNestingNote(result);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
 });
 
 test("108. a shallow request does not get the nesting note", () => {
@@ -3244,11 +3247,14 @@ test("113. a two-node cycle does not hang and does not get the visited JSON valu
   const right = {};
   left.other = right;
   right.other = left;
-  const { input } = shallowNestedInput(left);
-  const result = resolveTrackA1(input);
-  assert.equal(result.status, "resolved_unique");
+  const { sourceBytes, input } = shallowNestedInput(left);
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input));
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, ["cyclic input was rejected"]);
   assertNoVisitedJsonValuesNote(result);
   assertNoNestingNote(result);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
 });
 
 test("114. a chain of 33 plain objects keeps only the nesting note", () => {
@@ -3436,4 +3442,65 @@ test('121. retained and inspected ceilings both leave notes', () => {
   assert.equal(result.counts.retained, 256);
   assert.equal(result.counts.matchedLowerBound, result.counts.retained);
   assert.equal(containsNumber(result, 20001), false);
+});
+
+const CYCLIC_INPUT_NOTE = 'cyclic input was rejected';
+
+test('122. a self-referential object is not_evaluated before decode', { timeout: 5000 }, () => {
+  const cycle = {};
+  cycle.self = cycle;
+  const { sourceBytes, input } = shallowNestedInput(cycle);
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input));
+
+  assert.equal(decoded, false);
+  assert.equal(result.status, 'not_evaluated');
+  assert.equal(result.notes.includes(CYCLIC_INPUT_NOTE), true);
+  assert.deepEqual(result.notes, [CYCLIC_INPUT_NOTE]);
+  assert.equal(Object.hasOwn(result, 'pathRecords'), false);
+  assert.equal(Object.hasOwn(result, 'limits'), false);
+  assert.equal(Object.hasOwn(result, 'reasons'), false);
+  assertContractIdentity(result);
+});
+
+test('123. an array that contains itself is not_evaluated before decode', { timeout: 5000 }, () => {
+  const cycle = [];
+  cycle.push(cycle);
+  const { sourceBytes, input } = shallowNestedInput(cycle);
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input));
+
+  assert.equal(decoded, false);
+  assert.equal(result.status, 'not_evaluated');
+  assert.deepEqual(result.notes, [CYCLIC_INPUT_NOTE]);
+  assert.equal(Object.hasOwn(result, 'pathRecords'), false);
+  assert.equal(Object.hasOwn(result, 'limits'), false);
+  assert.equal(Object.hasOwn(result, 'reasons'), false);
+  assertContractIdentity(result);
+});
+
+test('124. a diamond shared child is not rejected as cyclic', () => {
+  const child = {};
+  const diamond = { left: child, right: child };
+  const { input } = shallowNestedInput(diamond);
+  const result = resolveTrackA1(input);
+
+  assert.equal(result.status, 'resolved_unique');
+  const notes = Array.isArray(result.notes) ? result.notes : [];
+  assert.equal(notes.includes(CYCLIC_INPUT_NOTE), false);
+  assert.equal(Object.hasOwn(result, 'limits'), false);
+  assert.equal(Object.hasOwn(result, 'reasons'), false);
+  assertContractIdentity(result);
+});
+
+test('125. a depth-33 chain keeps only the nesting note', () => {
+  const { sourceBytes, input } = shallowNestedInput(nestedPlainObjects(32));
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input));
+
+  assert.equal(decoded, false);
+  assert.equal(result.status, 'not_evaluated');
+  assert.deepEqual(result.notes, [NESTING_NOTE]);
+  assert.equal(result.notes.includes(CYCLIC_INPUT_NOTE), false);
+  assert.equal(Object.hasOwn(result, 'pathRecords'), false);
+  assert.equal(Object.hasOwn(result, 'limits'), false);
+  assert.equal(Object.hasOwn(result, 'reasons'), false);
+  assertContractIdentity(result);
 });

@@ -1672,6 +1672,7 @@ function throwIfCompactBytesExceeded(result, ceiling) {
 
 const NESTING_DEPTH_LIMIT = 32;
 const NESTING_EXCEEDED_NOTE = "nesting exceeds 32";
+const CYCLIC_INPUT_NOTE = "cyclic input was rejected";
 
 function isNestingContainer(value) {
   if (value === null || typeof value !== "object") return false;
@@ -1691,8 +1692,8 @@ function nestingChildContainers(node) {
   return children;
 }
 
-function nestingExceedsLimit(root) {
-  if (!isNestingContainer(root)) return false;
+function inspectNesting(root) {
+  if (!isNestingContainer(root)) return null;
   const path = [];
   const stack = [{ node: root, depth: 1, children: null, index: 0 }];
   while (stack.length > 0) {
@@ -1708,12 +1709,12 @@ function nestingExceedsLimit(root) {
     }
     const child = frame.children[frame.index];
     frame.index += 1;
-    if (path.includes(child)) continue;
+    if (path.includes(child)) return CYCLIC_INPUT_NOTE;
     const depth = frame.depth + 1;
-    if (depth > NESTING_DEPTH_LIMIT) return true;
+    if (depth > NESTING_DEPTH_LIMIT) return NESTING_EXCEEDED_NOTE;
     stack.push({ node: child, depth, children: null, index: 0 });
   }
-  return false;
+  return null;
 }
 
 const VISITED_JSON_VALUE_LIMIT = 20000;
@@ -1757,8 +1758,9 @@ export function resolveTrackA1(input = {}) {
   if (ceiling === null) {
     return stampContractIdentity(rejectCompactBytesOverride(input.providerNode));
   }
-  if (nestingExceedsLimit(input)) {
-    return stampContractIdentity(notEvaluated({ notes: [NESTING_EXCEEDED_NOTE] }, input.providerNode));
+  const nestingNote = inspectNesting(input);
+  if (nestingNote !== null) {
+    return stampContractIdentity(notEvaluated({ notes: [nestingNote] }, input.providerNode));
   }
   if (visitedJsonValuesExceedLimit(input)) {
     return stampContractIdentity(notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] }, input.providerNode));
