@@ -718,6 +718,7 @@ test("19. absolute or parent-segment paths => not_evaluated", () => {
     assert.equal(result.status, "not_evaluated");
     assert.notEqual(result.status, "partial");
     assert.notEqual(result.status, "resolved_unique");
+    assert.equal(Object.hasOwn(result, "pathRecords"), false);
     assertNoIdentityFields(result);
     assertNoOccurrencesKey(result);
   }
@@ -736,6 +737,7 @@ test("20. paths length 2 => not_evaluated without parse claim of resolved_unique
   assert.notEqual(result.status, "resolved_unique");
   assert.notEqual(result.status, "partial");
   assert.equal(Object.hasOwn(result, "census"), false, "must not parse when more than one path is supplied");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
   assertNoIdentityFields(result);
   assertNoOccurrencesKey(result);
   assert.ok(Array.isArray(result.notes));
@@ -779,6 +781,8 @@ test("22. mismatched snapshot token with task.paths stays not_evaluated, not par
 
   assert.equal(result.status, "not_evaluated");
   assert.notEqual(result.status, "partial");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
   assertNoIdentityFields(result);
   assertNoOccurrencesKey(result);
 });
@@ -1548,6 +1552,16 @@ test("42. full binding and one function is resolved_unique", () => {
   assertNativeTypescriptProvider(result);
   assert.equal(parts.task.paths[0], "src/example.js");
   assert.equal(parts.snapshot.path, "src/example.js");
+  assert.equal(result.status, "resolved_unique");
+  assert.equal(result.pathRecords.length, 1);
+  assert.equal(result.pathRecords[0].path, parts.task.paths[0]);
+  assert.equal(result.pathRecords[0].sha256, sha256Text(source));
+  assert.equal(result.pathRecords[0].sha256, parts.sourceSha256);
+  assert.match(result.pathRecords[0].sha256, /^[a-f0-9]{64}$/);
+  assert.equal(result.pathRecords[0].byteSize, Buffer.byteLength(source));
+  assert.equal(result.pathRecords[0].parse, "complete");
+  assert.equal(result.pathRecords[0].enumeration, "complete");
+  assert.equal(result.pathRecords[0].matched, 1);
 });
 
 test("43. full binding with query.domain omitted stays not_evaluated", () => {
@@ -1813,6 +1827,20 @@ test("52. foo only in src/a.js across two paths is resolved_unique", () => {
   assert.equal(result.completeness.parse, "complete");
   assert.equal(result.completeness.enumeration, "complete");
   assertNativeTypescriptProvider(result);
+  assert.equal(result.status, "resolved_unique");
+  assert.equal(result.pathRecords.length, 2);
+  assert.deepEqual(result.pathRecords.map((record) => record.path), [PATH_A, PATH_B]);
+  assert.deepEqual(result.pathRecords.map((record) => record.matched), [1, 0]);
+  assert.equal(result.pathRecords[0].sha256, sha256Text(FIXTURE_SINGLE_FOO));
+  assert.equal(result.pathRecords[1].sha256, sha256Text(FILE_B_OTHER));
+  assert.match(result.pathRecords[0].sha256, /^[a-f0-9]{64}$/);
+  assert.match(result.pathRecords[1].sha256, /^[a-f0-9]{64}$/);
+  assert.equal(result.pathRecords[0].byteSize, Buffer.byteLength(FIXTURE_SINGLE_FOO));
+  assert.equal(result.pathRecords[1].byteSize, Buffer.byteLength(FILE_B_OTHER));
+  assert.equal(result.pathRecords[0].parse, "complete");
+  assert.equal(result.pathRecords[1].parse, "complete");
+  assert.equal(result.pathRecords[0].enumeration, "complete");
+  assert.equal(result.pathRecords[1].enumeration, "complete");
 });
 
 test("53. foo in both src/a.js and src/b.js is ambiguous", () => {
@@ -1830,6 +1858,14 @@ test("53. foo in both src/a.js and src/b.js is ambiguous", () => {
   assert.equal(result.occurrences.length, 2);
   assert.deepEqual(result.occurrences.map((occurrence) => occurrence.path), [PATH_A, PATH_B]);
   assert.equal(result.completeness.output, "not_evaluated");
+  assert.equal(result.status, "ambiguous");
+  assert.equal(result.pathRecords.length, 2);
+  assert.deepEqual(result.pathRecords.map((record) => record.path), [PATH_A, PATH_B]);
+  assert.deepEqual(result.pathRecords.map((record) => record.matched), [1, 1]);
+  assert.equal(result.pathRecords[0].parse, "complete");
+  assert.equal(result.pathRecords[1].parse, "complete");
+  assert.equal(result.pathRecords[0].enumeration, "complete");
+  assert.equal(result.pathRecords[1].enumeration, "complete");
 });
 
 test("54. foo in neither clean path is not_found", () => {
@@ -1882,6 +1918,7 @@ test("55. thirty-three task paths stay not_evaluated and do not parse", () => {
   assert.equal(JSON.stringify(result).includes("resolved_unique"), false);
   assert.notEqual(result.status, "not_found");
   assert.equal(Object.hasOwn(result, "census"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
 });
 
 test("56. a syntax error in one of two paths is partial", () => {
@@ -1898,6 +1935,17 @@ test("56. a syntax error in one of two paths is partial", () => {
   assert.equal(result.completeness.parse, "partial");
   assert.ok(result.coverage.syntacticDiagnosticCount > 0);
   assert.equal(result.completeness.output, "not_evaluated");
+  assert.equal(result.pathRecords.length, 2);
+  assert.deepEqual(result.pathRecords.map((record) => record.path), [PATH_A, PATH_B]);
+  assert.equal(result.pathRecords[0].parse, "partial");
+  assert.equal(result.pathRecords[1].parse, "complete");
+  assert.equal(result.pathRecords[0].sha256, sha256Text(FIXTURE_TRUNCATED));
+  assert.equal(result.pathRecords[1].sha256, sha256Text(FILE_B_OTHER));
+  assert.match(result.pathRecords[0].sha256, /^[a-f0-9]{64}$/);
+  assert.equal(result.pathRecords[0].byteSize, Buffer.byteLength(FIXTURE_TRUNCATED));
+  assert.equal(result.pathRecords[1].byteSize, Buffer.byteLength(FILE_B_OTHER));
+  assert.notEqual(result.pathRecords[0].parse, "complete");
+  assert.notEqual(result.status, "resolved_unique");
 });
 
 test("57. an unsupported form in one of two paths blocks resolved_unique", () => {
@@ -1914,4 +1962,9 @@ test("57. an unsupported form in one of two paths blocks resolved_unique", () =>
   assert.equal(result.census, 1);
   assert.equal(result.completeness.enumeration, "partial");
   assert.equal(result.completeness.output, "not_evaluated");
+  assert.equal(result.pathRecords.length, 2);
+  assert.deepEqual(result.pathRecords.map((record) => record.enumeration), ["complete", "partial"]);
+  assert.deepEqual(result.pathRecords.map((record) => record.matched), [1, 0]);
+  assert.deepEqual(result.pathRecords.map((record) => record.parse), ["complete", "complete"]);
+  assert.equal(result.status, "partial");
 });

@@ -47,6 +47,7 @@ function withParsedProvider(result) {
       }
       unsupported.completeness = completeness;
     }
+    if (Object.hasOwn(result, "pathRecords")) unsupported.pathRecords = result.pathRecords;
     stripIdentityFields(unsupported);
     return unsupported;
   }
@@ -392,6 +393,33 @@ function buildCompleteness({
   };
 }
 
+function buildPathRecord({
+  path,
+  sha256,
+  byteSize,
+  syntacticDiagnosticCount,
+  unsupportedForm,
+  matched
+}) {
+  return {
+    path,
+    sha256,
+    byteSize,
+    parse: syntacticDiagnosticCount === 0 ? "complete" : "partial",
+    enumeration: unsupportedForm ? "partial" : "complete",
+    matched
+  };
+}
+
+function deliverParsed(result, pathRecords) {
+  if (Array.isArray(pathRecords)) result.pathRecords = pathRecords;
+  const produced = withParsedProvider(result);
+  if (produced !== result && Array.isArray(pathRecords)) {
+    produced.pathRecords = pathRecords;
+  }
+  return produced;
+}
+
 function withCompleteness(extra, completeness) {
   return { ...extra, completeness };
 }
@@ -446,6 +474,12 @@ function withCompleteness(extra, completeness) {
  * Provider node ids are never copied. Extra binding fields are
  * ignored. Does not invent project, repository, worktree, snapshot, or path
  * identity, and does not consult composeEffectiveTaskScope / providers.
+ * When every supplied task path is actually parsed, pathRecords lists one
+ * record per path in task.paths order: path, sha256, byteSize, parse
+ * (complete only with zero syntactic diagnostics on that path), enumeration
+ * (partial only when that path has a direct unsupported form), and matched
+ * (qualifying direct declarations of the requested name in that path).
+ * Paths rejected before parse are not given pathRecords.
  */
 
 const COMMIT_SHA40 = /^[a-f0-9]{40}$/;
@@ -850,6 +884,15 @@ function resolveMulti(input, paths) {
     parsedFiles.push({ ...file, ...parsed });
   }
 
+  const pathRecords = parsedFiles.map((file) => buildPathRecord({
+    path: file.path,
+    sha256: file.sha256,
+    byteSize: file.bytes.length,
+    syntacticDiagnosticCount: file.syntacticDiagnosticCount,
+    unsupportedForm: fileHasUnsupportedDeclarationForm(file.sourceFile),
+    matched: censusDeclarations(file.sourceFile, name).length
+  }));
+
   let syntacticDiagnosticCount = 0;
   let census = 0;
   const rawOccurrences = [];
@@ -873,12 +916,12 @@ function resolveMulti(input, paths) {
     });
     const base = { census, coverage: coverageWithDiagnostics };
     if (census >= 2) {
-      return withParsedProvider(ambiguous(
+      return deliverParsed(ambiguous(
         withCompleteness({ ...base, notes: [AMBIGUOUS_DIRECT_NOTE] }, completeness),
         providerNode
-      ));
+      ), pathRecords);
     }
-    return withParsedProvider(partial(withCompleteness(base, completeness), providerNode));
+    return deliverParsed(partial(withCompleteness(base, completeness), providerNode), pathRecords);
   }
 
   let unsupportedForm = false;
@@ -907,24 +950,24 @@ function resolveMulti(input, paths) {
     if (census >= 2) {
       notes.push(AMBIGUOUS_DIRECT_NOTE);
       withSymbolIdSnapshotNote(notes, occurrences);
-      return withParsedProvider(ambiguous(
+      return deliverParsed(ambiguous(
         withCompleteness({ census, coverage, notes, occurrences }, completeness),
         providerNode
-      ));
+      ), pathRecords);
     }
     withSymbolIdSnapshotNote(notes, occurrences);
-    return withParsedProvider(partial(
+    return deliverParsed(partial(
       withCompleteness({ census, coverage, notes, occurrences }, completeness),
       providerNode
-    ));
+    ), pathRecords);
   }
 
   if (census >= 2) {
     const notes = withSymbolIdSnapshotNote([AMBIGUOUS_DIRECT_NOTE], occurrences);
-    return withParsedProvider(ambiguous(
+    return deliverParsed(ambiguous(
       withCompleteness({ census, coverage, notes, occurrences }, completeness),
       providerNode
-    ));
+    ), pathRecords);
   }
 
   if (census === 0) {
@@ -938,7 +981,7 @@ function resolveMulti(input, paths) {
       completeness,
       paths
     })) {
-      return withParsedProvider(attachProviderIdNote(notFoundResult({
+      return deliverParsed(attachProviderIdNote(notFoundResult({
         coverage,
         completeness,
         snapshot,
@@ -946,14 +989,14 @@ function resolveMulti(input, paths) {
         task,
         query,
         actualSha: combinedSha
-      }), providerNode));
+      }), providerNode), pathRecords);
     }
     const notes = [OUTPUT_COVERAGE_INCOMPLETE_NOTE];
     withSymbolIdSnapshotNote(notes, occurrences);
-    return withParsedProvider(notEvaluated(
+    return deliverParsed(notEvaluated(
       withCompleteness({ census, coverage, notes, occurrences }, completeness),
       providerNode
-    ));
+    ), pathRecords);
   }
 
   const notes = [NOT_ACCEPTED_NOTE];
@@ -979,7 +1022,7 @@ function resolveMulti(input, paths) {
     completeness,
     paths
   })) {
-    return withParsedProvider(attachProviderIdNote(resolvedUniqueResult({
+    return deliverParsed(attachProviderIdNote(resolvedUniqueResult({
       occurrences,
       coverage,
       completeness,
@@ -988,9 +1031,9 @@ function resolveMulti(input, paths) {
       task,
       query,
       actualSha: combinedSha
-    }), providerNode));
+    }), providerNode), pathRecords);
   }
-  return withParsedProvider(notEvaluated(evaluated, providerNode));
+  return deliverParsed(notEvaluated(evaluated, providerNode), pathRecords);
 }
 
 export function resolveTrackA1(input = {}) {
@@ -1075,6 +1118,16 @@ export function resolveTrackA1(input = {}) {
   const syntacticDiagnostics = program.getSyntacticDiagnostics(sourceFile.compilerNode);
   const syntacticDiagnosticCount = syntacticDiagnostics.length;
   const censusEarly = censusDeclarations(sourceFile, name).length;
+  const pathRecords = pathScoped
+    ? [buildPathRecord({
+        path: pathScope.path,
+        sha256: actualSha,
+        byteSize: bytes.length,
+        syntacticDiagnosticCount,
+        unsupportedForm: fileHasUnsupportedDeclarationForm(sourceFile),
+        matched: censusEarly
+      })]
+    : null;
   const coverageWithDiagnostics = {
     wholeByteString: true,
     syntacticDiagnosticCount
@@ -1082,7 +1135,7 @@ export function resolveTrackA1(input = {}) {
 
   if (syntacticDiagnosticCount > 0) {
     if (pathScoped && censusEarly < 2) {
-      return withParsedProvider(partial(
+      return deliverParsed(partial(
         withCompleteness(
           {
             census: censusEarly,
@@ -1096,10 +1149,10 @@ export function resolveTrackA1(input = {}) {
           })
         ),
         providerNode
-      ));
+      ), pathRecords);
     }
     if (pathScoped) {
-      return withParsedProvider(ambiguous(
+      return deliverParsed(ambiguous(
         withCompleteness(
           {
             census: censusEarly,
@@ -1114,12 +1167,12 @@ export function resolveTrackA1(input = {}) {
           })
         ),
         providerNode
-      ));
+      ), pathRecords);
     }
-    return withParsedProvider(notEvaluated({
+    return deliverParsed(notEvaluated({
       census: censusEarly,
       coverage: coverageWithDiagnostics
-    }, providerNode));
+    }, providerNode), pathRecords);
   }
 
   const matches = censusDeclarations(sourceFile, name);
@@ -1154,24 +1207,24 @@ export function resolveTrackA1(input = {}) {
       notes.push(AMBIGUOUS_DIRECT_NOTE);
       withSymbolIdSnapshotNote(notes, occurrences);
       const extra = { census, coverage, notes, occurrences };
-      return withParsedProvider(ambiguous(
+      return deliverParsed(ambiguous(
         completeness ? withCompleteness(extra, completeness) : extra,
         providerNode
-      ));
+      ), pathRecords);
     }
     withSymbolIdSnapshotNote(notes, occurrences);
     if (pathScoped) {
-      return withParsedProvider(partial(
+      return deliverParsed(partial(
         withCompleteness({ census, coverage, notes, occurrences }, completeness),
         providerNode
-      ));
+      ), pathRecords);
     }
-    return withParsedProvider(notEvaluated({
+    return deliverParsed(notEvaluated({
       census,
       coverage,
       notes,
       occurrences
-    }, providerNode));
+    }, providerNode), pathRecords);
   }
 
   if (census >= 2) {
@@ -1182,10 +1235,10 @@ export function resolveTrackA1(input = {}) {
       notes,
       occurrences
     };
-    return withParsedProvider(ambiguous(
+    return deliverParsed(ambiguous(
       completeness ? withCompleteness(extra, completeness) : extra,
       providerNode
-    ));
+    ), pathRecords);
   }
 
   if (census !== 1) {
@@ -1199,7 +1252,7 @@ export function resolveTrackA1(input = {}) {
       completeness,
       pathScope
     })) {
-      return withParsedProvider(attachProviderIdNote(notFoundResult({
+      return deliverParsed(attachProviderIdNote(notFoundResult({
         coverage,
         completeness,
         snapshot,
@@ -1207,16 +1260,16 @@ export function resolveTrackA1(input = {}) {
         task,
         query,
         actualSha
-      }), providerNode));
+      }), providerNode), pathRecords);
     }
     const notes = [];
     if (pathScoped) notes.push(OUTPUT_COVERAGE_INCOMPLETE_NOTE);
     withSymbolIdSnapshotNote(notes, occurrences);
     const extra = notes.length > 0 ? { census, coverage, notes, occurrences } : { census, coverage, occurrences };
-    return withParsedProvider(notEvaluated(
+    return deliverParsed(notEvaluated(
       completeness ? withCompleteness(extra, completeness) : extra,
       providerNode
-    ));
+    ), pathRecords);
   }
 
   const notes = [NOT_ACCEPTED_NOTE];
@@ -1243,7 +1296,7 @@ export function resolveTrackA1(input = {}) {
     completeness,
     pathScope
   })) {
-    return withParsedProvider(attachProviderIdNote(resolvedUniqueResult({
+    return deliverParsed(attachProviderIdNote(resolvedUniqueResult({
       occurrences,
       coverage,
       completeness,
@@ -1252,10 +1305,10 @@ export function resolveTrackA1(input = {}) {
       task,
       query,
       actualSha
-    }), providerNode));
+    }), providerNode), pathRecords);
   }
-  return withParsedProvider(notEvaluated(
+  return deliverParsed(notEvaluated(
     evaluated,
     providerNode
-  ));
+  ), pathRecords);
 }
