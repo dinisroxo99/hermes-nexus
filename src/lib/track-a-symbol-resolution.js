@@ -1,6 +1,57 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { Project, SyntaxKind } from "ts-morph";
 import { createProviderSnapshot } from "../analyzers/common/analyzer-provider-contract.js";
+
+const moduleRequire = createRequire(import.meta.url);
+const CONTRACT_TYPESCRIPT_PARSER_VERSION = "6.0.3";
+const PARSER_VERSION_NOT_CONTRACT_NOTE =
+  "parser version is not the contract parser";
+
+function readInstalledTypescriptVersion() {
+  return JSON.parse(
+    readFileSync(moduleRequire.resolve("typescript/package.json"), "utf8")
+  ).version;
+}
+
+function nativeTypescriptDeclarationsProvider(version) {
+  return {
+    id: "native.typescript.declarations",
+    version: "1",
+    kind: "native",
+    parser: "typescript/" + version
+  };
+}
+
+function withParsedProvider(result) {
+  const version = readInstalledTypescriptVersion();
+  const provider = nativeTypescriptDeclarationsProvider(version);
+  if (version !== CONTRACT_TYPESCRIPT_PARSER_VERSION) {
+    const notes = Array.isArray(result.notes) ? result.notes.slice() : [];
+    if (!notes.includes(PARSER_VERSION_NOT_CONTRACT_NOTE)) {
+      notes.push(PARSER_VERSION_NOT_CONTRACT_NOTE);
+    }
+    const unsupported = {
+      status: "unsupported",
+      provider,
+      notes
+    };
+    if (Object.hasOwn(result, "census")) unsupported.census = result.census;
+    if (Object.hasOwn(result, "coverage")) unsupported.coverage = result.coverage;
+    if (Object.hasOwn(result, "completeness")) {
+      const completeness = { ...result.completeness };
+      if (completeness.enumeration === "complete") {
+        completeness.enumeration = "not_evaluated";
+      }
+      unsupported.completeness = completeness;
+    }
+    stripIdentityFields(unsupported);
+    return unsupported;
+  }
+  result.provider = provider;
+  return result;
+}
 
 const QUALIFYING_DIRECT_KINDS = new Set([
   SyntaxKind.FunctionDeclaration,
@@ -386,9 +437,9 @@ export function resolveTrackA1(input = {}) {
   const sourceFile = project.createSourceFile("synthetic-fixture.ts", text);
   if (sourceFile.getFullText() !== text) {
     if (pathScoped) {
-      return notEvaluated(withCompleteness({}, buildCompleteness()), providerNode);
+      return withParsedProvider(notEvaluated(withCompleteness({}, buildCompleteness()), providerNode));
     }
-    return notEvaluated({}, providerNode);
+    return withParsedProvider(notEvaluated({}, providerNode));
   }
 
   const program = project.getProgram().compilerObject;
@@ -402,7 +453,7 @@ export function resolveTrackA1(input = {}) {
 
   if (syntacticDiagnosticCount > 0) {
     if (pathScoped && censusEarly < 2) {
-      return partial(
+      return withParsedProvider(partial(
         withCompleteness(
           {
             census: censusEarly,
@@ -416,10 +467,10 @@ export function resolveTrackA1(input = {}) {
           })
         ),
         providerNode
-      );
+      ));
     }
     if (pathScoped) {
-      return ambiguous(
+      return withParsedProvider(ambiguous(
         withCompleteness(
           {
             census: censusEarly,
@@ -434,12 +485,12 @@ export function resolveTrackA1(input = {}) {
           })
         ),
         providerNode
-      );
+      ));
     }
-    return notEvaluated({
+    return withParsedProvider(notEvaluated({
       census: censusEarly,
       coverage: coverageWithDiagnostics
-    }, providerNode);
+    }, providerNode));
   }
 
   const matches = censusDeclarations(sourceFile, name);
@@ -466,23 +517,23 @@ export function resolveTrackA1(input = {}) {
     if (census >= 2) {
       notes.push(AMBIGUOUS_DIRECT_NOTE);
       const extra = { census, coverage, notes, occurrences };
-      return ambiguous(
+      return withParsedProvider(ambiguous(
         completeness ? withCompleteness(extra, completeness) : extra,
         providerNode
-      );
+      ));
     }
     if (pathScoped) {
-      return partial(
+      return withParsedProvider(partial(
         withCompleteness({ census, coverage, notes, occurrences }, completeness),
         providerNode
-      );
+      ));
     }
-    return notEvaluated({
+    return withParsedProvider(notEvaluated({
       census,
       coverage,
       notes,
       occurrences
-    }, providerNode);
+    }, providerNode));
   }
 
   if (census >= 2) {
@@ -492,20 +543,20 @@ export function resolveTrackA1(input = {}) {
       notes: [AMBIGUOUS_DIRECT_NOTE],
       occurrences
     };
-    return ambiguous(
+    return withParsedProvider(ambiguous(
       completeness ? withCompleteness(extra, completeness) : extra,
       providerNode
-    );
+    ));
   }
 
   if (census !== 1) {
     const notes = [];
     if (pathScoped) notes.push(OUTPUT_COVERAGE_INCOMPLETE_NOTE);
     const extra = notes.length > 0 ? { census, coverage, notes, occurrences } : { census, coverage, occurrences };
-    return notEvaluated(
+    return withParsedProvider(notEvaluated(
       completeness ? withCompleteness(extra, completeness) : extra,
       providerNode
-    );
+    ));
   }
 
   const notes = snapshotTokenMatched
@@ -518,8 +569,8 @@ export function resolveTrackA1(input = {}) {
     notes,
     occurrences
   };
-  return notEvaluated(
+  return withParsedProvider(notEvaluated(
     completeness ? withCompleteness(extra, completeness) : extra,
     providerNode
-  );
+  ));
 }

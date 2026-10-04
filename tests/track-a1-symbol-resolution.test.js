@@ -1163,3 +1163,67 @@ test("34. one path + for-of destructuring nested in the body of foo does not mak
   assertOccurrenceIdentityAbsent(result.occurrences[0]);
   assertNoIdentityFields(result);
 });
+
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+
+const trackA1Require = createRequire(import.meta.url);
+const INSTALLED_TYPESCRIPT_VERSION = JSON.parse(
+  readFileSync(trackA1Require.resolve("typescript/package.json"), "utf8")
+).version;
+const EXPECTED_PARSER = `typescript/${INSTALLED_TYPESCRIPT_VERSION}`;
+
+function assertNativeTypescriptProvider(result) {
+  assert.ok(Object.hasOwn(result, "provider"), "parsed result must include provider");
+  assert.equal(result.provider.id, "native.typescript.declarations");
+  assert.equal(result.provider.version, "1");
+  assert.equal(result.provider.kind, "native");
+  assert.equal(result.provider.parser, EXPECTED_PARSER);
+}
+
+test("35. parsed one-function fixture binds native TypeScript provider from installed package", () => {
+  const sourceSha256 = sha256Text(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256 }
+  });
+
+  assertNativeTypescriptProvider(result);
+  if (INSTALLED_TYPESCRIPT_VERSION === "6.0.3") {
+    assert.equal(result.status, "not_evaluated");
+  }
+  assert.notEqual(result.status, "resolved_unique");
+  assert.notEqual(result.status, "not_found");
+  assertNoIdentityFields(result);
+});
+
+test("36. ambiguous fixture includes native TypeScript provider and stays ambiguous", () => {
+  const sourceSha256 = sha256Text(FIXTURE_TWO_TOP_LEVEL_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_TWO_TOP_LEVEL_FOO, "utf8"),
+    binding: { sourceSha256 }
+  });
+
+  assertNativeTypescriptProvider(result);
+  if (INSTALLED_TYPESCRIPT_VERSION === "6.0.3") {
+    assert.equal(result.status, "ambiguous");
+  }
+  assert.notEqual(result.status, "resolved_unique");
+  assert.notEqual(result.status, "not_found");
+  assertNoIdentityFields(result);
+});
+
+test("37. sha-mismatch result has no provider key", () => {
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: "0".repeat(64) }
+  });
+
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assertNoIdentityFields(result);
+  assertNoOccurrencesKey(result);
+});
