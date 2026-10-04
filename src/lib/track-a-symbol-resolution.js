@@ -410,9 +410,19 @@ function withCompleteness(extra, completeness) {
  * That id is contextDigest of the fixed JSON field array. symbolId is symbol_ plus
  * that declarationId and is attached only when declarationId is attached. It names
  * this snapshot only, is not stable across snapshots, and does not make the result
- * resolved_unique. Parse diagnostics contribute no occurrence records. A census of 0 or 1,
- * including a matching source sha256, stays not_evaluated and is still not
- * full observation binding and is not accepted A1 evidence. When task.paths
+ * resolved_unique. Parse diagnostics contribute no occurrence records. A census of 0, or a census of 1 whose single-path binding is incomplete,
+ * stays not_evaluated. A matching snapshot and a symbolId are not enough.
+ * resolved_unique is emitted only when query.domain is
+ * tsjs_source_file_direct_declarations_v1, query.name is that requested name,
+ * task.id is a non-empty string of at most 128 characters, task.paths is
+ * exactly the snapshot path, project.projectId, rootId, and relativePath are
+ * non-empty and project.projectId equals the snapshot, the recomputed revision
+ * is available, clean, and a linked worktree with no repositoryIdentity,
+ * 64-hex repository and worktree ids, and a 40-hex commitSha, the installed
+ * parser is 6.0.3, census is 1, syntactic diagnostics are 0, there is no
+ * direct unsupported form, and symbolId is symbol_ plus declarationId.
+ * Only that result sets completeness.output to complete. Other domains stay
+ * on their existing status and are not turned into unsupported. When task.paths
  * supplies exactly one relative path, incomplete parse or unsupported forms
  * with census < 2 become partial with an explicit completeness record; a clean
  * single or zero match stays not_evaluated because output coverage is not
@@ -420,8 +430,151 @@ function withCompleteness(extra, completeness) {
  * ignored. Does not invent project, repository, worktree, snapshot, or path
  * identity, and does not consult composeEffectiveTaskScope / providers.
  */
+
+const COMMIT_SHA40 = /^[a-f0-9]{40}$/;
+const SYMBOL_QUERY_DOMAIN = "tsjs_source_file_direct_declarations_v1";
+
+function nonEmptyString(value) {
+  return typeof value === "string" && value.length > 0;
+}
+
+function revisionAllowsUnique(revision) {
+  if (!isPlainObject(revision)) return false;
+  if (Object.hasOwn(revision, "repositoryIdentity")) return false;
+  if (typeof revision.repositoryId !== "string" || !HEX64.test(revision.repositoryId)) return false;
+  if (typeof revision.worktreeId !== "string" || !HEX64.test(revision.worktreeId)) return false;
+  if (revision.status !== "available") return false;
+  if (typeof revision.commitSha !== "string" || !COMMIT_SHA40.test(revision.commitSha)) return false;
+  if (!(revision.branch === null || typeof revision.branch === "string")) return false;
+  if (revision.dirty !== false) return false;
+  if (revision.isLinkedWorktree !== true) return false;
+  return true;
+}
+
+function uniqueBindingReady({
+  name,
+  query,
+  task,
+  project,
+  snapshot,
+  snapshotTokenMatched,
+  occurrences,
+  completeness,
+  pathScope
+}) {
+  if (!snapshotTokenMatched || !isPlainObject(snapshot)) return false;
+  if (!isPlainObject(query)) return false;
+  if (query.domain !== SYMBOL_QUERY_DOMAIN) return false;
+  if (!nonEmptyString(query.name) || query.name !== name) return false;
+  if (!isPlainObject(task)) return false;
+  if (!nonEmptyString(task.id) || task.id.length > 128) return false;
+  if (!Array.isArray(task.paths) || task.paths.length !== 1) return false;
+  if (task.paths[0] !== snapshot.path) return false;
+  if (pathScope.kind !== "single" || pathScope.path !== snapshot.path) return false;
+  if (!isPlainObject(project)) return false;
+  if (!nonEmptyString(project.projectId) || !nonEmptyString(project.rootId) || !nonEmptyString(project.relativePath)) {
+    return false;
+  }
+  if (project.projectId !== snapshot.projectId) return false;
+  if (!revisionAllowsUnique(snapshot.revision)) return false;
+  if (readInstalledTypescriptVersion() !== CONTRACT_TYPESCRIPT_PARSER_VERSION) return false;
+  if (!isPlainObject(completeness)) return false;
+  if (completeness.source !== "complete" || completeness.parse !== "complete" || completeness.enumeration !== "complete") {
+    return false;
+  }
+  if (!Array.isArray(occurrences) || occurrences.length !== 1) return false;
+  const occurrence = occurrences[0];
+  if (!isPlainObject(occurrence)) return false;
+  if (typeof occurrence.declarationId !== "string" || !HEX64.test(occurrence.declarationId)) return false;
+  if (occurrence.symbolId !== "symbol_" + occurrence.declarationId) return false;
+  return true;
+}
+
+function symbolRequestToken({ project, revision, snapshotToken, parserString, task, query }) {
+  return contextDigest(JSON.stringify([
+    "symbol-resolution-evidence-v1",
+    "tsjs-direct-declarations-1",
+    project.projectId,
+    project.rootId,
+    project.relativePath,
+    revision.status,
+    revision.commitSha,
+    revision.branch,
+    revision.repositoryId,
+    revision.worktreeId,
+    revision.dirty,
+    revision.isLinkedWorktree,
+    snapshotToken,
+    "native.typescript.declarations",
+    "1",
+    parserString,
+    task.id,
+    task.paths[0],
+    query.name,
+    query.domain
+  ]));
+}
+
+function resolvedUniqueResult({
+  occurrences,
+  coverage,
+  completeness,
+  snapshot,
+  project,
+  task,
+  query,
+  actualSha
+}) {
+  const parserString = "typescript/" + readInstalledTypescriptVersion();
+  const revision = snapshot.revision;
+  const requestToken = symbolRequestToken({
+    project,
+    revision,
+    snapshotToken: snapshot.token,
+    parserString,
+    task,
+    query
+  });
+  const notes = withSymbolIdSnapshotNote([], occurrences);
+  return {
+    status: "resolved_unique",
+    census: 1,
+    coverage,
+    notes,
+    occurrences,
+    completeness: {
+      source: completeness.source,
+      parse: completeness.parse,
+      enumeration: completeness.enumeration,
+      output: "complete"
+    },
+    revisionBinding: {
+      status: revision.status,
+      commitSha: revision.commitSha,
+      branch: revision.branch,
+      repositoryId: revision.repositoryId,
+      worktreeId: revision.worktreeId,
+      dirty: revision.dirty,
+      isLinkedWorktree: revision.isLinkedWorktree
+    },
+    snapshotBinding: {
+      snapshotToken: snapshot.token,
+      sourceDigest: actualSha,
+      requestToken
+    },
+    requestToken,
+    counts: {
+      requested: 1,
+      processed: 1,
+      retained: 1,
+      exactMatchCount: 1
+    },
+    generatedAt: null
+  };
+}
+
 export function resolveTrackA1(input = {}) {
-  const { name, sourceBytes, binding, providerNode, snapshot, task } = input;
+  const { name, sourceBytes, binding, providerNode, snapshot, task, query, project } = input;
 
   if (typeof name !== "string" || name.length === 0) {
     return notEvaluated({}, providerNode);
@@ -475,7 +628,7 @@ export function resolveTrackA1(input = {}) {
   }
 
   const text = bytes.toString("utf8");
-  const project = new Project({
+  const morphProject = new Project({
     useInMemoryFileSystem: true,
     skipFileDependencyResolution: true,
     compilerOptions: {
@@ -485,7 +638,7 @@ export function resolveTrackA1(input = {}) {
     }
   });
 
-  const sourceFile = project.createSourceFile("synthetic-fixture.ts", text);
+  const sourceFile = morphProject.createSourceFile("synthetic-fixture.ts", text);
   if (sourceFile.getFullText() !== text) {
     if (pathScoped) {
       return withParsedProvider(notEvaluated(withCompleteness({}, buildCompleteness()), providerNode));
@@ -493,7 +646,7 @@ export function resolveTrackA1(input = {}) {
     return withParsedProvider(notEvaluated({}, providerNode));
   }
 
-  const program = project.getProgram().compilerObject;
+  const program = morphProject.getProgram().compilerObject;
   const syntacticDiagnostics = program.getSyntacticDiagnostics(sourceFile.compilerNode);
   const syntacticDiagnosticCount = syntacticDiagnostics.length;
   const censusEarly = censusDeclarations(sourceFile, name).length;
@@ -633,8 +786,31 @@ export function resolveTrackA1(input = {}) {
     notes,
     occurrences
   };
+  const evaluated = completeness ? withCompleteness(extra, completeness) : extra;
+  if (uniqueBindingReady({
+    name,
+    query,
+    task,
+    project,
+    snapshot,
+    snapshotTokenMatched,
+    occurrences,
+    completeness,
+    pathScope
+  })) {
+    return withParsedProvider(attachProviderIdNote(resolvedUniqueResult({
+      occurrences,
+      coverage,
+      completeness,
+      snapshot,
+      project,
+      task,
+      query,
+      actualSha
+    }), providerNode));
+  }
   return withParsedProvider(notEvaluated(
-    completeness ? withCompleteness(extra, completeness) : extra,
+    evaluated,
     providerNode
   ));
 }

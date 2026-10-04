@@ -1421,3 +1421,189 @@ test("41. parsed result with no snapshot has no declarationId", () => {
   assert.notEqual(result.status, "resolved_unique");
   assertNoIdentityFields(result);
 });
+
+const SYMBOL_QUERY_DOMAIN = "tsjs_source_file_direct_declarations_v1";
+const SYNTHETIC_ROOT_ID = "root_synthetic";
+const SYNTHETIC_PROJECT_RELATIVE_PATH = "apps/synthetic";
+const SYNTHETIC_TASK_ID = "task_synthetic_a1";
+
+function linkedRevision(overrides = {}) {
+  return {
+    repositoryId: SYNTHETIC_REPOSITORY_ID,
+    worktreeId: SYNTHETIC_WORKTREE_ID,
+    status: "available",
+    commitSha: SYNTHETIC_COMMIT_SHA,
+    branch: null,
+    dirty: false,
+    isLinkedWorktree: true,
+    ...overrides
+  };
+}
+
+function fullBindingParts(source, { query, revision } = {}) {
+  const sourceSha256 = sha256Text(source);
+  const rev = revision ?? linkedRevision();
+  const snapshot = snapshotFromBytes(source, { revision: rev });
+  const project = {
+    projectId: SYNTHETIC_PROJECT_ID,
+    rootId: SYNTHETIC_ROOT_ID,
+    relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+  };
+  const task = { id: SYNTHETIC_TASK_ID, paths: [SYNTHETIC_PATH] };
+  const resolvedQuery = query ?? {
+    name: "foo",
+    domain: SYMBOL_QUERY_DOMAIN
+  };
+  return {
+    sourceSha256,
+    snapshot,
+    project,
+    task,
+    query: resolvedQuery,
+    revision: snapshot.revision
+  };
+}
+
+function expectedSymbolRequestToken(parts) {
+  return contextDigest(JSON.stringify([
+    "symbol-resolution-evidence-v1",
+    "tsjs-direct-declarations-1",
+    parts.project.projectId,
+    parts.project.rootId,
+    parts.project.relativePath,
+    parts.revision.status,
+    parts.revision.commitSha,
+    parts.revision.branch,
+    parts.revision.repositoryId,
+    parts.revision.worktreeId,
+    parts.revision.dirty,
+    parts.revision.isLinkedWorktree,
+    parts.snapshot.token,
+    "native.typescript.declarations",
+    "1",
+    EXPECTED_PARSER,
+    parts.task.id,
+    parts.task.paths[0],
+    parts.query.name,
+    parts.query.domain
+  ]));
+}
+
+function resolveWithBinding(source, parts) {
+  return resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(source, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  });
+}
+
+test("42. full binding and one function is resolved_unique", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const result = resolveWithBinding(source, parts);
+  const requestToken = expectedSymbolRequestToken(parts);
+
+  assert.equal(result.status, "resolved_unique");
+  assert.notEqual(result.status, "not_found");
+  assert.equal(result.census, 1);
+  assert.equal(result.occurrences.length, 1);
+  const occurrence = result.occurrences[0];
+  assert.match(occurrence.declarationId, /^[a-f0-9]{64}$/);
+  assert.equal(occurrence.symbolId, "symbol_" + occurrence.declarationId);
+  assert.match(occurrence.symbolId, /^symbol_[a-f0-9]{64}$/);
+  assert.equal(occurrence.symbolId.startsWith("symbol_"), true);
+  assert.equal(result.requestToken, requestToken);
+  assert.equal(result.snapshotBinding.requestToken, requestToken);
+  assert.equal(result.generatedAt, null);
+  assert.equal(result.counts.exactMatchCount, 1);
+  assert.deepEqual(result.counts, {
+    requested: 1,
+    processed: 1,
+    retained: 1,
+    exactMatchCount: 1
+  });
+  assert.deepEqual(result.revisionBinding, {
+    status: parts.revision.status,
+    commitSha: parts.revision.commitSha,
+    branch: parts.revision.branch,
+    repositoryId: parts.revision.repositoryId,
+    worktreeId: parts.revision.worktreeId,
+    dirty: parts.revision.dirty,
+    isLinkedWorktree: parts.revision.isLinkedWorktree
+  });
+  assert.equal(Object.hasOwn(result.revisionBinding, "repositoryIdentity"), false);
+  assert.deepEqual(result.snapshotBinding, {
+    snapshotToken: parts.snapshot.token,
+    sourceDigest: parts.sourceSha256,
+    requestToken
+  });
+  assert.equal(result.completeness.source, "complete");
+  assert.equal(result.completeness.parse, "complete");
+  assert.equal(result.completeness.enumeration, "complete");
+  assert.equal(result.completeness.output, "complete");
+  assertNativeTypescriptProvider(result);
+  assert.equal(parts.task.paths[0], "src/example.js");
+  assert.equal(parts.snapshot.path, "src/example.js");
+});
+
+test("43. full binding with query.domain omitted stays not_evaluated", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source, { query: { name: "foo" } });
+  assert.equal(Object.hasOwn(parts.query, "domain"), false);
+  const result = resolveWithBinding(source, parts);
+  assert.equal(result.status, "not_evaluated");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.notEqual(result.status, "unsupported");
+  assert.equal(result.completeness.output, "not_evaluated");
+});
+
+test("44. full binding with a different query.domain stays not_evaluated", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source, {
+    query: { name: "foo", domain: "other_domain_not_direct_declarations" }
+  });
+  const result = resolveWithBinding(source, parts);
+  assert.equal(result.status, "not_evaluated");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.notEqual(result.status, "unsupported");
+  assert.equal(result.completeness.output, "not_evaluated");
+});
+
+test("45. full binding with dirty revision stays not_evaluated", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source, {
+    revision: linkedRevision({ dirty: true })
+  });
+  const result = resolveWithBinding(source, parts);
+  assert.equal(parts.revision.dirty, true);
+  assert.equal(parts.query.domain, SYMBOL_QUERY_DOMAIN);
+  assert.equal(result.status, "not_evaluated");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.equal(result.completeness.output, "not_evaluated");
+});
+
+test("46. two top-level functions plus full binding stay ambiguous", () => {
+  const source = FIXTURE_TWO_TOP_LEVEL_FOO;
+  const parts = fullBindingParts(source);
+  const result = resolveWithBinding(source, parts);
+  assert.equal(result.status, "ambiguous");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.equal(result.census, 2);
+  assert.equal(result.completeness.output, "not_evaluated");
+});
+
+test("47. direct destructuring plus full binding and census 1 of foo stays partial", () => {
+  const source = FIXTURE_DIRECT_DESTRUCTURE_A;
+  const parts = fullBindingParts(source);
+  const result = resolveWithBinding(source, parts);
+  assert.equal(result.status, "partial");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.equal(result.census, 1);
+  assert.equal(result.completeness.enumeration, "partial");
+  assert.notEqual(result.completeness.output, "complete");
+  assert.equal(result.completeness.output, "not_evaluated");
+});
