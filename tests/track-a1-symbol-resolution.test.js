@@ -3083,3 +3083,116 @@ test('103. matchedLowerBound contract partial enumeration complete', () => {
     'retained'
   ]);
 });
+
+const NESTING_NOTE = "nesting exceeds 32";
+
+function assertNoNestingNote(result) {
+  const notes = Array.isArray(result.notes) ? result.notes : [];
+  assert.equal(notes.includes(NESTING_NOTE), false);
+  assert.equal(JSON.stringify(result).includes(NESTING_NOTE), false);
+}
+
+function nestedPlainObjects(count) {
+  let node = {};
+  for (let i = 1; i < count; i += 1) node = { nested: node };
+  return node;
+}
+
+function nestedPlainsEndingInArray(plainCount) {
+  let node = [];
+  for (let i = 0; i < plainCount; i += 1) node = { nested: node };
+  return node;
+}
+
+function shallowNestedInput(chain) {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  return {
+    source,
+    parts,
+    sourceBytes,
+    input: {
+      name: "foo",
+      sourceBytes,
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query,
+      nested: chain
+    }
+  };
+}
+
+test("104. a chain of 33 plain objects is not_evaluated before decode", () => {
+  const { sourceBytes, input } = shallowNestedInput(nestedPlainObjects(32));
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input));
+
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.deepEqual(result.notes, [NESTING_NOTE]);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("105. a chain of 32 plain objects does not get the nesting note", () => {
+  const { input } = shallowNestedInput(nestedPlainObjects(31));
+  const result = resolveTrackA1(input);
+  assert.equal(result.status, "resolved_unique");
+  assertNoNestingNote(result);
+});
+
+test("106. an array counts as one nesting level", () => {
+  const allowed = shallowNestedInput(nestedPlainsEndingInArray(30));
+  const allowedResult = resolveTrackA1(allowed.input);
+  assert.equal(allowedResult.status, "resolved_unique");
+  assertNoNestingNote(allowedResult);
+
+  const rejected = shallowNestedInput(nestedPlainsEndingInArray(31));
+  const { result, decoded } = resolveWithoutDecode(
+    [rejected.sourceBytes],
+    () => resolveTrackA1(rejected.input)
+  );
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.deepEqual(result.notes, [NESTING_NOTE]);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("107. a two-node cycle does not hang and does not get the nesting note", { timeout: 5000 }, () => {
+  const left = {};
+  const right = {};
+  left.other = right;
+  right.other = left;
+  const { input } = shallowNestedInput(left);
+  const result = resolveTrackA1(input);
+  assert.equal(result.status, "resolved_unique");
+  assertNoNestingNote(result);
+});
+
+test("108. a shallow request does not get the nesting note", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const result = resolveWithBinding(source, parts);
+  assert.equal(result.status, "resolved_unique");
+  assertNoNestingNote(result);
+});
+
+test("109. invalid compactBytes on input nested past 32 keeps the override note", () => {
+  const { input } = shallowNestedInput(nestedPlainObjects(40));
+  input.limits = { compactBytes: 0 };
+  const result = resolveTrackA1(input);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(result.notes.includes("compactBytes override was rejected"), true);
+  assert.equal(result.notes.includes(NESTING_NOTE), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});

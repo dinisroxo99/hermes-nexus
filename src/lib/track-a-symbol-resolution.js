@@ -1568,10 +1568,59 @@ function throwIfCompactBytesExceeded(result, ceiling) {
   return result;
 }
 
+const NESTING_DEPTH_LIMIT = 32;
+const NESTING_EXCEEDED_NOTE = "nesting exceeds 32";
+
+function isNestingContainer(value) {
+  if (value === null || typeof value !== "object") return false;
+  if (Array.isArray(value)) return true;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function nestingChildContainers(node) {
+  const children = [];
+  const keys = Object.getOwnPropertyNames(node).concat(Object.getOwnPropertySymbols(node));
+  for (let i = 0; i < keys.length; i += 1) {
+    const desc = Object.getOwnPropertyDescriptor(node, keys[i]);
+    if (!desc || !Object.hasOwn(desc, "value")) continue;
+    if (isNestingContainer(desc.value)) children.push(desc.value);
+  }
+  return children;
+}
+
+function nestingExceedsLimit(root) {
+  if (!isNestingContainer(root)) return false;
+  const path = [];
+  const stack = [{ node: root, depth: 1, children: null, index: 0 }];
+  while (stack.length > 0) {
+    const frame = stack[stack.length - 1];
+    if (frame.children === null) {
+      path.push(frame.node);
+      frame.children = nestingChildContainers(frame.node);
+    }
+    if (frame.index >= frame.children.length) {
+      path.pop();
+      stack.pop();
+      continue;
+    }
+    const child = frame.children[frame.index];
+    frame.index += 1;
+    if (path.includes(child)) continue;
+    const depth = frame.depth + 1;
+    if (depth > NESTING_DEPTH_LIMIT) return true;
+    stack.push({ node: child, depth, children: null, index: 0 });
+  }
+  return false;
+}
+
 export function resolveTrackA1(input = {}) {
   const ceiling = compactBytesCeiling(input.limits);
   if (ceiling === null) {
     return stampContractIdentity(rejectCompactBytesOverride(input.providerNode));
+  }
+  if (nestingExceedsLimit(input)) {
+    return stampContractIdentity(notEvaluated({ notes: [NESTING_EXCEEDED_NOTE] }, input.providerNode));
   }
   const result = stampContractIdentity(resolveTrackA1Body(input));
   return throwIfCompactBytesExceeded(result, ceiling);
