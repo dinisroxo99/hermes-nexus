@@ -3196,3 +3196,87 @@ test("109. invalid compactBytes on input nested past 32 keeps the override note"
   assert.equal(Object.hasOwn(result, "reasons"), false);
   assertContractIdentity(result);
 });
+
+const VISITED_JSON_VALUES_NOTE = "visited JSON values exceed 20000";
+
+function objectWithNullFields(count) {
+  const node = {};
+  for (let i = 0; i < count; i += 1) node["n" + i] = null;
+  return node;
+}
+
+function assertNoVisitedJsonValuesNote(result) {
+  const notes = Array.isArray(result.notes) ? result.notes : [];
+  assert.equal(notes.includes(VISITED_JSON_VALUES_NOTE), false);
+  assert.equal(JSON.stringify(result).includes(VISITED_JSON_VALUES_NOTE), false);
+}
+
+test("110. a root plus 20000 null fields is not_evaluated before the buffer is decoded", () => {
+  const sourceBytes = Buffer.from(FIXTURE_SINGLE_FOO, "utf8");
+  const input = objectWithNullFields(20000);
+  input.sourceBytes = sourceBytes;
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input));
+
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [VISITED_JSON_VALUES_NOTE]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("111. a root plus 19999 null fields does not get the visited JSON values note", () => {
+  const result = resolveTrackA1(objectWithNullFields(19999));
+  assert.equal(result.status, "not_evaluated");
+  assertNoVisitedJsonValuesNote(result);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("112. a repeated object reference is not double-counted", () => {
+  const shared = objectWithNullFields(19998);
+  const result = resolveTrackA1({ a: shared, b: shared });
+  assertNoVisitedJsonValuesNote(result);
+});
+
+test("113. a two-node cycle does not hang and does not get the visited JSON values note", { timeout: 5000 }, () => {
+  const left = {};
+  const right = {};
+  left.other = right;
+  right.other = left;
+  const { input } = shallowNestedInput(left);
+  const result = resolveTrackA1(input);
+  assert.equal(result.status, "resolved_unique");
+  assertNoVisitedJsonValuesNote(result);
+  assertNoNestingNote(result);
+});
+
+test("114. a chain of 33 plain objects keeps only the nesting note", () => {
+  const { sourceBytes, input } = shallowNestedInput(nestedPlainObjects(32));
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input));
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [NESTING_NOTE]);
+  assertNoVisitedJsonValuesNote(result);
+});
+
+test("115. invalid compactBytes keeps the override note when 20000 null fields are also present", () => {
+  const input = objectWithNullFields(20000);
+  input.limits = { compactBytes: 0 };
+  const result = resolveTrackA1(input);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, ["compactBytes override was rejected"]);
+  assertNoVisitedJsonValuesNote(result);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("116. a shallow request does not get the visited JSON values note", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const result = resolveWithBinding(source, parts);
+  assert.equal(result.status, "resolved_unique");
+  assertNoVisitedJsonValuesNote(result);
+});

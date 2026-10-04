@@ -1614,6 +1614,42 @@ function nestingExceedsLimit(root) {
   return false;
 }
 
+const VISITED_JSON_VALUE_LIMIT = 20000;
+const VISITED_JSON_VALUES_EXCEEDED_NOTE = "visited JSON values exceed 20000";
+
+function isVisitedJsonContainer(value) {
+  if (value === null || typeof value !== "object") return false;
+  if (Array.isArray(value)) return true;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function visitedJsonValuesExceedLimit(root) {
+  let count = 0;
+  const seen = new Set();
+  const stack = [root];
+  while (stack.length > 0) {
+    const value = stack.pop();
+    if (value !== null && typeof value === "object") {
+      if (seen.has(value)) continue;
+      seen.add(value);
+    }
+    count += 1;
+    if (count > VISITED_JSON_VALUE_LIMIT) return true;
+    if (!isVisitedJsonContainer(value)) continue;
+    const names = Object.getOwnPropertyNames(value);
+    const isArray = Array.isArray(value);
+    for (let i = 0; i < names.length; i += 1) {
+      const key = names[i];
+      if (isArray && key === "length") continue;
+      const desc = Object.getOwnPropertyDescriptor(value, key);
+      if (!desc || !Object.hasOwn(desc, "value")) continue;
+      stack.push(desc.value);
+    }
+  }
+  return false;
+}
+
 export function resolveTrackA1(input = {}) {
   const ceiling = compactBytesCeiling(input.limits);
   if (ceiling === null) {
@@ -1621,6 +1657,9 @@ export function resolveTrackA1(input = {}) {
   }
   if (nestingExceedsLimit(input)) {
     return stampContractIdentity(notEvaluated({ notes: [NESTING_EXCEEDED_NOTE] }, input.providerNode));
+  }
+  if (visitedJsonValuesExceedLimit(input)) {
+    return stampContractIdentity(notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] }, input.providerNode));
   }
   const result = stampContractIdentity(resolveTrackA1Body(input));
   return throwIfCompactBytesExceeded(result, ceiling);
