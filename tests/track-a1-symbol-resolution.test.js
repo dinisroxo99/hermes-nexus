@@ -2421,3 +2421,132 @@ test("74. a name of 129 code units is not normalized or trimmed before the lengt
   assert.deepEqual(result.notes, [NAME_LENGTH_NOTE]);
   assert.equal(Object.hasOwn(result, "pathRecords"), false);
 });
+
+const PATH_LENGTH_NOTE = "path exceeds 1024 characters";
+const PATH_1024 = "a".repeat(1024);
+const PATH_1025 = "p".repeat(1025);
+
+test("75. a 1025-character task path is not_evaluated before the buffer is decoded", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1({
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: { id: parts.task.id, paths: [PATH_1025] },
+    project: parts.project,
+    query: parts.query
+  }));
+
+  assert.equal(PATH_1025.length, 1025);
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.deepEqual(result.notes, [PATH_LENGTH_NOTE]);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("76. a 1025-character project.relativePath is not_evaluated before the buffer is decoded", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const relativePath = "r".repeat(1025);
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1({
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: { ...parts.project, relativePath },
+    query: parts.query
+  }));
+
+  assert.equal(relativePath.length, 1025);
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.deepEqual(result.notes, [PATH_LENGTH_NOTE]);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("77. two task paths are not_evaluated before decode when only the second exceeds 1024", () => {
+  const fileA = Buffer.from(FIXTURE_SINGLE_FOO, "utf8");
+  const fileB = Buffer.from("export function bar() { return 2; }\n", "utf8");
+  const longPath = "q".repeat(1025);
+  const { result, decoded } = resolveWithoutDecode([fileA, fileB], () => resolveTrackA1({
+    name: "foo",
+    files: [
+      { path: PATH_A, sourceBytes: fileA },
+      { path: longPath, sourceBytes: fileB }
+    ],
+    task: { id: SYNTHETIC_TASK_ID, paths: [PATH_A, longPath] },
+    project: {
+      projectId: SYNTHETIC_PROJECT_ID,
+      rootId: SYNTHETIC_ROOT_ID,
+      relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+    },
+    query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+  }));
+
+  assert.equal(PATH_A.length < 1024, true);
+  assert.equal(longPath.length, 1025);
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.deepEqual(result.notes, [PATH_LENGTH_NOTE]);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+});
+
+test("78. a task path and relativePath of exactly 1024 characters do not get the length note", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const relativePath = "b".repeat(1024);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(source, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: { id: parts.task.id, paths: [PATH_1024] },
+    project: { ...parts.project, relativePath },
+    query: parts.query
+  });
+
+  assert.equal(PATH_1024.length, 1024);
+  assert.equal(relativePath.length, 1024);
+  assert.notEqual(result.status, undefined);
+  const notes = Array.isArray(result.notes) ? result.notes : [];
+  assert.equal(notes.includes(PATH_LENGTH_NOTE), false);
+  assert.equal(JSON.stringify(result).includes(PATH_LENGTH_NOTE), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+});
+
+test("79. a 1025-code-unit task path is not normalized or trimmed before the length check", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const path = "e\u0301".repeat(512) + "x";
+  assert.equal(path.length, 1025);
+  assert.equal(path.normalize("NFC").length <= 1024, true);
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1({
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: { id: parts.task.id, paths: [path] },
+    project: parts.project,
+    query: parts.query
+  }));
+
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.deepEqual(result.notes, [PATH_LENGTH_NOTE]);
+});

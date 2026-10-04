@@ -1084,6 +1084,18 @@ function resolveMulti(input, paths) {
   return deliverParsed(notEvaluated(evaluated, providerNode), pathRecords);
 }
 
+function pathExceedsCharacterCeiling(task, project) {
+  if (isPlainObject(task) && Array.isArray(task.paths)) {
+    for (const path of task.paths) {
+      if (typeof path === "string" && path.length > 1024) return true;
+    }
+  }
+  if (isPlainObject(project) && typeof project.relativePath === "string" && project.relativePath.length > 1024) {
+    return true;
+  }
+  return false;
+}
+
 function resolveTrackA1Body(input = {}) {
   const { name, sourceBytes, binding, providerNode, snapshot, task, query, project } = input;
 
@@ -1094,6 +1106,10 @@ function resolveTrackA1Body(input = {}) {
   const queryName = isPlainObject(query) ? query.name : undefined;
   if (name.length > 128 || (typeof queryName === "string" && queryName.length > 128)) {
     return notEvaluated({ notes: ["name exceeds 128 characters"] }, providerNode);
+  }
+
+  if (pathExceedsCharacterCeiling(task, project)) {
+    return notEvaluated({ notes: ["path exceeds 1024 characters"] }, providerNode);
   }
 
   const earlyScope = resolveTaskPathScope(task);
