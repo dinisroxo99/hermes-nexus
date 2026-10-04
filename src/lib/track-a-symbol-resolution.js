@@ -410,8 +410,13 @@ function withCompleteness(extra, completeness) {
  * That id is contextDigest of the fixed JSON field array. symbolId is symbol_ plus
  * that declarationId and is attached only when declarationId is attached. It names
  * this snapshot only, is not stable across snapshots, and does not make the result
- * resolved_unique. Parse diagnostics contribute no occurrence records. A census of 0, or a census of 1 whose single-path binding is incomplete,
- * stays not_evaluated. A matching snapshot and a symbolId are not enough.
+ * resolved_unique. Parse diagnostics contribute no occurrence records. A census of 0
+ * stays not_evaluated unless the same binding required for resolved_unique is complete,
+ * syntactic diagnostics are 0, and there is no direct unsupported form. That case is
+ * not_found: output, source, parse, and enumeration are complete, counts are exact,
+ * occurrences are empty, and no symbolId or declarationId is emitted. A census of 1
+ * whose single-path binding is incomplete stays not_evaluated. A matching snapshot
+ * and a symbolId are not enough.
  * resolved_unique is emitted only when query.domain is
  * tsjs_source_file_direct_declarations_v1, query.name is that requested name,
  * task.id is a non-empty string of at most 128 characters, task.paths is
@@ -421,12 +426,15 @@ function withCompleteness(extra, completeness) {
  * 64-hex repository and worktree ids, and a 40-hex commitSha, the installed
  * parser is 6.0.3, census is 1, syntactic diagnostics are 0, there is no
  * direct unsupported form, and symbolId is symbol_ plus declarationId.
- * Only that result sets completeness.output to complete. Other domains stay
+ * resolved_unique and not_found set completeness.output to complete. Other domains stay
  * on their existing status and are not turned into unsupported. When task.paths
  * supplies exactly one relative path, incomplete parse or unsupported forms
  * with census < 2 become partial with an explicit completeness record; a clean
- * single or zero match stays not_evaluated because output coverage is not
- * complete. Provider node ids are never copied. Extra binding fields are
+ * single match whose binding is incomplete, or a zero match whose binding is
+ * incomplete, stays not_evaluated because output coverage is not complete.
+ * A zero match does not become not_found when the binding is incomplete, when
+ * parse diagnostics are present, or when a direct unsupported form is present.
+ * Provider node ids are never copied. Extra binding fields are
  * ignored. Does not invent project, repository, worktree, snapshot, or path
  * identity, and does not consult composeEffectiveTaskScope / providers.
  */
@@ -451,14 +459,13 @@ function revisionAllowsUnique(revision) {
   return true;
 }
 
-function uniqueBindingReady({
+function symbolBindingReady({
   name,
   query,
   task,
   project,
   snapshot,
   snapshotTokenMatched,
-  occurrences,
   completeness,
   pathScope
 }) {
@@ -482,6 +489,30 @@ function uniqueBindingReady({
   if (completeness.source !== "complete" || completeness.parse !== "complete" || completeness.enumeration !== "complete") {
     return false;
   }
+  return true;
+}
+
+function uniqueBindingReady({
+  name,
+  query,
+  task,
+  project,
+  snapshot,
+  snapshotTokenMatched,
+  occurrences,
+  completeness,
+  pathScope
+}) {
+  if (!symbolBindingReady({
+    name,
+    query,
+    task,
+    project,
+    snapshot,
+    snapshotTokenMatched,
+    completeness,
+    pathScope
+  })) return false;
   if (!Array.isArray(occurrences) || occurrences.length !== 1) return false;
   const occurrence = occurrences[0];
   if (!isPlainObject(occurrence)) return false;
@@ -568,6 +599,62 @@ function resolvedUniqueResult({
       processed: 1,
       retained: 1,
       exactMatchCount: 1
+    },
+    generatedAt: null
+  };
+}
+
+function notFoundResult({
+  coverage,
+  completeness,
+  snapshot,
+  project,
+  task,
+  query,
+  actualSha
+}) {
+  const parserString = "typescript/" + readInstalledTypescriptVersion();
+  const revision = snapshot.revision;
+  const requestToken = symbolRequestToken({
+    project,
+    revision,
+    snapshotToken: snapshot.token,
+    parserString,
+    task,
+    query
+  });
+  return {
+    status: "not_found",
+    census: 0,
+    coverage,
+    notes: [],
+    occurrences: [],
+    completeness: {
+      source: completeness.source,
+      parse: completeness.parse,
+      enumeration: completeness.enumeration,
+      output: "complete"
+    },
+    revisionBinding: {
+      status: revision.status,
+      commitSha: revision.commitSha,
+      branch: revision.branch,
+      repositoryId: revision.repositoryId,
+      worktreeId: revision.worktreeId,
+      dirty: revision.dirty,
+      isLinkedWorktree: revision.isLinkedWorktree
+    },
+    snapshotBinding: {
+      snapshotToken: snapshot.token,
+      sourceDigest: actualSha,
+      requestToken
+    },
+    requestToken,
+    counts: {
+      requested: 1,
+      processed: 1,
+      retained: 0,
+      exactMatchCount: 0
     },
     generatedAt: null
   };
@@ -764,6 +851,26 @@ export function resolveTrackA1(input = {}) {
   }
 
   if (census !== 1) {
+    if (census === 0 && symbolBindingReady({
+      name,
+      query,
+      task,
+      project,
+      snapshot,
+      snapshotTokenMatched,
+      completeness,
+      pathScope
+    })) {
+      return withParsedProvider(attachProviderIdNote(notFoundResult({
+        coverage,
+        completeness,
+        snapshot,
+        project,
+        task,
+        query,
+        actualSha
+      }), providerNode));
+    }
     const notes = [];
     if (pathScoped) notes.push(OUTPUT_COVERAGE_INCOMPLETE_NOTE);
     withSymbolIdSnapshotNote(notes, occurrences);

@@ -1607,3 +1607,79 @@ test("47. direct destructuring plus full binding and census 1 of foo stays parti
   assert.notEqual(result.completeness.output, "complete");
   assert.equal(result.completeness.output, "not_evaluated");
 });
+
+const FIXTURE_NO_FOO = "export const other = 1;\n";
+
+test("48. full binding and no matching name is not_found", () => {
+  const source = FIXTURE_NO_FOO;
+  const parts = fullBindingParts(source);
+  const result = resolveWithBinding(source, parts);
+  const requestToken = expectedSymbolRequestToken(parts);
+  const occurrences = Object.hasOwn(result, "occurrences") ? result.occurrences : [];
+
+  assert.equal(result.status, "not_found");
+  assert.equal(result.census, 0);
+  assert.deepEqual(occurrences, []);
+  assert.equal(result.counts.exactMatchCount, 0);
+  assert.deepEqual(result.counts, {
+    requested: 1,
+    processed: 1,
+    retained: 0,
+    exactMatchCount: 0
+  });
+  assert.equal(Object.hasOwn(result, "symbolId"), false);
+  assert.equal(Object.hasOwn(result, "declarationId"), false);
+  assert.equal(JSON.stringify(result).includes("symbolId"), false);
+  assert.equal(JSON.stringify(result).includes("declarationId"), false);
+  assert.match(result.requestToken, /^[a-f0-9]{64}$/);
+  assert.equal(result.requestToken, requestToken);
+  assert.equal(result.snapshotBinding.requestToken, requestToken);
+  assert.equal(result.generatedAt, null);
+  assert.deepEqual(result.completeness, {
+    source: "complete",
+    parse: "complete",
+    enumeration: "complete",
+    output: "complete"
+  });
+  assert.deepEqual(result.revisionBinding, {
+    status: parts.revision.status,
+    commitSha: parts.revision.commitSha,
+    branch: parts.revision.branch,
+    repositoryId: parts.revision.repositoryId,
+    worktreeId: parts.revision.worktreeId,
+    dirty: parts.revision.dirty,
+    isLinkedWorktree: parts.revision.isLinkedWorktree
+  });
+  assert.equal(Object.hasOwn(result.revisionBinding, "repositoryIdentity"), false);
+  assert.deepEqual(result.snapshotBinding, {
+    snapshotToken: parts.snapshot.token,
+    sourceDigest: parts.sourceSha256,
+    requestToken
+  });
+  assertNativeTypescriptProvider(result);
+});
+
+test("49. census 0 with query.domain omitted stays not_evaluated, not not_found", () => {
+  const source = FIXTURE_NO_FOO;
+  const parts = fullBindingParts(source, { query: { name: "foo" } });
+  assert.equal(Object.hasOwn(parts.query, "domain"), false);
+  const result = resolveWithBinding(source, parts);
+  assert.notEqual(result.status, "not_found");
+  assert.equal(result.status, "not_evaluated");
+});
+
+test("50. full binding and truncated invalid source stays partial, not not_found", () => {
+  const source = FIXTURE_TRUNCATED;
+  const parts = fullBindingParts(source);
+  const result = resolveWithBinding(source, parts);
+  assert.equal(result.status, "partial");
+  assert.notEqual(result.status, "not_found");
+});
+
+test("51. full binding and one function foo stays resolved_unique", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const result = resolveWithBinding(source, parts);
+  assert.equal(result.status, "resolved_unique");
+  assert.equal(result.census, 1);
+});
