@@ -2550,3 +2550,202 @@ test("79. a 1025-code-unit task path is not normalized or trimmed before the len
   assert.equal(Object.hasOwn(result, "pathRecords"), false);
   assert.deepEqual(result.notes, [PATH_LENGTH_NOTE]);
 });
+
+const PROJECT_ID_NOTE = "projectId exceeds 128 characters";
+const ROOT_ID_NOTE = "rootId exceeds 128 characters";
+const ID_128 = "c".repeat(128);
+const ID_129 = "d".repeat(129);
+
+function assertNoIdLengthNotes(result) {
+  const notes = Array.isArray(result.notes) ? result.notes : [];
+  assert.equal(notes.includes(PROJECT_ID_NOTE), false);
+  assert.equal(notes.includes(ROOT_ID_NOTE), false);
+  assert.equal(JSON.stringify(result).includes(PROJECT_ID_NOTE), false);
+  assert.equal(JSON.stringify(result).includes(ROOT_ID_NOTE), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+}
+
+test("80. a 129-character project.projectId is not_evaluated before the buffer is decoded", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1({
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: { ...parts.project, projectId: ID_129 },
+    query: parts.query
+  }));
+
+  assert.equal(ID_129.length, 129);
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.deepEqual(result.notes, [PROJECT_ID_NOTE]);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("81. a 129-character snapshot.projectId is not_evaluated before the buffer is decoded", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1({
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: { ...parts.snapshot, projectId: ID_129 },
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  }));
+
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.deepEqual(result.notes, [PROJECT_ID_NOTE]);
+  assertContractIdentity(result);
+});
+
+test("82. a 129-character project.rootId is not_evaluated before the buffer is decoded", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1({
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: { ...parts.project, rootId: ID_129 },
+    query: parts.query
+  }));
+
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.deepEqual(result.notes, [ROOT_ID_NOTE]);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("83. two paths with a 129-character projectId are not_evaluated before either buffer is decoded", () => {
+  const fileA = Buffer.from(FIXTURE_SINGLE_FOO, "utf8");
+  const fileB = Buffer.from("export function bar() { return 2; }\n", "utf8");
+  const { result, decoded } = resolveWithoutDecode([fileA, fileB], () => resolveTrackA1({
+    name: "foo",
+    files: [
+      { path: PATH_A, sourceBytes: fileA },
+      { path: PATH_B, sourceBytes: fileB }
+    ],
+    task: { id: SYNTHETIC_TASK_ID, paths: [PATH_A, PATH_B] },
+    project: {
+      projectId: ID_129,
+      rootId: SYNTHETIC_ROOT_ID,
+      relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+    },
+    query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+  }));
+
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.deepEqual(result.notes, [PROJECT_ID_NOTE]);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+});
+
+test("84. projectId and rootId of exactly 128 characters do not get the length notes", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(source, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: { ...parts.snapshot, projectId: ID_128 },
+    task: parts.task,
+    project: { ...parts.project, projectId: ID_128, rootId: ID_128 },
+    query: parts.query
+  });
+
+  assert.equal(ID_128.length, 128);
+  assert.notEqual(result.status, undefined);
+  assertNoIdLengthNotes(result);
+});
+
+test("85. an empty projectId or rootId stays rejected without the length notes", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const emptyProjectId = resolveTrackA1({
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: { ...parts.snapshot, projectId: "" },
+    task: parts.task,
+    project: { ...parts.project, projectId: "" },
+    query: parts.query
+  });
+  const emptyRootId = resolveTrackA1({
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: { ...parts.project, rootId: "" },
+    query: parts.query
+  });
+
+  assert.equal(emptyProjectId.status, "not_evaluated");
+  assert.equal(emptyRootId.status, "not_evaluated");
+  assertNoIdLengthNotes(emptyProjectId);
+  assertNoIdLengthNotes(emptyRootId);
+});
+
+test("86. projectId and rootId both over 128 produce both notes, projectId first, before decode", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1({
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: { ...parts.snapshot, projectId: ID_129 },
+    task: parts.task,
+    project: { ...parts.project, projectId: ID_129, rootId: ID_129 },
+    query: parts.query
+  }));
+
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.deepEqual(result.notes, [PROJECT_ID_NOTE, ROOT_ID_NOTE]);
+});
+
+test("87. a 129-code-unit projectId is not normalized before the length check", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const projectId = "e\u0301".repeat(64) + "x";
+  assert.equal(projectId.length, 129);
+  assert.equal(projectId.normalize("NFC").length <= 128, true);
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1({
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: { ...parts.project, projectId },
+    query: parts.query
+  }));
+
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.deepEqual(result.notes, [PROJECT_ID_NOTE]);
+});

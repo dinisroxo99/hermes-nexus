@@ -1096,6 +1096,23 @@ function pathExceedsCharacterCeiling(task, project) {
   return false;
 }
 
+function identifierCeilingNotes(project, snapshot) {
+  const notes = [];
+  const projectId = isPlainObject(project) ? project.projectId : undefined;
+  const snapshotProjectId = isPlainObject(snapshot) ? snapshot.projectId : undefined;
+  const rootId = isPlainObject(project) ? project.rootId : undefined;
+  if (
+    (typeof projectId === "string" && projectId.length > 128) ||
+    (typeof snapshotProjectId === "string" && snapshotProjectId.length > 128)
+  ) {
+    notes.push("projectId exceeds 128 characters");
+  }
+  if (typeof rootId === "string" && rootId.length > 128) {
+    notes.push("rootId exceeds 128 characters");
+  }
+  return notes;
+}
+
 function resolveTrackA1Body(input = {}) {
   const { name, sourceBytes, binding, providerNode, snapshot, task, query, project } = input;
 
@@ -1110,6 +1127,11 @@ function resolveTrackA1Body(input = {}) {
 
   if (pathExceedsCharacterCeiling(task, project)) {
     return notEvaluated({ notes: ["path exceeds 1024 characters"] }, providerNode);
+  }
+
+  const idNotes = identifierCeilingNotes(project, snapshot);
+  if (idNotes.length > 0) {
+    return notEvaluated({ notes: idNotes }, providerNode);
   }
 
   const earlyScope = resolveTaskPathScope(task);
