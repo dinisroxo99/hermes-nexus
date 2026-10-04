@@ -2749,3 +2749,132 @@ test("87. a 129-code-unit projectId is not normalized before the length check", 
   assert.equal(Object.hasOwn(result, "pathRecords"), false);
   assert.deepEqual(result.notes, [PROJECT_ID_NOTE]);
 });
+
+const BRANCH_NOTE = "branch exceeds 512 characters";
+const BRANCH_512 = "b".repeat(512);
+const BRANCH_513 = "b".repeat(513);
+
+function assertNoBranchLengthNote(result) {
+  const notes = Array.isArray(result.notes) ? result.notes : [];
+  assert.equal(notes.includes(BRANCH_NOTE), false);
+  assert.equal(JSON.stringify(result).includes(BRANCH_NOTE), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+}
+
+test("88. a 513-character branch is not_evaluated before the buffer is decoded", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const snapshot = {
+    ...parts.snapshot,
+    revision: { ...parts.snapshot.revision, branch: BRANCH_513 }
+  };
+  const sourceBytes = Buffer.from(source, "utf8");
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1({
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  }));
+
+  assert.equal(BRANCH_513.length, 513);
+  assert.equal(snapshot.revision.branch, BRANCH_513);
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.deepEqual(result.notes, [BRANCH_NOTE]);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("89. two paths with a 513-character branch are not_evaluated before either buffer is decoded", () => {
+  const fileA = Buffer.from(FIXTURE_SINGLE_FOO, "utf8");
+  const fileB = Buffer.from("export function bar() { return 2; }\n", "utf8");
+  const { result, decoded } = resolveWithoutDecode([fileA, fileB], () => resolveTrackA1({
+    name: "foo",
+    files: [
+      { path: PATH_A, sourceBytes: fileA },
+      { path: PATH_B, sourceBytes: fileB }
+    ],
+    snapshot: { revision: { branch: BRANCH_513 } },
+    task: { id: SYNTHETIC_TASK_ID, paths: [PATH_A, PATH_B] },
+    project: {
+      projectId: SYNTHETIC_PROJECT_ID,
+      rootId: SYNTHETIC_ROOT_ID,
+      relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+    },
+    query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+  }));
+
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.deepEqual(result.notes, [BRANCH_NOTE]);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+});
+
+test("90. a branch of exactly 512 characters does not get the length note", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source, { revision: linkedRevision({ branch: BRANCH_512 }) });
+  const result = resolveWithBinding(source, parts);
+
+  assert.equal(BRANCH_512.length, 512);
+  assert.equal(parts.snapshot.revision.branch, BRANCH_512);
+  assert.notEqual(result.status, undefined);
+  assertNoBranchLengthNote(result);
+});
+
+test("91. a null branch stays accepted without the length note", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  assert.equal(parts.snapshot.revision.branch, null);
+  const result = resolveWithBinding(source, parts);
+
+  assert.equal(result.status, "resolved_unique");
+  assert.equal(result.revisionBinding.branch, null);
+  assertNoBranchLengthNote(result);
+});
+
+test("92. an absent branch stays rejected without the length note", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const revision = linkedRevision();
+  delete revision.branch;
+  const parts = fullBindingParts(source, { revision });
+  assert.equal(Object.hasOwn(parts.snapshot.revision, "branch"), false);
+  const result = resolveWithBinding(source, parts);
+
+  assert.equal(result.status, "not_evaluated");
+  assertNoBranchLengthNote(result);
+});
+
+test("93. a 513-code-unit branch is not normalized before the length check", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const branch = "e\u0301".repeat(256) + "x";
+  assert.equal(branch.length, 513);
+  assert.equal(branch.normalize("NFC").length <= 512, true);
+  const parts = fullBindingParts(source);
+  const snapshot = {
+    ...parts.snapshot,
+    revision: { ...parts.snapshot.revision, branch }
+  };
+  const sourceBytes = Buffer.from(source, "utf8");
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1({
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  }));
+
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.deepEqual(result.notes, [BRANCH_NOTE]);
+});

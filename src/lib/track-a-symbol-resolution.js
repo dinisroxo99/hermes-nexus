@@ -1096,6 +1096,12 @@ function pathExceedsCharacterCeiling(task, project) {
   return false;
 }
 
+function branchExceedsCharacterCeiling(snapshot) {
+  if (!isPlainObject(snapshot) || !isPlainObject(snapshot.revision)) return false;
+  const branch = snapshot.revision.branch;
+  return typeof branch === "string" && branch.length > 512;
+}
+
 function identifierCeilingNotes(project, snapshot) {
   const notes = [];
   const projectId = isPlainObject(project) ? project.projectId : undefined;
@@ -1132,6 +1138,10 @@ function resolveTrackA1Body(input = {}) {
   const idNotes = identifierCeilingNotes(project, snapshot);
   if (idNotes.length > 0) {
     return notEvaluated({ notes: idNotes }, providerNode);
+  }
+
+  if (branchExceedsCharacterCeiling(snapshot)) {
+    return notEvaluated({ notes: ["branch exceeds 512 characters"] }, providerNode);
   }
 
   const earlyScope = resolveTaskPathScope(task);
