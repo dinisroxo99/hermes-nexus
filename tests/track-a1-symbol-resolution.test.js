@@ -2878,3 +2878,73 @@ test("93. a 513-code-unit branch is not normalized before the length check", () 
   assert.equal(Object.hasOwn(result, "pathRecords"), false);
   assert.deepEqual(result.notes, [BRANCH_NOTE]);
 });
+
+const RETAINED_MATCH_NOTE = "retained match ceiling was reached";
+
+function repeatedSameNameFoo(count) {
+  return Array.from({ length: count }, () => "export function foo() { return 1; }").join("\n") + "\n";
+}
+
+function resolveRepeatedFoo(count) {
+  const source = repeatedSameNameFoo(count);
+  return resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(source, "utf8"),
+    binding: { sourceSha256: sha256Text(source) },
+    task: { id: SYNTHETIC_TASK_ID, paths: [SYNTHETIC_PATH] },
+    project: {
+      projectId: SYNTHETIC_PROJECT_ID,
+      rootId: SYNTHETIC_ROOT_ID,
+      relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+    },
+    query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN },
+    limits: { compactBytes: 131072 }
+  });
+}
+
+function containsNumber(value, target) {
+  if (typeof value === "number") return value === target;
+  if (Array.isArray(value)) return value.some((item) => containsNumber(item, target));
+  if (value && typeof value === "object") {
+    return Object.values(value).some((item) => containsNumber(item, target));
+  }
+  return false;
+}
+
+test("94. 256 qualifying matches stay ambiguous with complete enumeration", () => {
+  const result = resolveRepeatedFoo(256);
+
+  assert.equal(result.status, "ambiguous");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.equal(result.census, 256);
+  assert.equal(result.occurrences.length, 256);
+  assert.equal(result.completeness.enumeration, "complete");
+  assert.equal(result.pathRecords.length, 1);
+  assert.equal(result.pathRecords[0].matched, 256);
+  assert.equal(result.notes.includes(RETAINED_MATCH_NOTE), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assert.equal(result.occurrences[0].range.start < result.occurrences[255].range.start, true);
+});
+
+test("95. the 257th qualifying match stops retention at 256 with a lower bound", () => {
+  const result = resolveRepeatedFoo(257);
+
+  assert.equal(result.status, "ambiguous");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.equal(result.census, 256);
+  assert.equal(result.occurrences.length, 256);
+  assert.equal(result.completeness.enumeration, "partial");
+  assert.notEqual(result.completeness.output, "complete");
+  assert.equal(result.counts.retained, 256);
+  assert.equal(result.counts.matchedLowerBound, 256);
+  assert.equal(result.counts.exactMatchCount, null);
+  assert.equal(result.notes.includes(RETAINED_MATCH_NOTE), true);
+  assert.equal(result.pathRecords.length, 1);
+  assert.equal(result.pathRecords[0].matched, 256);
+  assert.equal(containsNumber(result, 257), false);
+  assert.equal(result.notes.some((note) => note.includes("257")), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assert.equal(result.occurrences[0].range.start < result.occurrences[255].range.start, true);
+});

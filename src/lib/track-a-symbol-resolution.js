@@ -212,22 +212,83 @@ function fileHasUnsupportedDeclarationForm(sourceFile) {
   return found;
 }
 
-function censusDeclarations(sourceFile, name) {
+const RETAINED_MATCH_CEILING = 256;
+const RETAINED_MATCH_NOTE = "retained match ceiling was reached";
+
+function censusDeclarations(sourceFile, name, budget = RETAINED_MATCH_CEILING) {
   const matches = [];
+  let exhausted = false;
+  const take = (declaration) => {
+    if (identifierName(declaration) !== name) return false;
+    if (matches.length >= budget) {
+      exhausted = true;
+      return true;
+    }
+    matches.push(declaration);
+    return false;
+  };
+
   for (const statement of sourceFile.getStatements()) {
+    if (exhausted) break;
     const kind = statement.getKind();
     if (QUALIFYING_DIRECT_KINDS.has(kind)) {
-      if (identifierName(statement) === name) matches.push(statement);
+      take(statement);
       continue;
     }
     if (kind !== SyntaxKind.VariableStatement) continue;
     const declarationList = statement.getDeclarationList();
     for (const declaration of declarationList.getDeclarations()) {
       if (!isSourceFileVariableDeclaration(declaration)) continue;
-      if (identifierName(declaration) === name) matches.push(declaration);
+      if (take(declaration)) break;
     }
   }
-  return matches;
+  return { matches, exhausted };
+}
+
+function retainParsedMatches(parsedFiles, name) {
+  let remaining = RETAINED_MATCH_CEILING;
+  let exhausted = false;
+  const files = [];
+  for (const file of parsedFiles) {
+    if (exhausted) {
+      files.push({ file, matches: [], enumerationPartial: true });
+      continue;
+    }
+    const collected = censusDeclarations(file.sourceFile, name, remaining);
+    files.push({
+      file,
+      matches: collected.matches,
+      enumerationPartial: collected.exhausted
+    });
+    remaining -= collected.matches.length;
+    if (collected.exhausted) exhausted = true;
+  }
+  return { files, exhausted };
+}
+
+function applyMatchCeiling(extra, completeness, exhausted) {
+  if (!exhausted) return { extra, completeness };
+  const notes = Array.isArray(extra.notes) ? extra.notes.slice() : [];
+  if (!notes.includes(RETAINED_MATCH_NOTE)) notes.push(RETAINED_MATCH_NOTE);
+  const nextExtra = {
+    ...extra,
+    notes,
+    counts: {
+      retained: RETAINED_MATCH_CEILING,
+      matchedLowerBound: RETAINED_MATCH_CEILING,
+      exactMatchCount: null
+    }
+  };
+  if (!completeness) return { extra: nextExtra, completeness };
+  const output = completeness.output === "complete" ? "not_evaluated" : completeness.output;
+  return {
+    extra: nextExtra,
+    completeness: {
+      ...completeness,
+      enumeration: "partial",
+      output
+    }
+  };
 }
 
 
@@ -423,14 +484,15 @@ function buildPathRecord({
   byteSize,
   syntacticDiagnosticCount,
   unsupportedForm,
-  matched
+  matched,
+  enumerationPartial = false
 }) {
   return {
     path,
     sha256,
     byteSize,
     parse: syntacticDiagnosticCount === 0 ? "complete" : "partial",
-    enumeration: unsupportedForm ? "partial" : "complete",
+    enumeration: unsupportedForm || enumerationPartial ? "partial" : "complete",
     matched
   };
 }
@@ -932,23 +994,24 @@ function resolveMulti(input, paths) {
     parsedFiles.push({ ...file, ...parsed });
   }
 
-  const pathRecords = parsedFiles.map((file) => buildPathRecord({
-    path: file.path,
-    sha256: file.sha256,
-    byteSize: file.bytes.length,
-    syntacticDiagnosticCount: file.syntacticDiagnosticCount,
-    unsupportedForm: fileHasUnsupportedDeclarationForm(file.sourceFile),
-    matched: censusDeclarations(file.sourceFile, name).length
+  const retained = retainParsedMatches(parsedFiles, name);
+  const pathRecords = retained.files.map((entry) => buildPathRecord({
+    path: entry.file.path,
+    sha256: entry.file.sha256,
+    byteSize: entry.file.bytes.length,
+    syntacticDiagnosticCount: entry.file.syntacticDiagnosticCount,
+    unsupportedForm: fileHasUnsupportedDeclarationForm(entry.file.sourceFile),
+    matched: entry.matches.length,
+    enumerationPartial: entry.enumerationPartial
   }));
 
   let syntacticDiagnosticCount = 0;
   let census = 0;
   const rawOccurrences = [];
-  for (const file of parsedFiles) {
-    syntacticDiagnosticCount += file.syntacticDiagnosticCount;
-    const matches = censusDeclarations(file.sourceFile, name);
-    census += matches.length;
-    rawOccurrences.push(...qualifyingOccurrences(matches, file.sourceFile, file.path));
+  for (const entry of retained.files) {
+    syntacticDiagnosticCount += entry.file.syntacticDiagnosticCount;
+    census += entry.matches.length;
+    rawOccurrences.push(...qualifyingOccurrences(entry.matches, entry.file.sourceFile, entry.file.path));
   }
 
   const coverageWithDiagnostics = {
@@ -964,8 +1027,13 @@ function resolveMulti(input, paths) {
     });
     const base = { census, coverage: coverageWithDiagnostics };
     if (census >= 2) {
+      const applied = applyMatchCeiling(
+        { ...base, notes: [AMBIGUOUS_DIRECT_NOTE] },
+        completeness,
+        retained.exhausted
+      );
       return deliverParsed(ambiguous(
-        withCompleteness({ ...base, notes: [AMBIGUOUS_DIRECT_NOTE] }, completeness),
+        withCompleteness(applied.extra, applied.completeness),
         providerNode
       ), pathRecords);
     }
@@ -998,8 +1066,13 @@ function resolveMulti(input, paths) {
     if (census >= 2) {
       notes.push(AMBIGUOUS_DIRECT_NOTE);
       withSymbolIdSnapshotNote(notes, occurrences);
+      const applied = applyMatchCeiling(
+        { census, coverage, notes, occurrences },
+        completeness,
+        retained.exhausted
+      );
       return deliverParsed(ambiguous(
-        withCompleteness({ census, coverage, notes, occurrences }, completeness),
+        withCompleteness(applied.extra, applied.completeness),
         providerNode
       ), pathRecords);
     }
@@ -1012,8 +1085,13 @@ function resolveMulti(input, paths) {
 
   if (census >= 2) {
     const notes = withSymbolIdSnapshotNote([AMBIGUOUS_DIRECT_NOTE], occurrences);
+    const applied = applyMatchCeiling(
+      { census, coverage, notes, occurrences },
+      completeness,
+      retained.exhausted
+    );
     return deliverParsed(ambiguous(
-      withCompleteness({ census, coverage, notes, occurrences }, completeness),
+      withCompleteness(applied.extra, applied.completeness),
       providerNode
     ), pathRecords);
   }
@@ -1221,7 +1299,8 @@ function resolveTrackA1Body(input = {}) {
   const program = morphProject.getProgram().compilerObject;
   const syntacticDiagnostics = program.getSyntacticDiagnostics(sourceFile.compilerNode);
   const syntacticDiagnosticCount = syntacticDiagnostics.length;
-  const censusEarly = censusDeclarations(sourceFile, name).length;
+  const earlyCensus = censusDeclarations(sourceFile, name);
+  const censusEarly = earlyCensus.matches.length;
   const pathRecords = pathScoped
     ? [buildPathRecord({
         path: pathScope.path,
@@ -1229,7 +1308,8 @@ function resolveTrackA1Body(input = {}) {
         byteSize: bytes.length,
         syntacticDiagnosticCount,
         unsupportedForm: fileHasUnsupportedDeclarationForm(sourceFile),
-        matched: censusEarly
+        matched: censusEarly,
+        enumerationPartial: earlyCensus.exhausted
       })]
     : null;
   const coverageWithDiagnostics = {
@@ -1256,31 +1336,40 @@ function resolveTrackA1Body(input = {}) {
       ), pathRecords);
     }
     if (pathScoped) {
+      const applied = applyMatchCeiling(
+        {
+          census: censusEarly,
+          coverage: coverageWithDiagnostics,
+          notes: [AMBIGUOUS_DIRECT_NOTE]
+        },
+        buildCompleteness({
+          snapshotTokenMatched,
+          parsed: true,
+          syntacticDiagnosticCount,
+          unsupportedForm: false
+        }),
+        earlyCensus.exhausted
+      );
       return deliverParsed(ambiguous(
-        withCompleteness(
-          {
-            census: censusEarly,
-            coverage: coverageWithDiagnostics,
-            notes: [AMBIGUOUS_DIRECT_NOTE]
-          },
-          buildCompleteness({
-            snapshotTokenMatched,
-            parsed: true,
-            syntacticDiagnosticCount,
-            unsupportedForm: false
-          })
-        ),
+        withCompleteness(applied.extra, applied.completeness),
         providerNode
       ), pathRecords);
     }
-    return deliverParsed(notEvaluated({
-      census: censusEarly,
-      coverage: coverageWithDiagnostics
-    }, providerNode), pathRecords);
+    const unevaluated = applyMatchCeiling(
+      {
+        census: censusEarly,
+        coverage: coverageWithDiagnostics
+      },
+      null,
+      earlyCensus.exhausted
+    );
+    return deliverParsed(notEvaluated(unevaluated.extra, providerNode), pathRecords);
   }
 
-  const matches = censusDeclarations(sourceFile, name);
+  const collectedMatches = censusDeclarations(sourceFile, name);
+  const matches = collectedMatches.matches;
   const census = matches.length;
+  const matchExhausted = collectedMatches.exhausted;
   const occurrencePath = pathScoped ? pathScope.path : null;
   const occurrences = attachDeclarationIds(
     qualifyingOccurrences(matches, sourceFile, occurrencePath),
@@ -1310,9 +1399,13 @@ function resolveTrackA1Body(input = {}) {
     if (census >= 2) {
       notes.push(AMBIGUOUS_DIRECT_NOTE);
       withSymbolIdSnapshotNote(notes, occurrences);
-      const extra = { census, coverage, notes, occurrences };
+      const applied = applyMatchCeiling(
+        { census, coverage, notes, occurrences },
+        completeness,
+        matchExhausted
+      );
       return deliverParsed(ambiguous(
-        completeness ? withCompleteness(extra, completeness) : extra,
+        applied.completeness ? withCompleteness(applied.extra, applied.completeness) : applied.extra,
         providerNode
       ), pathRecords);
     }
@@ -1333,14 +1426,13 @@ function resolveTrackA1Body(input = {}) {
 
   if (census >= 2) {
     const notes = withSymbolIdSnapshotNote([AMBIGUOUS_DIRECT_NOTE], occurrences);
-    const extra = {
-      census,
-      coverage,
-      notes,
-      occurrences
-    };
+    const applied = applyMatchCeiling(
+      { census, coverage, notes, occurrences },
+      completeness,
+      matchExhausted
+    );
     return deliverParsed(ambiguous(
-      completeness ? withCompleteness(extra, completeness) : extra,
+      applied.completeness ? withCompleteness(applied.extra, applied.completeness) : applied.extra,
       providerNode
     ), pathRecords);
   }
