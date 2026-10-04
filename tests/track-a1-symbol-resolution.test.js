@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { resolveTrackA1 } from "../src/lib/track-a-symbol-resolution.js";
 import { createProviderSnapshot } from "../src/analyzers/common/analyzer-provider-contract.js";
+import { contextDigest } from "../src/lib/project-context-files.js";
 
 function sha256Text(text) {
   return createHash("sha256").update(text, "utf8").digest("hex");
@@ -1226,4 +1227,181 @@ test("37. sha-mismatch result has no provider key", () => {
   assert.equal(Object.hasOwn(result, "provider"), false);
   assertNoIdentityFields(result);
   assertNoOccurrencesKey(result);
+});
+
+function expectedDeclarationId(spec, snapshotToken, sourceSha256) {
+  return contextDigest(JSON.stringify([
+    "tsjs-direct-declarations-1",
+    "native.typescript.declarations",
+    "1",
+    EXPECTED_PARSER,
+    snapshotToken,
+    spec.path,
+    sourceSha256,
+    spec.kind,
+    spec.range.start,
+    spec.range.end,
+    spec.nameRange.start,
+    spec.nameRange.end,
+    spec.name
+  ]));
+}
+
+test("38. matching snapshot token and one task path sets declarationId and omits symbolId", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const sourceSha256 = sha256Text(source);
+  const snapshot = snapshotFromBytes(source);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(source, "utf8"),
+    binding: { sourceSha256 },
+    snapshot,
+    task: TASK_PATH_SINGLE
+  });
+  const start = source.indexOf("export function foo");
+  const nameStart = start + "export function ".length;
+  const end = source.indexOf("}", start) + 1;
+  const spec = {
+    name: "foo",
+    kind: "function",
+    path: SYNTHETIC_PATH,
+    range: { start, end },
+    nameRange: { start: nameStart, end: nameStart + 3 }
+  };
+
+  assert.equal(INSTALLED_TYPESCRIPT_VERSION, "6.0.3");
+  assert.equal(result.status, "not_evaluated");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.notEqual(result.status, "not_found");
+  assert.notEqual(result.status, "positive");
+  assert.equal(result.census, 1);
+  assert.equal(result.occurrences.length, 1);
+  const occurrence = result.occurrences[0];
+  assert.equal(occurrence.name, spec.name);
+  assert.equal(occurrence.kind, spec.kind);
+  assert.equal(occurrence.path, spec.path);
+  assert.deepEqual(occurrence.range, spec.range);
+  assert.deepEqual(occurrence.nameRange, spec.nameRange);
+  const declarationId = expectedDeclarationId(spec, snapshot.token, sourceSha256);
+  assert.equal(occurrence.declarationId, declarationId);
+  assert.match(occurrence.declarationId, /^[a-f0-9]{64}$/);
+  assert.equal(Object.hasOwn(occurrence, "symbolId"), false);
+  assert.equal(Object.hasOwn(occurrence, "stableId"), false);
+  assert.equal(Object.hasOwn(result, "symbolId"), false);
+  assert.equal(Object.hasOwn(result, "stableId"), false);
+  assert.equal(Object.hasOwn(result, "declarationId"), false);
+  assert.ok(Array.isArray(result.notes));
+  assert.ok(
+    result.notes.some((note) =>
+      note.includes("symbolId") &&
+      note.includes("not minted") &&
+      note.includes("prefix")
+    ),
+    "note must say symbolId was not minted because the contract names no prefix"
+  );
+  assert.ok(
+    result.notes.every((note) => !note.includes(declarationId)),
+    "the symbolId note must not contain declarationId"
+  );
+});
+
+test("39. same source with a snapshot token mismatch has no declarationId", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const sourceSha256 = sha256Text(source);
+  const real = snapshotFromBytes(source);
+  const snapshot = { ...real, token: flipLastHex(real.token) };
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(source, "utf8"),
+    binding: { sourceSha256 },
+    snapshot,
+    task: TASK_PATH_SINGLE
+  });
+
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "declarationId"), false);
+  assert.equal(JSON.stringify(result).includes("declarationId"), false);
+  assertNoOccurrencesKey(result);
+  assertNoIdentityFields(result);
+});
+
+test("40. matching snapshot token with census 2 stays ambiguous and hashes each declarationId", () => {
+  const source = FIXTURE_TWO_TOP_LEVEL_FOO;
+  const sourceSha256 = sha256Text(source);
+  const snapshot = snapshotFromBytes(source);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(source, "utf8"),
+    binding: { sourceSha256 },
+    snapshot,
+    task: TASK_PATH_SINGLE
+  });
+  const firstStart = source.indexOf("function foo");
+  const firstName = source.indexOf("foo", firstStart);
+  const firstEnd = source.indexOf("}", firstStart) + 1;
+  const secondStart = source.indexOf("function foo", firstEnd);
+  const secondName = source.indexOf("foo", secondStart);
+  const secondEnd = source.indexOf("}", secondStart) + 1;
+  const specs = [
+    {
+      name: "foo",
+      kind: "function",
+      path: SYNTHETIC_PATH,
+      range: { start: firstStart, end: firstEnd },
+      nameRange: { start: firstName, end: firstName + 3 }
+    },
+    {
+      name: "foo",
+      kind: "function",
+      path: SYNTHETIC_PATH,
+      range: { start: secondStart, end: secondEnd },
+      nameRange: { start: secondName, end: secondName + 3 }
+    }
+  ];
+
+  assert.equal(result.status, "ambiguous");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.notEqual(result.status, "positive");
+  assert.equal(result.census, 2);
+  assert.equal(result.occurrences.length, 2);
+  assert.notEqual(specs[0].range.start, specs[1].range.start);
+  const ids = [];
+  for (let i = 0; i < specs.length; i += 1) {
+    const occurrence = result.occurrences[i];
+    assert.equal(occurrence.kind, specs[i].kind);
+    assert.equal(occurrence.path, specs[i].path);
+    assert.deepEqual(occurrence.range, specs[i].range);
+    assert.deepEqual(occurrence.nameRange, specs[i].nameRange);
+    const declarationId = expectedDeclarationId(specs[i], snapshot.token, sourceSha256);
+    assert.equal(occurrence.declarationId, declarationId);
+    assert.match(occurrence.declarationId, /^[a-f0-9]{64}$/);
+    assert.equal(Object.hasOwn(occurrence, "symbolId"), false);
+    assert.equal(Object.hasOwn(occurrence, "stableId"), false);
+    ids.push(declarationId);
+  }
+  assert.notEqual(ids[0], ids[1]);
+  assert.equal(Object.hasOwn(result, "symbolId"), false);
+  assert.equal(Object.hasOwn(result, "stableId"), false);
+  assert.equal(Object.hasOwn(result, "declarationId"), false);
+  assert.ok(result.notes.every((note) => !ids.some((id) => note.includes(id))));
+});
+
+test("41. parsed result with no snapshot has no declarationId", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const sourceSha256 = sha256Text(source);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(source, "utf8"),
+    binding: { sourceSha256 },
+    task: TASK_PATH_SINGLE
+  });
+
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(result.census, 1);
+  assert.equal(result.occurrences.length, 1);
+  assert.equal(result.occurrences[0].path, SYNTHETIC_PATH);
+  assert.equal(Object.hasOwn(result.occurrences[0], "declarationId"), false);
+  assert.equal(Object.hasOwn(result.occurrences[0], "symbolId"), false);
+  assert.equal(JSON.stringify(result).includes("declarationId"), false);
+  assertNoIdentityFields(result);
 });

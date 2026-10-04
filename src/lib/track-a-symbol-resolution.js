@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { Project, SyntaxKind } from "ts-morph";
 import { createProviderSnapshot } from "../analyzers/common/analyzer-provider-contract.js";
+import { contextDigest } from "./project-context-files.js";
 
 const moduleRequire = createRequire(import.meta.url);
 const CONTRACT_TYPESCRIPT_PARSER_VERSION = "6.0.3";
@@ -76,6 +77,9 @@ const SNAPSHOT_TOKEN_MISMATCH_NOTE = "snapshot token did not recompute";
 
 const SNAPSHOT_TOKEN_MATCHED_NOTE =
   "snapshot token matched the supplied bytes but this is not accepted A1 evidence (declaration identity and completeness are not produced here)";
+
+const SYMBOL_ID_NOT_MINTED_NOTE =
+  "symbolId was not minted because the contract names no prefix";
 
 const SINGLE_PATH_ONLY_NOTE =
   "only a single explicit path is implemented";
@@ -240,6 +244,46 @@ function qualifyingOccurrences(matches, sourceFile, path) {
   return matches.map((node) => occurrenceFromDeclaration(node, sourceFile, path));
 }
 
+function occurrencesHaveDeclarationId(occurrences) {
+  return occurrences.some((occurrence) => Object.hasOwn(occurrence, "declarationId"));
+}
+
+function withSymbolIdOmissionNote(notes, occurrences) {
+  if (occurrencesHaveDeclarationId(occurrences) && !notes.includes(SYMBOL_ID_NOT_MINTED_NOTE)) {
+    notes.push(SYMBOL_ID_NOT_MINTED_NOTE);
+  }
+  return notes;
+}
+
+function attachDeclarationIds(occurrences, snapshotTokenMatched, snapshot, sourceSha256) {
+  if (!snapshotTokenMatched) return occurrences;
+  const version = readInstalledTypescriptVersion();
+  if (version !== CONTRACT_TYPESCRIPT_PARSER_VERSION) return occurrences;
+  const parserString = "typescript/" + version;
+  const snapshotToken = snapshot.token;
+  return occurrences.map((occurrence) => {
+    if (occurrence.path == null) return occurrence;
+    return {
+      ...occurrence,
+      declarationId: contextDigest(JSON.stringify([
+        "tsjs-direct-declarations-1",
+        "native.typescript.declarations",
+        "1",
+        parserString,
+        snapshotToken,
+        occurrence.path,
+        sourceSha256,
+        occurrence.kind,
+        occurrence.range.start,
+        occurrence.range.end,
+        occurrence.nameRange.start,
+        occurrence.nameRange.end,
+        occurrence.name
+      ]))
+    };
+  });
+}
+
 function snapshotRejection(note) {
   return note ? { ok: false, note } : { ok: false };
 }
@@ -356,10 +400,13 @@ function withCompleteness(extra, completeness) {
  * diagnostics, and declaration census are all usable. Two or more qualifying
  * direct declarations are ambiguous even when the snapshot is absent or an
  * unsupported form limits completeness; that result keeps census and coverage
- * and does not emit stable, symbol, or declaration ids. A clean parse records
+ * and does not emit stable or symbol ids. A clean parse records
  * each qualifying direct declaration as an occurrence (name, kind, optional
- * single task path, declaration range, name range, and location) and still
- * attaches no identity. Parse diagnostics contribute no occurrence records. A census of 0 or 1,
+ * single task path, declaration range, name range, and location). A declarationId
+ * is added only after the supplied snapshot token recomputes, the occurrence path
+ * is a non-null task path, and the installed parser version is the contract version.
+ * That id is contextDigest of the fixed JSON field array. symbolId is not minted
+ * because the contract names no prefix. Parse diagnostics contribute no occurrence records. A census of 0 or 1,
  * including a matching source sha256, stays not_evaluated and is still not
  * full observation binding and is not accepted A1 evidence. When task.paths
  * supplies exactly one relative path, incomplete parse or unsupported forms
@@ -496,7 +543,12 @@ export function resolveTrackA1(input = {}) {
   const matches = censusDeclarations(sourceFile, name);
   const census = matches.length;
   const occurrencePath = pathScoped ? pathScope.path : null;
-  const occurrences = qualifyingOccurrences(matches, sourceFile, occurrencePath);
+  const occurrences = attachDeclarationIds(
+    qualifyingOccurrences(matches, sourceFile, occurrencePath),
+    snapshotTokenMatched,
+    snapshot,
+    actualSha
+  );
   const coverage = {
     wholeByteString: true,
     syntacticDiagnosticCount: 0
@@ -513,15 +565,19 @@ export function resolveTrackA1(input = {}) {
 
   if (unsupportedForm) {
     const notes = [UNSUPPORTED_FORM_NOTE];
-    if (snapshotTokenMatched) notes.push(SNAPSHOT_TOKEN_MATCHED_NOTE);
+    if (snapshotTokenMatched && !occurrencesHaveDeclarationId(occurrences)) {
+      notes.push(SNAPSHOT_TOKEN_MATCHED_NOTE);
+    }
     if (census >= 2) {
       notes.push(AMBIGUOUS_DIRECT_NOTE);
+      withSymbolIdOmissionNote(notes, occurrences);
       const extra = { census, coverage, notes, occurrences };
       return withParsedProvider(ambiguous(
         completeness ? withCompleteness(extra, completeness) : extra,
         providerNode
       ));
     }
+    withSymbolIdOmissionNote(notes, occurrences);
     if (pathScoped) {
       return withParsedProvider(partial(
         withCompleteness({ census, coverage, notes, occurrences }, completeness),
@@ -537,10 +593,11 @@ export function resolveTrackA1(input = {}) {
   }
 
   if (census >= 2) {
+    const notes = withSymbolIdOmissionNote([AMBIGUOUS_DIRECT_NOTE], occurrences);
     const extra = {
       census,
       coverage,
-      notes: [AMBIGUOUS_DIRECT_NOTE],
+      notes,
       occurrences
     };
     return withParsedProvider(ambiguous(
@@ -552,6 +609,7 @@ export function resolveTrackA1(input = {}) {
   if (census !== 1) {
     const notes = [];
     if (pathScoped) notes.push(OUTPUT_COVERAGE_INCOMPLETE_NOTE);
+    withSymbolIdOmissionNote(notes, occurrences);
     const extra = notes.length > 0 ? { census, coverage, notes, occurrences } : { census, coverage, occurrences };
     return withParsedProvider(notEvaluated(
       completeness ? withCompleteness(extra, completeness) : extra,
@@ -559,10 +617,12 @@ export function resolveTrackA1(input = {}) {
     ));
   }
 
-  const notes = snapshotTokenMatched
-    ? [NOT_ACCEPTED_NOTE, SNAPSHOT_TOKEN_MATCHED_NOTE]
-    : [NOT_ACCEPTED_NOTE];
+  const notes = [NOT_ACCEPTED_NOTE];
+  if (snapshotTokenMatched && !occurrencesHaveDeclarationId(occurrences)) {
+    notes.push(SNAPSHOT_TOKEN_MATCHED_NOTE);
+  }
   if (pathScoped) notes.push(OUTPUT_COVERAGE_INCOMPLETE_NOTE);
+  withSymbolIdOmissionNote(notes, occurrences);
   const extra = {
     census: 1,
     coverage,
