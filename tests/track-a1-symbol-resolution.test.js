@@ -1683,3 +1683,235 @@ test("51. full binding and one function foo stays resolved_unique", () => {
   assert.equal(result.status, "resolved_unique");
   assert.equal(result.census, 1);
 });
+
+const PATH_A = "src/a.js";
+const PATH_B = "src/b.js";
+const FILE_B_OTHER = "export const other = 1;\n";
+
+function combinedSourceSha(texts) {
+  return sha256Text(texts.join(""));
+}
+
+function multiPathBinding(ordered, { query, revision } = {}) {
+  const rev = revision ?? linkedRevision();
+  const texts = ordered.map((entry) => entry[1]);
+  const produced = createProviderSnapshot(
+    { projectId: SYNTHETIC_PROJECT_ID },
+    ordered.map(([path, text]) => ({ path, text })),
+    providerRevision(rev)
+  );
+  const project = {
+    projectId: SYNTHETIC_PROJECT_ID,
+    rootId: SYNTHETIC_ROOT_ID,
+    relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+  };
+  const paths = ordered.map(([path]) => path);
+  const task = { id: SYNTHETIC_TASK_ID, paths };
+  const resolvedQuery = query ?? { name: "foo", domain: SYMBOL_QUERY_DOMAIN };
+  const snapshot = {
+    projectId: SYNTHETIC_PROJECT_ID,
+    token: produced.token,
+    revision: rev
+  };
+  return {
+    combinedSha: combinedSourceSha(texts),
+    snapshot,
+    project,
+    task,
+    query: resolvedQuery,
+    revision: rev,
+    files: ordered.map(([path, text]) => ({
+      path,
+      sourceBytes: Buffer.from(text, "utf8")
+    }))
+  };
+}
+
+function resolveAcrossPaths(ordered, parts) {
+  return resolveTrackA1({
+    name: "foo",
+    files: parts.files,
+    binding: { sourceSha256: parts.combinedSha },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  });
+}
+
+function expectedMultiSymbolRequestToken(parts) {
+  const fields = [
+    "symbol-resolution-evidence-v1",
+    "tsjs-direct-declarations-1",
+    parts.project.projectId,
+    parts.project.rootId,
+    parts.project.relativePath,
+    parts.revision.status,
+    parts.revision.commitSha,
+    parts.revision.branch,
+    parts.revision.repositoryId,
+    parts.revision.worktreeId,
+    parts.revision.dirty,
+    parts.revision.isLinkedWorktree,
+    parts.snapshot.token,
+    "native.typescript.declarations",
+    "1",
+    EXPECTED_PARSER,
+    parts.task.id,
+    parts.task.paths[0]
+  ];
+  for (let index = 1; index < parts.task.paths.length; index += 1) {
+    fields.push(parts.task.paths[index]);
+  }
+  fields.push(parts.query.name, parts.query.domain);
+  return contextDigest(JSON.stringify(fields));
+}
+
+test("52. foo only in src/a.js across two paths is resolved_unique", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  const result = resolveAcrossPaths(ordered, parts);
+  const requestToken = expectedMultiSymbolRequestToken(parts);
+  const source = FIXTURE_SINGLE_FOO;
+  const start = source.indexOf("export function foo");
+  const nameStart = start + "export function ".length;
+  const end = source.indexOf("}", start) + 1;
+  const spec = {
+    name: "foo",
+    kind: "function",
+    path: PATH_A,
+    range: { start, end },
+    nameRange: { start: nameStart, end: nameStart + 3 }
+  };
+  const fileSha = sha256Text(source);
+  const declarationId = expectedDeclarationId(spec, parts.snapshot.token, fileSha);
+
+  assert.equal(result.status, "resolved_unique");
+  assert.notEqual(result.status, "not_found");
+  assert.notEqual(result.status, "ambiguous");
+  assert.equal(result.census, 1);
+  assert.equal(result.occurrences.length, 1);
+  assert.equal(result.occurrences[0].path, PATH_A);
+  assert.equal(result.occurrences[0].name, "foo");
+  assert.equal(result.occurrences[0].declarationId, declarationId);
+  assert.match(result.occurrences[0].declarationId, /^[a-f0-9]{64}$/);
+  assert.equal(result.occurrences[0].symbolId, "symbol_" + declarationId);
+  assert.notEqual(fileSha, parts.combinedSha);
+  assert.deepEqual(result.counts, {
+    requested: 2,
+    processed: 2,
+    retained: 1,
+    exactMatchCount: 1
+  });
+  assert.equal(result.requestToken, requestToken);
+  assert.equal(result.snapshotBinding.requestToken, requestToken);
+  assert.equal(result.snapshotBinding.sourceDigest, parts.combinedSha);
+  assert.equal(result.completeness.output, "complete");
+  assert.equal(result.completeness.parse, "complete");
+  assert.equal(result.completeness.enumeration, "complete");
+  assertNativeTypescriptProvider(result);
+});
+
+test("53. foo in both src/a.js and src/b.js is ambiguous", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FIXTURE_SINGLE_FOO]
+  ];
+  const parts = multiPathBinding(ordered);
+  const result = resolveAcrossPaths(ordered, parts);
+
+  assert.equal(result.status, "ambiguous");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.notEqual(result.status, "not_found");
+  assert.equal(result.census, 2);
+  assert.equal(result.occurrences.length, 2);
+  assert.deepEqual(result.occurrences.map((occurrence) => occurrence.path), [PATH_A, PATH_B]);
+  assert.equal(result.completeness.output, "not_evaluated");
+});
+
+test("54. foo in neither clean path is not_found", () => {
+  const ordered = [
+    [PATH_A, FILE_B_OTHER],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  const result = resolveAcrossPaths(ordered, parts);
+  const requestToken = expectedMultiSymbolRequestToken(parts);
+
+  assert.equal(result.status, "not_found");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.notEqual(result.status, "partial");
+  assert.equal(result.census, 0);
+  assert.deepEqual(result.occurrences, []);
+  assert.equal(result.counts.exactMatchCount, 0);
+  assert.deepEqual(result.counts, {
+    requested: 2,
+    processed: 2,
+    retained: 0,
+    exactMatchCount: 0
+  });
+  assert.equal(result.requestToken, requestToken);
+  assert.equal(JSON.stringify(result).includes("symbolId"), false);
+  assert.equal(JSON.stringify(result).includes("declarationId"), false);
+  assert.equal(result.completeness.output, "complete");
+  assertNativeTypescriptProvider(result);
+});
+
+test("55. thirty-three task paths stay not_evaluated and do not parse", () => {
+  const text = FILE_B_OTHER;
+  const paths = Array.from({ length: 33 }, (_value, index) => "src/p" + index + ".js");
+  const sourceBytes = Buffer.from(text, "utf8");
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: sha256Text(text) },
+    task: { id: SYNTHETIC_TASK_ID, paths },
+    files: paths.map((path) => ({ path, sourceBytes })),
+    project: {
+      projectId: SYNTHETIC_PROJECT_ID,
+      rootId: SYNTHETIC_ROOT_ID,
+      relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+    },
+    query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+  });
+
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(JSON.stringify(result).includes("resolved_unique"), false);
+  assert.notEqual(result.status, "not_found");
+  assert.equal(Object.hasOwn(result, "census"), false);
+});
+
+test("56. a syntax error in one of two paths is partial", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_TRUNCATED],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  const result = resolveAcrossPaths(ordered, parts);
+
+  assert.equal(result.status, "partial");
+  assert.notEqual(result.status, "not_found");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.equal(result.completeness.parse, "partial");
+  assert.ok(result.coverage.syntacticDiagnosticCount > 0);
+  assert.equal(result.completeness.output, "not_evaluated");
+});
+
+test("57. an unsupported form in one of two paths blocks resolved_unique", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, "const { a } = value;\n"]
+  ];
+  const parts = multiPathBinding(ordered);
+  const result = resolveAcrossPaths(ordered, parts);
+
+  assert.equal(result.status, "partial");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.notEqual(result.status, "not_found");
+  assert.equal(result.census, 1);
+  assert.equal(result.completeness.enumeration, "partial");
+  assert.equal(result.completeness.output, "not_evaluated");
+});

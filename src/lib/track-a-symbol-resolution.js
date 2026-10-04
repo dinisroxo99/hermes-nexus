@@ -263,6 +263,8 @@ function attachDeclarationIds(occurrences, snapshotTokenMatched, snapshot, sourc
   const snapshotToken = snapshot.token;
   return occurrences.map((occurrence) => {
     if (occurrence.path == null) return occurrence;
+    const fileSha = sourceSha256 instanceof Map ? sourceSha256.get(occurrence.path) : sourceSha256;
+    if (typeof fileSha !== "string" || fileSha.length === 0) return occurrence;
     const declarationId = contextDigest(JSON.stringify([
       "tsjs-direct-declarations-1",
       "native.typescript.declarations",
@@ -270,7 +272,7 @@ function attachDeclarationIds(occurrences, snapshotTokenMatched, snapshot, sourc
       parserString,
       snapshotToken,
       occurrence.path,
-      sourceSha256,
+      fileSha,
       occurrence.kind,
       occurrence.range.start,
       occurrence.range.end,
@@ -348,17 +350,24 @@ function resolveTaskPathScope(task) {
   if (!isPlainObject(task) || !Array.isArray(task.paths) || task.paths.length === 0) {
     return { kind: "absent" };
   }
-  if (task.paths.length !== 1) {
+  if (task.paths.length > 32) {
     return { kind: "unsupported_count" };
   }
-  const path = task.paths[0];
-  if (typeof path !== "string" || path.length === 0) {
+  for (const path of task.paths) {
+    if (typeof path !== "string" || path.length === 0) {
+      return { kind: "invalid" };
+    }
+    if (isAbsolutePath(path) || path.includes("..")) {
+      return { kind: "invalid" };
+    }
+  }
+  if (new Set(task.paths).size !== task.paths.length) {
     return { kind: "invalid" };
   }
-  if (isAbsolutePath(path) || path.includes("..")) {
-    return { kind: "invalid" };
+  if (task.paths.length === 1) {
+    return { kind: "single", path: task.paths[0] };
   }
-  return { kind: "single", path };
+  return { kind: "multi", paths: task.paths.slice() };
 }
 
 function buildCompleteness({
@@ -522,7 +531,7 @@ function uniqueBindingReady({
 }
 
 function symbolRequestToken({ project, revision, snapshotToken, parserString, task, query }) {
-  return contextDigest(JSON.stringify([
+  const fields = [
     "symbol-resolution-evidence-v1",
     "tsjs-direct-declarations-1",
     project.projectId,
@@ -540,10 +549,15 @@ function symbolRequestToken({ project, revision, snapshotToken, parserString, ta
     "1",
     parserString,
     task.id,
-    task.paths[0],
-    query.name,
-    query.domain
-  ]));
+    task.paths[0]
+  ];
+  if (Array.isArray(task.paths) && task.paths.length > 1) {
+    for (let index = 1; index < task.paths.length; index += 1) {
+      fields.push(task.paths[index]);
+    }
+  }
+  fields.push(query.name, query.domain);
+  return contextDigest(JSON.stringify(fields));
 }
 
 function resolvedUniqueResult({
@@ -595,8 +609,8 @@ function resolvedUniqueResult({
     },
     requestToken,
     counts: {
-      requested: 1,
-      processed: 1,
+      requested: task.paths.length,
+      processed: task.paths.length,
       retained: 1,
       exactMatchCount: 1
     },
@@ -651,8 +665,8 @@ function notFoundResult({
     },
     requestToken,
     counts: {
-      requested: 1,
-      processed: 1,
+      requested: task.paths.length,
+      processed: task.paths.length,
       retained: 0,
       exactMatchCount: 0
     },
@@ -660,11 +674,335 @@ function notFoundResult({
   };
 }
 
+
+function loadOrderedFiles(paths, files) {
+  if (!Array.isArray(files) || files.length !== paths.length) return null;
+  const byPath = new Map();
+  for (const entry of files) {
+    if (!isPlainObject(entry) || typeof entry.path !== "string") return null;
+    if (byPath.has(entry.path)) return null;
+    const bytes = toBuffer(entry.sourceBytes);
+    if (!bytes) return null;
+    const text = bytes.toString("utf8");
+    if (!Buffer.from(text, "utf8").equals(bytes)) return null;
+    byPath.set(entry.path, {
+      path: entry.path,
+      bytes,
+      text,
+      sha256: sha256Bytes(bytes)
+    });
+  }
+  if (byPath.size !== paths.length) return null;
+  const ordered = [];
+  for (const path of paths) {
+    const file = byPath.get(path);
+    if (!file) return null;
+    ordered.push(file);
+  }
+  return ordered;
+}
+
+function recomputeMultiSnapshotToken(snapshot, orderedFiles) {
+  if (!isPlainObject(snapshot)) return snapshotRejection();
+  if (typeof snapshot.projectId !== "string" || snapshot.projectId.length === 0) return snapshotRejection();
+  if (typeof snapshot.token !== "string" || snapshot.token.length === 0) return snapshotRejection();
+
+  const revision = snapshot.revision;
+  if (!isPlainObject(revision)) return snapshotRejection();
+  if (Object.hasOwn(revision, "repositoryIdentity")) return snapshotRejection();
+  if (typeof revision.repositoryId !== "string" || !HEX64.test(revision.repositoryId)) return snapshotRejection();
+  if (typeof revision.worktreeId !== "string" || !HEX64.test(revision.worktreeId)) return snapshotRejection();
+  if (typeof revision.status !== "string" || revision.status.length === 0) return snapshotRejection();
+  if (typeof revision.commitSha !== "string" || revision.commitSha.length === 0) return snapshotRejection();
+  if (!(revision.branch === null || typeof revision.branch === "string")) return snapshotRejection();
+  if (typeof revision.dirty !== "boolean") return snapshotRejection();
+  if (typeof revision.isLinkedWorktree !== "boolean") return snapshotRejection();
+
+  let recomputed;
+  try {
+    recomputed = createProviderSnapshot(
+      { projectId: snapshot.projectId },
+      orderedFiles.map((file) => ({ path: file.path, text: file.text })),
+      {
+        status: revision.status,
+        commitSha: revision.commitSha,
+        branch: revision.branch,
+        repositoryId: revision.repositoryId,
+        worktreeId: revision.worktreeId,
+        dirty: revision.dirty,
+        isLinkedWorktree: revision.isLinkedWorktree
+      }
+    );
+  } catch {
+    return snapshotRejection();
+  }
+
+  if (!recomputed || recomputed.token !== snapshot.token) {
+    return snapshotRejection(SNAPSHOT_TOKEN_MISMATCH_NOTE);
+  }
+  return { ok: true };
+}
+
+function parseTrackSource(text) {
+  const morphProject = new Project({
+    useInMemoryFileSystem: true,
+    skipFileDependencyResolution: true,
+    compilerOptions: {
+      allowJs: true,
+      noLib: true,
+      target: 99
+    }
+  });
+  const sourceFile = morphProject.createSourceFile("synthetic-fixture.ts", text);
+  if (sourceFile.getFullText() !== text) return { ok: false };
+  const program = morphProject.getProgram().compilerObject;
+  const syntacticDiagnostics = program.getSyntacticDiagnostics(sourceFile.compilerNode);
+  return {
+    ok: true,
+    sourceFile,
+    syntacticDiagnosticCount: syntacticDiagnostics.length
+  };
+}
+
+function multiSymbolBindingReady({
+  name,
+  query,
+  task,
+  project,
+  snapshot,
+  snapshotTokenMatched,
+  completeness,
+  paths
+}) {
+  if (!snapshotTokenMatched || !isPlainObject(snapshot)) return false;
+  if (!isPlainObject(query)) return false;
+  if (query.domain !== SYMBOL_QUERY_DOMAIN) return false;
+  if (!nonEmptyString(query.name) || query.name !== name) return false;
+  if (!isPlainObject(task)) return false;
+  if (!nonEmptyString(task.id) || task.id.length > 128) return false;
+  if (!Array.isArray(task.paths) || task.paths.length !== paths.length) return false;
+  if (paths.length < 2 || paths.length > 32) return false;
+  for (let index = 0; index < paths.length; index += 1) {
+    if (task.paths[index] !== paths[index]) return false;
+  }
+  if (!isPlainObject(project)) return false;
+  if (!nonEmptyString(project.projectId) || !nonEmptyString(project.rootId) || !nonEmptyString(project.relativePath)) {
+    return false;
+  }
+  if (project.projectId !== snapshot.projectId) return false;
+  if (!revisionAllowsUnique(snapshot.revision)) return false;
+  if (readInstalledTypescriptVersion() !== CONTRACT_TYPESCRIPT_PARSER_VERSION) return false;
+  if (!isPlainObject(completeness)) return false;
+  if (completeness.source !== "complete" || completeness.parse !== "complete" || completeness.enumeration !== "complete") {
+    return false;
+  }
+  return true;
+}
+
+function multiUniqueBindingReady(args) {
+  if (!multiSymbolBindingReady(args)) return false;
+  const { occurrences } = args;
+  if (!Array.isArray(occurrences) || occurrences.length !== 1) return false;
+  const occurrence = occurrences[0];
+  if (!isPlainObject(occurrence)) return false;
+  if (typeof occurrence.declarationId !== "string" || !HEX64.test(occurrence.declarationId)) return false;
+  if (occurrence.symbolId !== "symbol_" + occurrence.declarationId) return false;
+  return true;
+}
+
+function resolveMulti(input, paths) {
+  const { name, files, binding, providerNode, snapshot, task, query, project } = input;
+  const ordered = loadOrderedFiles(paths, files);
+  if (!ordered) {
+    return notEvaluated(
+      withCompleteness(
+        { notes: [SINGLE_PATH_ONLY_NOTE] },
+        buildCompleteness()
+      ),
+      providerNode
+    );
+  }
+
+  const combinedSha = sha256Bytes(Buffer.concat(ordered.map((file) => file.bytes)));
+  if (!isPlainObject(binding) || typeof binding.sourceSha256 !== "string" || binding.sourceSha256.length === 0) {
+    return notEvaluated(withCompleteness({}, buildCompleteness()), providerNode);
+  }
+  if (binding.sourceSha256 !== combinedSha) {
+    return notEvaluated(withCompleteness({}, buildCompleteness()), providerNode);
+  }
+
+  let snapshotTokenMatched = false;
+  if (snapshot !== undefined) {
+    const checked = recomputeMultiSnapshotToken(snapshot, ordered);
+    if (!checked.ok) {
+      const extra = checked.note ? { notes: [checked.note] } : {};
+      return notEvaluated(withCompleteness(extra, buildCompleteness()), providerNode);
+    }
+    snapshotTokenMatched = true;
+  }
+
+  const parsedFiles = [];
+  for (const file of ordered) {
+    const parsed = parseTrackSource(file.text);
+    if (!parsed.ok) {
+      return withParsedProvider(notEvaluated(withCompleteness({}, buildCompleteness()), providerNode));
+    }
+    parsedFiles.push({ ...file, ...parsed });
+  }
+
+  let syntacticDiagnosticCount = 0;
+  let census = 0;
+  const rawOccurrences = [];
+  for (const file of parsedFiles) {
+    syntacticDiagnosticCount += file.syntacticDiagnosticCount;
+    const matches = censusDeclarations(file.sourceFile, name);
+    census += matches.length;
+    rawOccurrences.push(...qualifyingOccurrences(matches, file.sourceFile, file.path));
+  }
+
+  const coverageWithDiagnostics = {
+    wholeByteString: true,
+    syntacticDiagnosticCount
+  };
+  if (syntacticDiagnosticCount > 0) {
+    const completeness = buildCompleteness({
+      snapshotTokenMatched,
+      parsed: true,
+      syntacticDiagnosticCount,
+      unsupportedForm: false
+    });
+    const base = { census, coverage: coverageWithDiagnostics };
+    if (census >= 2) {
+      return withParsedProvider(ambiguous(
+        withCompleteness({ ...base, notes: [AMBIGUOUS_DIRECT_NOTE] }, completeness),
+        providerNode
+      ));
+    }
+    return withParsedProvider(partial(withCompleteness(base, completeness), providerNode));
+  }
+
+  let unsupportedForm = false;
+  for (const file of parsedFiles) {
+    if (fileHasUnsupportedDeclarationForm(file.sourceFile)) unsupportedForm = true;
+  }
+
+  const shaByPath = new Map(ordered.map((file) => [file.path, file.sha256]));
+  const occurrences = attachDeclarationIds(rawOccurrences, snapshotTokenMatched, snapshot, shaByPath);
+  const coverage = {
+    wholeByteString: true,
+    syntacticDiagnosticCount: 0
+  };
+  const completeness = buildCompleteness({
+    snapshotTokenMatched,
+    parsed: true,
+    syntacticDiagnosticCount: 0,
+    unsupportedForm
+  });
+
+  if (unsupportedForm) {
+    const notes = [UNSUPPORTED_FORM_NOTE];
+    if (snapshotTokenMatched && !occurrencesHaveDeclarationId(occurrences)) {
+      notes.push(SNAPSHOT_TOKEN_MATCHED_NOTE);
+    }
+    if (census >= 2) {
+      notes.push(AMBIGUOUS_DIRECT_NOTE);
+      withSymbolIdSnapshotNote(notes, occurrences);
+      return withParsedProvider(ambiguous(
+        withCompleteness({ census, coverage, notes, occurrences }, completeness),
+        providerNode
+      ));
+    }
+    withSymbolIdSnapshotNote(notes, occurrences);
+    return withParsedProvider(partial(
+      withCompleteness({ census, coverage, notes, occurrences }, completeness),
+      providerNode
+    ));
+  }
+
+  if (census >= 2) {
+    const notes = withSymbolIdSnapshotNote([AMBIGUOUS_DIRECT_NOTE], occurrences);
+    return withParsedProvider(ambiguous(
+      withCompleteness({ census, coverage, notes, occurrences }, completeness),
+      providerNode
+    ));
+  }
+
+  if (census === 0) {
+    if (multiSymbolBindingReady({
+      name,
+      query,
+      task,
+      project,
+      snapshot,
+      snapshotTokenMatched,
+      completeness,
+      paths
+    })) {
+      return withParsedProvider(attachProviderIdNote(notFoundResult({
+        coverage,
+        completeness,
+        snapshot,
+        project,
+        task,
+        query,
+        actualSha: combinedSha
+      }), providerNode));
+    }
+    const notes = [OUTPUT_COVERAGE_INCOMPLETE_NOTE];
+    withSymbolIdSnapshotNote(notes, occurrences);
+    return withParsedProvider(notEvaluated(
+      withCompleteness({ census, coverage, notes, occurrences }, completeness),
+      providerNode
+    ));
+  }
+
+  const notes = [NOT_ACCEPTED_NOTE];
+  if (snapshotTokenMatched && !occurrencesHaveDeclarationId(occurrences)) {
+    notes.push(SNAPSHOT_TOKEN_MATCHED_NOTE);
+  }
+  notes.push(OUTPUT_COVERAGE_INCOMPLETE_NOTE);
+  withSymbolIdSnapshotNote(notes, occurrences);
+  const evaluated = withCompleteness({
+    census: 1,
+    coverage,
+    notes,
+    occurrences
+  }, completeness);
+  if (multiUniqueBindingReady({
+    name,
+    query,
+    task,
+    project,
+    snapshot,
+    snapshotTokenMatched,
+    occurrences,
+    completeness,
+    paths
+  })) {
+    return withParsedProvider(attachProviderIdNote(resolvedUniqueResult({
+      occurrences,
+      coverage,
+      completeness,
+      snapshot,
+      project,
+      task,
+      query,
+      actualSha: combinedSha
+    }), providerNode));
+  }
+  return withParsedProvider(notEvaluated(evaluated, providerNode));
+}
+
 export function resolveTrackA1(input = {}) {
   const { name, sourceBytes, binding, providerNode, snapshot, task, query, project } = input;
 
   if (typeof name !== "string" || name.length === 0) {
     return notEvaluated({}, providerNode);
+  }
+
+  const earlyScope = resolveTaskPathScope(task);
+  if (earlyScope.kind === "multi") {
+    return resolveMulti(input, earlyScope.paths);
   }
 
   const bytes = toBuffer(sourceBytes);
