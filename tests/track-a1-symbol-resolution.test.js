@@ -2033,3 +2033,57 @@ test("60. existing small resolved_unique fixture stays resolved_unique", () => {
   assert.equal(result.status, "resolved_unique");
   assert.ok(Buffer.byteLength(source) < PER_FILE_BYTE_CEILING);
 });
+
+function assertContractIdentity(result) {
+  assert.equal(result.schemaVersion, 1);
+  assert.equal(result.analysisVersion, "symbol-resolution-evidence-v1");
+  assert.equal(result.policyVersion, "tsjs-direct-declarations-1");
+}
+
+test("61. resolved_unique fixture includes contract identity", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const result = resolveWithBinding(source, parts);
+  assert.equal(result.status, "resolved_unique");
+  assertContractIdentity(result);
+});
+
+test("62. not_evaluated ceiling rejection includes contract identity", () => {
+  const bytes = sourceOfByteLength(PER_FILE_BYTE_CEILING + 1);
+  const sourceSha256 = sha256Text(bytes.toString("utf8"));
+  const base = fullBindingParts(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: bytes,
+    binding: { sourceSha256 },
+    snapshot: {
+      projectId: base.snapshot.projectId,
+      path: base.snapshot.path,
+      sourceSha256,
+      byteSize: bytes.length,
+      revision: base.snapshot.revision,
+      token: base.snapshot.token
+    },
+    task: base.task,
+    project: base.project,
+    query: base.query
+  });
+  assert.equal(result.status, "not_evaluated");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.equal(result.notes.some((note) => note.includes("byte ceiling")), true);
+  assertContractIdentity(result);
+});
+
+test("63. ambiguous result includes contract identity", () => {
+  const sourceSha256 = sha256Text(FIXTURE_TWO_TOP_LEVEL_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_TWO_TOP_LEVEL_FOO, "utf8"),
+    binding: { sourceSha256 }
+  });
+  assert.equal(result.status, "ambiguous");
+  assert.notEqual(result.status, "not_evaluated");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.equal(result.census, 2);
+  assertContractIdentity(result);
+});

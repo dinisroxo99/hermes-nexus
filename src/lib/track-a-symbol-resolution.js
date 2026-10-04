@@ -1066,7 +1066,7 @@ function resolveMulti(input, paths) {
   return deliverParsed(notEvaluated(evaluated, providerNode), pathRecords);
 }
 
-export function resolveTrackA1(input = {}) {
+function resolveTrackA1Body(input = {}) {
   const { name, sourceBytes, binding, providerNode, snapshot, task, query, project } = input;
 
   if (typeof name !== "string" || name.length === 0) {
@@ -1344,4 +1344,15 @@ export function resolveTrackA1(input = {}) {
     evaluated,
     providerNode
   ), pathRecords);
+}
+
+function stampContractIdentity(result) {
+  result.schemaVersion = 1;
+  result.analysisVersion = "symbol-resolution-evidence-v1";
+  result.policyVersion = "tsjs-direct-declarations-1";
+  return result;
+}
+
+export function resolveTrackA1(input = {}) {
+  return stampContractIdentity(resolveTrackA1Body(input));
 }
