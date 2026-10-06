@@ -4036,3 +4036,322 @@ test("139. invalid compactBytes with a providerNode id getter keeps the override
   assert.equal(Object.hasOwn(result, "reasons"), false);
   assertContractIdentity(result);
 });
+
+const NON_PLAIN_INPUT_NOTE = "non-plain input was rejected";
+
+function assertNonPlainRejection(result, decoded, threw) {
+  assert.equal(threw, false);
+  assert.equal(decoded, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [NON_PLAIN_INPUT_NOTE]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+}
+
+test("140. a class-instance root is not_evaluated before decode", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  class TrackA1Root {}
+  const input = new TrackA1Root();
+  Object.assign(input, {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  });
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("141. a class instance under task with an own getter is not_evaluated without invoking the getter", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  let getterCalled = false;
+  class Box {}
+  const box = new Box();
+  Object.defineProperty(box, "trap", {
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return 1;
+    }
+  });
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: { id: parts.task.id, paths: parts.task.paths.slice(), box },
+    project: parts.project,
+    query: parts.query
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(getterCalled, false);
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("142. a Date under query is not_evaluated before decode", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: { name: "foo", domain: parts.query.domain, when: new Date(0) }
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("143. a Map value is not_evaluated before decode", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    bag: new Map()
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("144. a function value is not_evaluated before decode", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  let fnCalled = false;
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    cb() {
+      fnCalled = true;
+    }
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(fnCalled, false);
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("145. a bigint value is not_evaluated before decode", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    n: 1n
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("146. a non-plain object with toJSON is not_evaluated without calling toJSON", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  let toJsonCalled = false;
+  class WithToJson {
+    toJSON() {
+      toJsonCalled = true;
+      return { ok: true };
+    }
+  }
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    payload: new WithToJson()
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(toJsonCalled, false);
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("147. a plain object with a toJSON function data property is not_evaluated without calling toJSON", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  let toJsonCalled = false;
+  const payload = {
+    toJSON() {
+      toJsonCalled = true;
+      return { ok: true };
+    }
+  };
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    payload
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(toJsonCalled, false);
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("148. a Buffer under files remains accepted and evaluates as before", () => {
+  const ordered = [
+    ["src/a.js", FIXTURE_SINGLE_FOO],
+    ["src/b.js", "export function other() { return 2; }\n"]
+  ];
+  const parts = multiPathBinding(ordered);
+  assert.equal(Buffer.isBuffer(parts.files[0].sourceBytes), true);
+  assert.equal(Buffer.isBuffer(parts.files[1].sourceBytes), true);
+  const result = resolveAcrossPaths(ordered, parts);
+  assert.equal(result.status, "resolved_unique");
+  const notes = Array.isArray(result.notes) ? result.notes : [];
+  assert.equal(notes.includes(NON_PLAIN_INPUT_NOTE), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("149. an accessor on the parent wins over a non-plain sibling value", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  let getterCalled = false;
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    later: new Date(0)
+  };
+  Object.defineProperty(input, "earlier", {
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return 1;
+    }
+  });
+  // Force descriptor order: recreate with accessor key before later by defining on a fresh object in order.
+  const ordered = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  Object.defineProperty(ordered, "trap", {
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return 1;
+    }
+  });
+  ordered.later = new Date(0);
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(ordered)));
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(decoded, false);
+  assert.equal(getterCalled, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [ACCESSOR_INPUT_NOTE]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});

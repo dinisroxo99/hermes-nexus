@@ -1701,10 +1701,27 @@ const NESTING_DEPTH_LIMIT = 32;
 const NESTING_EXCEEDED_NOTE = "nesting exceeds 32";
 const CYCLIC_INPUT_NOTE = "cyclic input was rejected";
 const ACCESSOR_INPUT_NOTE = "accessor input was rejected";
+const NON_PLAIN_INPUT_NOTE = "non-plain input was rejected";
+
+function isAllowedTrackA1Value(value) {
+  const type = typeof value;
+  if (value === null || type === "string" || type === "number" || type === "boolean" || type === "undefined") {
+    return true;
+  }
+  if (type === "bigint" || type === "symbol" || type === "function") {
+    return false;
+  }
+  if (type !== "object") return false;
+  if (Array.isArray(value)) return true;
+  if (Buffer.isBuffer(value) || ArrayBuffer.isView(value)) return true;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
 
 function isNestingContainer(value) {
   if (value === null || typeof value !== "object") return false;
   if (Array.isArray(value)) return true;
+  if (Buffer.isBuffer(value) || ArrayBuffer.isView(value)) return false;
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
 }
@@ -1718,20 +1735,26 @@ function nestingChildContainers(node) {
     if (Object.hasOwn(desc, "get") || Object.hasOwn(desc, "set")) {
       return { note: ACCESSOR_INPUT_NOTE, children: null };
     }
-    if (Object.hasOwn(desc, "value") && isNestingContainer(desc.value)) {
-      children.push(desc.value);
+    if (!Object.hasOwn(desc, "value")) continue;
+    if (!isAllowedTrackA1Value(desc.value)) {
+      return { note: NON_PLAIN_INPUT_NOTE, children: null };
     }
+    if (isNestingContainer(desc.value)) children.push(desc.value);
   }
   const symbols = Object.getOwnPropertySymbols(node);
   for (let i = 0; i < symbols.length; i += 1) {
     const desc = Object.getOwnPropertyDescriptor(node, symbols[i]);
     if (!desc || !Object.hasOwn(desc, "value")) continue;
+    if (!isAllowedTrackA1Value(desc.value)) {
+      return { note: NON_PLAIN_INPUT_NOTE, children: null };
+    }
     if (isNestingContainer(desc.value)) children.push(desc.value);
   }
   return { note: null, children };
 }
 
 function inspectNesting(root) {
+  if (!isAllowedTrackA1Value(root)) return NON_PLAIN_INPUT_NOTE;
   if (!isNestingContainer(root)) return null;
   const path = [];
   const stack = [{ node: root, depth: 1, children: null, index: 0 }];
