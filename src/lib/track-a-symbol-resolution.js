@@ -576,22 +576,75 @@ function snapshotRejection(note) {
 }
 
 
-// Internal-only seam for the future contract adapter: full snapshot file list
-// (or snapshotTokenPreverified) for token recomputation. Never read from flat
-// `input`. resolveTrackA1 always calls the body with one argument, so flat
-// callers cannot set this. Module-private; not exported.
+// Internal-only seam for the contract adapter: full snapshot file list for
+// token recomputation. Never read from flat `input`. resolveTrackA1 always
+// calls the body with one argument, so flat callers cannot set this.
+// Module-private; not exported. Always recomputes the token (no preverified
+// skip). When a list is given it must be well-formed and bind to every parsed
+// task file's path and decoded text.
 function normalizeSnapshotVerificationFiles(verificationFiles) {
-  if (verificationFiles === undefined) return undefined;
-  if (!Array.isArray(verificationFiles)) return undefined;
-  const out = [];
-  for (let i = 0; i < verificationFiles.length; i += 1) {
-    const file = verificationFiles[i];
-    if (!file || typeof file.path !== "string" || typeof file.text !== "string") {
-      return undefined;
+  try {
+    if (verificationFiles === undefined) return { kind: "absent" };
+    if (!Array.isArray(verificationFiles)) return { kind: "rejected" };
+    if (verificationFiles.length === 0) return { kind: "rejected" };
+    const out = [];
+    const seen = new Set();
+    for (let i = 0; i < verificationFiles.length; i += 1) {
+      if (!Object.hasOwn(verificationFiles, i)) return { kind: "rejected" };
+      const file = verificationFiles[i];
+      if (!isClosedKeyObject(file)) return { kind: "rejected" };
+      const names = Object.getOwnPropertyNames(file);
+      for (let n = 0; n < names.length; n += 1) {
+        if (names[n] !== "path" && names[n] !== "text") return { kind: "rejected" };
+      }
+      const pathOwn = ownDataProperty(file, "path");
+      const textOwn = ownDataProperty(file, "text");
+      if (pathOwn.kind !== "data" || textOwn.kind !== "data") return { kind: "rejected" };
+      if (typeof pathOwn.value !== "string" || typeof textOwn.value !== "string") {
+        return { kind: "rejected" };
+      }
+      if (seen.has(pathOwn.value)) return { kind: "rejected" };
+      seen.add(pathOwn.value);
+      out.push({ path: pathOwn.value, text: textOwn.value });
     }
-    out.push({ path: file.path, text: file.text });
+    return { kind: "ok", files: out };
+  } catch {
+    return { kind: "rejected" };
   }
-  return out;
+}
+
+function verificationFilesBindParsed(verifiedFiles, parsedFiles) {
+  const byPath = new Map();
+  for (let i = 0; i < verifiedFiles.length; i += 1) {
+    byPath.set(verifiedFiles[i].path, verifiedFiles[i].text);
+  }
+  for (let i = 0; i < parsedFiles.length; i += 1) {
+    const parsed = parsedFiles[i];
+    if (!byPath.has(parsed.path)) return false;
+    if (byPath.get(parsed.path) !== parsed.text) return false;
+  }
+  return true;
+}
+
+function readInternalSnapshotVerificationFiles(internal) {
+  if (internal === undefined || internal === null || typeof internal !== "object") {
+    return undefined;
+  }
+  const own = ownDataProperty(internal, "snapshotVerificationFiles");
+  if (own.kind !== "data") return undefined;
+  return own.value;
+}
+
+function resolveVerificationTokenFiles(verificationFiles, parsedFiles) {
+  const normalized = normalizeSnapshotVerificationFiles(verificationFiles);
+  if (normalized.kind === "rejected") return { ok: false };
+  if (normalized.kind === "absent") {
+    return { ok: true, files: parsedFiles.map((file) => ({ path: file.path, text: file.text })) };
+  }
+  if (!verificationFilesBindParsed(normalized.files, parsedFiles)) {
+    return { ok: false };
+  }
+  return { ok: true, files: normalized.files };
 }
 
 function recomputeSnapshotToken(snapshot, bytes, binding, actualSha, verificationFiles) {
@@ -638,16 +691,22 @@ function recomputeSnapshotToken(snapshot, bytes, binding, actualSha, verificatio
     revisionForRecompute.isGit = isGitOwn.value;
   }
 
-  const verifiedFiles = normalizeSnapshotVerificationFiles(verificationFiles);
-  const tokenFiles = verifiedFiles !== undefined
-    ? verifiedFiles
-    : [{ path: snapshot.path, text }];
+  let resolvedFiles;
+  try {
+    resolvedFiles = resolveVerificationTokenFiles(
+      verificationFiles,
+      [{ path: snapshot.path, text }]
+    );
+  } catch {
+    return snapshotRejection();
+  }
+  if (!resolvedFiles.ok) return snapshotRejection();
 
   let recomputed;
   try {
     recomputed = createProviderSnapshot(
       { projectId: snapshot.projectId },
-      tokenFiles,
+      resolvedFiles.files,
       revisionForRecompute
     );
   } catch {
@@ -1117,16 +1176,22 @@ function recomputeMultiSnapshotToken(snapshot, orderedFiles, verificationFiles) 
     revisionForRecompute.isGit = isGitOwn.value;
   }
 
-  const verifiedFiles = normalizeSnapshotVerificationFiles(verificationFiles);
-  const tokenFiles = verifiedFiles !== undefined
-    ? verifiedFiles
-    : orderedFiles.map((file) => ({ path: file.path, text: file.text }));
+  let resolvedFiles;
+  try {
+    resolvedFiles = resolveVerificationTokenFiles(
+      verificationFiles,
+      orderedFiles.map((file) => ({ path: file.path, text: file.text }))
+    );
+  } catch {
+    return snapshotRejection();
+  }
+  if (!resolvedFiles.ok) return snapshotRejection();
 
   let recomputed;
   try {
     recomputed = createProviderSnapshot(
       { projectId: snapshot.projectId },
-      tokenFiles,
+      resolvedFiles.files,
       revisionForRecompute
     );
   } catch {
@@ -1255,13 +1320,11 @@ function resolveMulti(input, paths, internal) {
 
   let snapshotTokenMatched = false;
   if (snapshot !== undefined) {
-    const checked = internal && internal.snapshotTokenPreverified === true
-      ? { ok: true }
-      : recomputeMultiSnapshotToken(
-        snapshot,
-        ordered,
-        internal && internal.snapshotVerificationFiles
-      );
+    const checked = recomputeMultiSnapshotToken(
+      snapshot,
+      ordered,
+      readInternalSnapshotVerificationFiles(internal)
+    );
     if (!checked.ok) {
       const extra = { notes: [checked.note] };
       return notEvaluated(withCompleteness(extra, buildCompleteness()), providerNode);
@@ -1630,15 +1693,13 @@ function resolveTrackA1Body(input = {}, internal) {
 
   let snapshotTokenMatched = false;
   if (snapshot !== undefined) {
-    const checked = internal && internal.snapshotTokenPreverified === true
-      ? { ok: true }
-      : recomputeSnapshotToken(
-        snapshot,
-        bytes,
-        binding,
-        actualSha,
-        internal && internal.snapshotVerificationFiles
-      );
+    const checked = recomputeSnapshotToken(
+      snapshot,
+      bytes,
+      binding,
+      actualSha,
+      readInternalSnapshotVerificationFiles(internal)
+    );
     if (!checked.ok) {
       const extra = { notes: [checked.note] };
       if (pathScoped) {

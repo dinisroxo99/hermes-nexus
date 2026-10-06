@@ -8076,3 +8076,88 @@ test("282. unknown key plus binding mismatch yields binding note", () => {
   assert.equal(result.status, "not_evaluated");
   assert.deepEqual(result.notes, [SOURCE_HASH_BINDING_WAS_REJECTED_NOTE]);
 });
+
+
+test("283. Object.prototype.snapshotTokenPreverified pollution does not change flat output", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const clean = resolveWithBinding(source, parts);
+  const proto = Object.prototype;
+  const hadPre = Object.hasOwn(proto, "snapshotTokenPreverified");
+  const prevPre = proto.snapshotTokenPreverified;
+  let threw = false;
+  let polluted;
+  try {
+    proto.snapshotTokenPreverified = true;
+    polluted = resolveWithBinding(source, parts);
+  } catch (_error) {
+    threw = true;
+  } finally {
+    if (hadPre) proto.snapshotTokenPreverified = prevPre;
+    else delete proto.snapshotTokenPreverified;
+  }
+  assert.equal(threw, false);
+  assert.deepEqual(polluted, clean);
+  assert.equal(clean.status, "resolved_unique");
+});
+
+test("284. Object.prototype.snapshotVerificationFiles pollution does not change flat output", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const clean = resolveWithBinding(source, parts);
+  const proto = Object.prototype;
+  const hadFiles = Object.hasOwn(proto, "snapshotVerificationFiles");
+  const prevFiles = proto.snapshotVerificationFiles;
+  let threw = false;
+  let polluted;
+  try {
+    proto.snapshotVerificationFiles = [
+      { path: parts.snapshot.path, text: "export function foo() { return 999; }\n" }
+    ];
+    polluted = resolveWithBinding(source, parts);
+  } catch (_error) {
+    threw = true;
+  } finally {
+    if (hadFiles) proto.snapshotVerificationFiles = prevFiles;
+    else delete proto.snapshotVerificationFiles;
+  }
+  assert.equal(threw, false);
+  assert.deepEqual(polluted, clean);
+  assert.equal(clean.status, "resolved_unique");
+});
+
+test("285. both prototype pollution keys together do not change flat single or multi output", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const cleanSingle = resolveWithBinding(source, parts);
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const multiParts = multiPathBinding(ordered);
+  const cleanMulti = resolveAcrossPaths(ordered, multiParts);
+  const proto = Object.prototype;
+  const hadPre = Object.hasOwn(proto, "snapshotTokenPreverified");
+  const hadFiles = Object.hasOwn(proto, "snapshotVerificationFiles");
+  const prevPre = proto.snapshotTokenPreverified;
+  const prevFiles = proto.snapshotVerificationFiles;
+  let threw = false;
+  let pollutedSingle;
+  let pollutedMulti;
+  try {
+    proto.snapshotTokenPreverified = true;
+    proto.snapshotVerificationFiles = [];
+    pollutedSingle = resolveWithBinding(source, parts);
+    pollutedMulti = resolveAcrossPaths(ordered, multiParts);
+  } catch (_error) {
+    threw = true;
+  } finally {
+    if (hadPre) proto.snapshotTokenPreverified = prevPre;
+    else delete proto.snapshotTokenPreverified;
+    if (hadFiles) proto.snapshotVerificationFiles = prevFiles;
+    else delete proto.snapshotVerificationFiles;
+  }
+  assert.equal(threw, false);
+  assert.deepEqual(pollutedSingle, cleanSingle);
+  assert.deepEqual(pollutedMulti, cleanMulti);
+});
