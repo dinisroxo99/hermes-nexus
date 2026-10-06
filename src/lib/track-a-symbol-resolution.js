@@ -2296,26 +2296,44 @@ function providerNodeArg(input) {
 export function resolveTrackA1(input) {
   const compact = readCompactBytesCeiling(input);
   if (compact.kind === "accessor") {
-    return stampContractIdentity(notEvaluated({ notes: [ACCESSOR_INPUT_NOTE] }));
+    return throwIfCompactBytesExceeded(
+      stampContractIdentity(notEvaluated({ notes: [ACCESSOR_INPUT_NOTE] })),
+      COMPACT_BYTES_DEFAULT
+    );
   }
   if (compact.kind === "rejected") {
     const providerOwn = ownDataProperty(input, "providerNode");
     if (providerOwn.kind === "accessor") {
-      return stampContractIdentity(notEvaluated({ notes: [ACCESSOR_INPUT_NOTE] }));
+      return throwIfCompactBytesExceeded(
+        stampContractIdentity(notEvaluated({ notes: [ACCESSOR_INPUT_NOTE] })),
+        COMPACT_BYTES_DEFAULT
+      );
     }
     const providerNode = providerOwn.kind === "data" ? providerOwn.value : undefined;
-    return stampContractIdentity(rejectCompactBytesOverride(providerNode));
+    return throwIfCompactBytesExceeded(
+      stampContractIdentity(rejectCompactBytesOverride(providerNode)),
+      COMPACT_BYTES_DEFAULT
+    );
   }
   const ceiling = compact.ceiling;
   const nestingNote = inspectNesting(input);
   if (nestingNote !== null) {
-    return stampContractIdentity(notEvaluated({ notes: [nestingNote] }, providerNodeArg(input)));
+    return throwIfCompactBytesExceeded(
+      stampContractIdentity(notEvaluated({ notes: [nestingNote] }, providerNodeArg(input))),
+      ceiling
+    );
   }
   if (visitedJsonValuesExceedLimit(input)) {
-    return stampContractIdentity(notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] }, providerNodeArg(input)));
+    return throwIfCompactBytesExceeded(
+      stampContractIdentity(notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] }, providerNodeArg(input))),
+      ceiling
+    );
   }
   if (compactInputExceedsLimit(input)) {
-    return stampContractIdentity(notEvaluated({ notes: [COMPACT_INPUT_EXCEEDED_NOTE] }, providerNodeArg(input)));
+    return throwIfCompactBytesExceeded(
+      stampContractIdentity(notEvaluated({ notes: [COMPACT_INPUT_EXCEEDED_NOTE] }, providerNodeArg(input))),
+      ceiling
+    );
   }
   const result = stampContractIdentity(resolveTrackA1Body(input));
   return throwIfCompactBytesExceeded(result, ceiling);
@@ -2743,29 +2761,50 @@ function verifyContractSnapshotToken(snapshot, verifiedFiles) {
 export function resolveTypeScriptDeclarationEvidence(request, observation) {
   const compact = readCompactBytesCeiling(request);
   if (compact.kind === "accessor") {
-    return stampContractIdentity(notEvaluated({ notes: [ACCESSOR_INPUT_NOTE] }));
+    return throwIfCompactBytesExceeded(
+      stampContractIdentity(notEvaluated({ notes: [ACCESSOR_INPUT_NOTE] })),
+      COMPACT_BYTES_DEFAULT
+    );
   }
   if (compact.kind === "rejected") {
-    return stampContractIdentity(rejectCompactBytesOverride());
+    return throwIfCompactBytesExceeded(
+      stampContractIdentity(rejectCompactBytesOverride()),
+      COMPACT_BYTES_DEFAULT
+    );
   }
   const ceiling = compact.ceiling;
 
   const requestNesting = inspectNesting(request);
   if (requestNesting !== null) {
-    return stampContractIdentity(notEvaluated({ notes: [requestNesting] }));
+    return throwIfCompactBytesExceeded(
+      stampContractIdentity(notEvaluated({ notes: [requestNesting] })),
+      ceiling
+    );
   }
   if (visitedJsonValuesExceedLimit(request)) {
-    return stampContractIdentity(notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] }));
+    return throwIfCompactBytesExceeded(
+      stampContractIdentity(notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] })),
+      ceiling
+    );
   }
   const observationNesting = inspectNesting(observation);
   if (observationNesting !== null) {
-    return stampContractIdentity(notEvaluated({ notes: [observationNesting] }));
+    return throwIfCompactBytesExceeded(
+      stampContractIdentity(notEvaluated({ notes: [observationNesting] })),
+      ceiling
+    );
   }
   if (visitedJsonValuesExceedLimit(observation)) {
-    return stampContractIdentity(notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] }));
+    return throwIfCompactBytesExceeded(
+      stampContractIdentity(notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] })),
+      ceiling
+    );
   }
   if (compactInputExceedsLimit([request, observation])) {
-    return stampContractIdentity(notEvaluated({ notes: [COMPACT_INPUT_EXCEEDED_NOTE] }));
+    return throwIfCompactBytesExceeded(
+      stampContractIdentity(notEvaluated({ notes: [COMPACT_INPUT_EXCEEDED_NOTE] })),
+      ceiling
+    );
   }
 
   const closedNote = contractClosedKeysNote(request, observation);

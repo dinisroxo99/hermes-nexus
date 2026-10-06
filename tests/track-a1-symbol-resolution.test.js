@@ -10173,3 +10173,66 @@ test("420. thirty-three valid-binding paths still get path count note", () => {
   });
   assert.deepEqual(result.notes, [TASK_PATH_COUNT_EXCEEDS_32_NOTE]);
 });
+
+test("421. nesting rejection with compactBytes below result size throws budget exceeded", () => {
+  const input = {
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    limits: { compactBytes: 50 }
+  };
+  let cur = input;
+  for (let i = 0; i < 40; i += 1) {
+    cur.child = {};
+    cur = cur.child;
+  }
+  assert.throws(
+    () => resolveTrackA1(input),
+    (error) => error && error.code === "symbol_resolution_budget_exceeded"
+  );
+});
+
+test("422. nesting rejection with compactBytes at least result size still returns", () => {
+  const input = {
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    limits: { compactBytes: 65536 }
+  };
+  let cur = input;
+  for (let i = 0; i < 40; i += 1) {
+    cur.child = {};
+    cur = cur.child;
+  }
+  const result = resolveTrackA1(input);
+  assert.deepEqual(result.notes, [NESTING_NOTE]);
+  const size = Buffer.byteLength(JSON.stringify(result), "utf8");
+  assert.ok(size <= 65536);
+});
+
+test("423. invalid compactBytes override rejection uses default budget and returns", () => {
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    limits: { compactBytes: 0 }
+  });
+  assert.deepEqual(result.notes, ["compactBytes override was rejected"]);
+  assert.ok(Buffer.byteLength(JSON.stringify(result), "utf8") <= 65536);
+});
+
+test("424. adapter compact input rejection respects compactBytes budget", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.padding = "x".repeat(COMPACT_INPUT_BYTE_LIMIT + 1);
+  request.limits = { compactBytes: 50 };
+  let threw = false;
+  let code = null;
+  try {
+    resolveTypeScriptDeclarationEvidence(request, observation);
+  } catch (error) {
+    threw = true;
+    code = error && error.code;
+  }
+  assert.equal(threw, true);
+  assert.equal(code, "symbol_resolution_budget_exceeded");
+});
