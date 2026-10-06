@@ -1689,6 +1689,7 @@ function stampContractIdentity(result) {
   result.schemaVersion = 1;
   result.analysisVersion = "symbol-resolution-evidence-v1";
   result.policyVersion = "tsjs-direct-declarations-1";
+  result.generatedAt = null;
   return result;
 }
 

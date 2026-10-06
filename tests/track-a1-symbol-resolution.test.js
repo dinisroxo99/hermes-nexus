@@ -2042,6 +2042,8 @@ function assertContractIdentity(result) {
   assert.equal(result.schemaVersion, 1);
   assert.equal(result.analysisVersion, "symbol-resolution-evidence-v1");
   assert.equal(result.policyVersion, "tsjs-direct-declarations-1");
+  assert.equal(Object.hasOwn(result, "generatedAt"), true);
+  assert.equal(result.generatedAt, null);
 }
 
 test("61. resolved_unique fixture includes contract identity", () => {
@@ -5986,4 +5988,32 @@ test("198. array parent leaf-with-accessor then accessor-object matches two-obje
   assert.equal(getterCalled, 0);
   assert.deepEqual(leafCase.notes, controlTwoAccessors.notes);
   assert.deepEqual(leafCase.notes, [ACCESSOR_INPUT_NOTE]);
+});
+
+test("199. validation rejection not_evaluated stamps generatedAt null", () => {
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8")
+  });
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "generatedAt"), true);
+  assert.equal(result.generatedAt, null);
+});
+
+test("200. ambiguous result stamps generatedAt null", () => {
+  const source = FIXTURE_TWO_TOP_LEVEL_FOO;
+  const parts = fullBindingParts(source);
+  const result = resolveWithBinding(source, parts);
+  assert.equal(result.status, "ambiguous");
+  assert.equal(Object.hasOwn(result, "generatedAt"), true);
+  assert.equal(result.generatedAt, null);
+});
+
+test("201. partial result stamps generatedAt null", () => {
+  const source = FIXTURE_DIRECT_DESTRUCTURE_A;
+  const parts = fullBindingParts(source);
+  const result = resolveWithBinding(source, parts);
+  assert.equal(result.status, "partial");
+  assert.equal(Object.hasOwn(result, "generatedAt"), true);
+  assert.equal(result.generatedAt, null);
 });
