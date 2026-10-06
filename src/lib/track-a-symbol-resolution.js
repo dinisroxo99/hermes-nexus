@@ -174,7 +174,11 @@ function withMatchCounts(extra, requested, processed) {
 
 
 function providerNodeSuppliedId(providerNode) {
-  return isPlainObject(providerNode) && Object.hasOwn(providerNode, "id") && providerNode.id != null && providerNode.id !== "";
+  if (!isPlainObject(providerNode)) return false;
+  const idOwn = ownDataProperty(providerNode, "id");
+  if (idOwn.kind !== "data") return false;
+  const id = idOwn.value;
+  return id != null && id !== "";
 }
 
 function sha256Bytes(bytes) {

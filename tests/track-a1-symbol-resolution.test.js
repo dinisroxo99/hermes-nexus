@@ -3949,3 +3949,90 @@ test("137. a providerNode getter with a cycle reached first does not invoke the 
   assert.equal(Object.hasOwn(result, "reasons"), false);
   assertContractIdentity(result);
 });
+
+test("138. a data providerNode with an id getter is not_evaluated without invoking the getter", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  let getterCalled = false;
+  const providerNode = {};
+  Object.defineProperty(providerNode, "id", {
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return "provider-id-should-not-run";
+    }
+  });
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    providerNode
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+
+  assert.equal(threw, false);
+  assert.equal(decoded, false);
+  assert.equal(getterCalled, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [ACCESSOR_INPUT_NOTE]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("139. invalid compactBytes with a providerNode id getter keeps the override note without invoking the getter", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  let getterCalled = false;
+  const providerNode = {};
+  Object.defineProperty(providerNode, "id", {
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return "provider-id-should-not-run";
+    }
+  });
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    limits: { compactBytes: 0 },
+    providerNode
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+
+  assert.equal(threw, false);
+  assert.equal(decoded, false);
+  assert.equal(getterCalled, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, ["compactBytes override was rejected"]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
