@@ -9657,3 +9657,35 @@ test("385. diagnostics array with extra non-index own property gives snapshot wa
   assert.equal(threw, false);
   assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE_ADAPTER]);
 });
+
+const BOM_ROUND_TRIP_SOURCE = "\uFEFFexport function foo() { return 1; }\n";
+
+test("386. parser round-trip failure plus truncated keeps not_evaluated with round-trip then truncation note", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, BOM_ROUND_TRIP_SOURCE]]);
+  observation.collection.truncated = true;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [
+    SOURCE_DID_NOT_ROUND_TRIP_NOTE,
+    SOURCE_COLLECTION_WAS_TRUNCATED_NOTE
+  ]);
+  assert.equal(result.completeness.source, "partial");
+  assert.equal(Object.hasOwn(result, "provider"), true);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("387. parser round-trip failure plus diagnostics keeps not_evaluated with round-trip then truncation note", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, BOM_ROUND_TRIP_SOURCE]]);
+  observation.collection.diagnostics = [{ code: "source_scan_limit" }];
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [
+    SOURCE_DID_NOT_ROUND_TRIP_NOTE,
+    SOURCE_COLLECTION_WAS_TRUNCATED_NOTE
+  ]);
+  assert.equal(result.completeness.source, "partial");
+  assert.equal(Object.hasOwn(result, "provider"), true);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
