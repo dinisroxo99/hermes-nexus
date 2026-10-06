@@ -10099,3 +10099,44 @@ test("415. adapter invalid compactBytes plus over 26MiB gives compactBytes overr
   assert.equal(threw, false);
   assert.deepEqual(result.notes, ["compactBytes override was rejected"]);
 });
+
+test("416. DAG with 2 references per level depth 31 finishes under 1s with spine verdict", () => {
+  function buildLevels(levels, branching) {
+    const nodes = Array.from({ length: levels }, () => ({}));
+    for (let i = 0; i < levels - 1; i += 1) {
+      nodes[i].a = nodes[i + 1];
+      if (branching) nodes[i].b = nodes[i + 1];
+    }
+    return nodes[0];
+  }
+  const base = {
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) }
+  };
+  const spineInput = { ...base, providerNode: buildLevels(31, false) };
+  const dagInput = { ...base, providerNode: buildLevels(31, true) };
+  const spine = resolveTrackA1(spineInput);
+  const t0 = performance.now();
+  const dag = resolveTrackA1(dagInput);
+  const ms = performance.now() - t0;
+  assert.ok(ms < 1000, `DAG depth 31 took ${ms}ms`);
+  assert.deepEqual(dag.notes, spine.notes);
+  assert.equal(dag.status, spine.status);
+});
+
+test("417. nesting-32 rejection still reached through a shared deep path", () => {
+  const levels = 32;
+  const nodes = Array.from({ length: levels }, () => ({}));
+  for (let i = 0; i < levels - 1; i += 1) {
+    nodes[i].a = nodes[i + 1];
+    nodes[i].b = nodes[i + 1];
+  }
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    providerNode: nodes[0]
+  });
+  assert.deepEqual(result.notes, [NESTING_NOTE]);
+});

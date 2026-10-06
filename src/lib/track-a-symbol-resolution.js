@@ -2176,6 +2176,8 @@ function inspectNesting(root) {
   if (!isNestingContainer(root)) return null;
   const path = [];
   const scannedLeaves = new Set();
+  const maxDepthSeen = new Map();
+  maxDepthSeen.set(root, 1);
   const stack = [{ node: root, depth: 1, children: null, index: 0 }];
   while (stack.length > 0) {
     const frame = stack[stack.length - 1];
@@ -2203,6 +2205,9 @@ function inspectNesting(root) {
     if (path.includes(child)) return CYCLIC_INPUT_NOTE;
     const depth = frame.depth + 1;
     if (depth > NESTING_DEPTH_LIMIT) return NESTING_EXCEEDED_NOTE;
+    const seenDepth = maxDepthSeen.get(child);
+    if (seenDepth !== undefined && depth <= seenDepth) continue;
+    maxDepthSeen.set(child, depth);
     stack.push({ node: child, depth, children: null, index: 0 });
   }
   return null;
