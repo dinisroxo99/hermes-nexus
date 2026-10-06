@@ -3645,7 +3645,7 @@ test("129. an accessor on a task.paths array index is not_evaluated before decod
   assertContractIdentity(result);
 });
 
-test("130. a Buffer source leaf is not inspected for accessors and still resolves", () => {
+test("130. a Buffer source leaf with an own getter is not_evaluated without invoking it", () => {
   const source = FIXTURE_SINGLE_FOO;
   const parts = fullBindingParts(source);
   const sourceBytes = Buffer.from(source, "utf8");
@@ -3666,12 +3666,21 @@ test("130. a Buffer source leaf is not inspected for accessors and still resolve
     project: parts.project,
     query: parts.query
   };
-  const result = resolveTrackA1(input);
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
 
+  assert.equal(threw, false);
+  assert.equal(decoded, false);
   assert.equal(bufferGetterCalled, false);
-  assert.equal(result.status, "resolved_unique");
-  const notes = Array.isArray(result.notes) ? result.notes : [];
-  assert.equal(notes.includes(ACCESSOR_INPUT_NOTE), false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [ACCESSOR_INPUT_NOTE]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
   assert.equal(Object.hasOwn(result, "limits"), false);
   assert.equal(Object.hasOwn(result, "reasons"), false);
   assertContractIdentity(result);
@@ -4881,4 +4890,192 @@ test("170. a symbol-keyed non-plain data value is not_evaluated before decode", 
     threw = true;
   }
   assertNonPlainRejection(result, decoded, threw);
+});
+
+test("171. a Buffer sourceBytes with an own byteLength getter is not_evaluated without invoking it", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  let getterCalled = false;
+  Object.defineProperty(sourceBytes, "byteLength", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return source.length;
+    }
+  });
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(decoded, false);
+  assert.equal(getterCalled, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [ACCESSOR_INPUT_NOTE]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("172. a Uint8Array sourceBytes with an own length getter is not_evaluated without invoking it", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Uint8Array.from(Buffer.from(source, "utf8"));
+  let getterCalled = false;
+  Object.defineProperty(sourceBytes, "length", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return source.length;
+    }
+  });
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([Buffer.from(source, "utf8")], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(decoded, false);
+  assert.equal(getterCalled, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [ACCESSOR_INPUT_NOTE]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("173. a Buffer with an own toString getter is not_evaluated without invoking it", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  let getterCalled = false;
+  Object.defineProperty(sourceBytes, "toString", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return Buffer.prototype.toString;
+    }
+  });
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(decoded, false);
+  assert.equal(getterCalled, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [ACCESSOR_INPUT_NOTE]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("174. a Buffer under files with an own byteLength getter is not_evaluated without invoking it", () => {
+  const ordered = [
+    ["src/a.js", FIXTURE_SINGLE_FOO],
+    ["src/b.js", "export function other() { return 2; }\n"]
+  ];
+  const parts = multiPathBinding(ordered);
+  const leaf = parts.files[0].sourceBytes;
+  let getterCalled = false;
+  Object.defineProperty(leaf, "byteLength", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return Buffer.byteLength(ordered[0][1], "utf8");
+    }
+  });
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode(
+      parts.files.map((file) => file.sourceBytes),
+      () => resolveAcrossPaths(ordered, parts)
+    ));
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(decoded, false);
+  assert.equal(getterCalled, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [ACCESSOR_INPUT_NOTE]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("175. a Buffer with an own data property still evaluates without the accessor note", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  Object.defineProperty(sourceBytes, "tag", {
+    configurable: true,
+    enumerable: true,
+    writable: true,
+    value: "meta"
+  });
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  });
+  assert.equal(result.status, "resolved_unique");
+  const notes = Array.isArray(result.notes) ? result.notes : [];
+  assert.equal(notes.includes(ACCESSOR_INPUT_NOTE), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
 });

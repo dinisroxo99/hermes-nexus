@@ -1714,6 +1714,41 @@ function isAllowedByteLeaf(value) {
   return proto === Buffer.prototype || proto === Uint8Array.prototype;
 }
 
+const uint8ArrayLengthGet = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "length").get;
+
+function uint8ArrayLengthWithoutOwnGet(value) {
+  return Reflect.apply(uint8ArrayLengthGet, value, []);
+}
+
+function isCanonicalTypedArrayIndexKey(key, length) {
+  if (typeof key !== "string") return false;
+  if (key === "0") return length > 0;
+  if (!/^[1-9][0-9]*$/.test(key)) return false;
+  const index = Number(key);
+  return Number.isSafeInteger(index) && index < length;
+}
+
+function inspectByteLeafOwnAccessors(value) {
+  // Cost: Object.getOwnPropertyNames is O(length). Length is bounded by the
+  // existing per-file UTF-8 ceiling (131072), so the walk stays bounded.
+  // Length is read via the Uint8Array.prototype intrinsic getter (Reflect.apply),
+  // never via a normal Get of value.length / value.byteLength.
+  const length = uint8ArrayLengthWithoutOwnGet(value);
+  const names = Object.getOwnPropertyNames(value);
+  for (let i = 0; i < names.length; i += 1) {
+    const key = names[i];
+    if (isCanonicalTypedArrayIndexKey(key, length)) continue;
+    const desc = Object.getOwnPropertyDescriptor(value, key);
+    if (!desc) continue;
+    if (Object.hasOwn(desc, "get") || Object.hasOwn(desc, "set")) {
+      return ACCESSOR_INPUT_NOTE;
+    }
+  }
+  // Symbol-key accessors stay ignored. Non-index data values on the leaf are
+  // not classified as non-plain; byte leaves remain leaves for that purpose.
+  return null;
+}
+
 function isAllowedTrackA1Value(value) {
   const type = typeof value;
   if (value === null || type === "string" || type === "number" || type === "boolean" || type === "undefined") {
@@ -1752,6 +1787,11 @@ function nestingChildContainers(node) {
     if (!isAllowedTrackA1Value(desc.value)) {
       return { note: NON_PLAIN_INPUT_NOTE, children: null };
     }
+    if (isAllowedByteLeaf(desc.value)) {
+      const leafNote = inspectByteLeafOwnAccessors(desc.value);
+      if (leafNote !== null) return { note: leafNote, children: null };
+      continue;
+    }
     if (isNestingContainer(desc.value)) children.push(desc.value);
   }
   const symbols = Object.getOwnPropertySymbols(node);
@@ -1760,6 +1800,11 @@ function nestingChildContainers(node) {
     if (!desc || !Object.hasOwn(desc, "value")) continue;
     if (!isAllowedTrackA1Value(desc.value)) {
       return { note: NON_PLAIN_INPUT_NOTE, children: null };
+    }
+    if (isAllowedByteLeaf(desc.value)) {
+      const leafNote = inspectByteLeafOwnAccessors(desc.value);
+      if (leafNote !== null) return { note: leafNote, children: null };
+      continue;
     }
     if (isNestingContainer(desc.value)) children.push(desc.value);
   }
