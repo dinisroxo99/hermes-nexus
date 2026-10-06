@@ -10615,3 +10615,191 @@ test("450. adapter budget throw still propagates outside inspection catch", () =
 
 // Option B catch hides internal bugs; budget throws stay outside try.
 // Probe: Proxy [[Has]] is never invoked by Track A1 walks (0 calls); has-trap RED omitted.
+
+
+function assertAdapterRejectionBudgeted(mutate, expectedNotes) {
+  const measuredFx = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  mutate(measuredFx.request, measuredFx.observation);
+  const measured = resolveTypeScriptDeclarationEvidence(measuredFx.request, measuredFx.observation);
+  assert.deepEqual(measured.notes, expectedNotes);
+  const size = Buffer.byteLength(JSON.stringify(measured), "utf8");
+
+  const atFx = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  mutate(atFx.request, atFx.observation);
+  atFx.request.limits = { compactBytes: size };
+  const at = resolveTypeScriptDeclarationEvidence(atFx.request, atFx.observation);
+  assert.deepEqual(at.notes, expectedNotes);
+  assert.equal(Buffer.byteLength(JSON.stringify(at), "utf8"), size);
+
+  const underFx = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  mutate(underFx.request, underFx.observation);
+  underFx.request.limits = { compactBytes: size - 1 };
+  assert.throws(
+    () => resolveTypeScriptDeclarationEvidence(underFx.request, underFx.observation),
+    (error) => error && error.code === "symbol_resolution_budget_exceeded"
+  );
+}
+
+test("451. adapter closed-key rejection respects compactBytes exact size and size-1", () => {
+  assertAdapterRejectionBudgeted(
+    (request) => {
+      request.extraKey = 1;
+    },
+    [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]
+  );
+});
+
+test("452. adapter snapshot-rejected (missing collection) respects compactBytes exact size and size-1", () => {
+  assertAdapterRejectionBudgeted(
+    (_request, observation) => {
+      delete observation.collection;
+    },
+    [SNAPSHOT_WAS_REJECTED_NOTE]
+  );
+});
+
+test("453. adapter collection-limits rejection respects compactBytes exact size and size-1", () => {
+  assertAdapterRejectionBudgeted(
+    (_request, observation) => {
+      observation.collection.limits.maxDepth = -1;
+    },
+    [COLLECTION_LIMITS_WERE_REJECTED_NOTE]
+  );
+});
+
+test("454. adapter locator mismatch respects compactBytes exact size and size-1", () => {
+  assertAdapterRejectionBudgeted(
+    (_request, observation) => {
+      observation.project.projectId = "f".repeat(64);
+    },
+    [PROJECT_LOCATOR_MISMATCH_NOTE]
+  );
+});
+
+test("455. adapter revision mismatch respects compactBytes exact size and size-1", () => {
+  assertAdapterRejectionBudgeted(
+    (request) => {
+      request.expectedRevision.commitSha = "0".repeat(64);
+    },
+    [EXPECTED_REVISION_MISMATCH_NOTE]
+  );
+});
+
+test("456. adapter files rejection respects compactBytes exact size and size-1", () => {
+  assertAdapterRejectionBudgeted(
+    (_request, observation) => {
+      observation.snapshot.files[0].sha256 = "0".repeat(64);
+    },
+    [SNAPSHOT_WAS_REJECTED_NOTE]
+  );
+});
+
+test("457. adapter token mismatch respects compactBytes exact size and size-1", () => {
+  assertAdapterRejectionBudgeted(
+    (_request, observation) => {
+      observation.snapshot.token = "0".repeat(64);
+    },
+    [SNAPSHOT_TOKEN_MISMATCH_NOTE]
+  );
+});
+
+test("458. adapter task-paths rejection respects compactBytes exact size and size-1", () => {
+  assertAdapterRejectionBudgeted(
+    (request) => {
+      request.task.paths = ["../x"];
+    },
+    [TASK_PATHS_WERE_REJECTED_NOTE]
+  );
+});
+
+test("459. adapter task-path-count rejection respects compactBytes exact size and size-1", () => {
+  assertAdapterRejectionBudgeted(
+    (request) => {
+      request.task.paths = Array.from({ length: 33 }, (_, i) => `f${i}.ts`);
+    },
+    [TASK_PATH_COUNT_EXCEEDS_32_NOTE]
+  );
+});
+
+test("460. adapter path-not-in-snapshot rejection respects compactBytes exact size and size-1", () => {
+  assertAdapterRejectionBudgeted(
+    (request) => {
+      request.task.paths = ["missing.ts"];
+    },
+    [TASK_PATH_NOT_IN_SNAPSHOT_NOTE]
+  );
+});
+
+test("461. adapter name rejection respects compactBytes exact size and size-1", () => {
+  assertAdapterRejectionBudgeted(
+    (request) => {
+      request.query = null;
+    },
+    [NAME_WAS_REJECTED_NOTE]
+  );
+});
+
+test("462. adapter collection-duty digest rejection respects compactBytes exact size and size-1", () => {
+  assertAdapterRejectionBudgeted(
+    (_request, observation) => {
+      observation.collection.digest = "0".repeat(64);
+    },
+    [COLLECTION_DIGEST_DID_NOT_RECOMPUTE_NOTE]
+  );
+});
+
+test("463. flat visited rejection with compactBytes below result size throws budget exceeded", () => {
+  const input = {
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    limits: { compactBytes: 50 }
+  };
+  for (let i = 0; i < 20001; i += 1) {
+    input[`f${i}`] = null;
+  }
+  assert.throws(
+    () => resolveTrackA1(input),
+    (error) => error && error.code === "symbol_resolution_budget_exceeded"
+  );
+});
+
+test("464. adapter nesting rejection with compactBytes below result size throws budget exceeded", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.limits = { compactBytes: 50 };
+  let cur = request;
+  for (let i = 0; i < 40; i += 1) {
+    cur.child = {};
+    cur = cur.child;
+  }
+  assert.throws(
+    () => resolveTypeScriptDeclarationEvidence(request, observation),
+    (error) => error && error.code === "symbol_resolution_budget_exceeded"
+  );
+});
+
+test("465. adapter visited rejection with compactBytes below result size throws budget exceeded", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.limits = { compactBytes: 50 };
+  for (let i = 0; i < 20001; i += 1) {
+    request[`f${i}`] = null;
+  }
+  assert.throws(
+    () => resolveTypeScriptDeclarationEvidence(request, observation),
+    (error) => error && error.code === "symbol_resolution_budget_exceeded"
+  );
+});
+
+test("466. flat compact rejection with compactBytes below result size throws budget exceeded", () => {
+  const input = {
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    limits: { compactBytes: 50 },
+    padding: "x".repeat(COMPACT_INPUT_BYTE_LIMIT + 1)
+  };
+  assert.throws(
+    () => resolveTrackA1(input),
+    (error) => error && error.code === "symbol_resolution_budget_exceeded"
+  );
+});
