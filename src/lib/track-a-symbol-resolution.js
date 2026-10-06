@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { types } from "node:util";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { Project, SyntaxKind } from "ts-morph";
@@ -1708,7 +1709,7 @@ function isExactArray(value) {
 }
 
 function isAllowedByteLeaf(value) {
-  if (!ArrayBuffer.isView(value)) return false;
+  if (!types.isUint8Array(value)) return false;
   const proto = Object.getPrototypeOf(value);
   return proto === Buffer.prototype || proto === Uint8Array.prototype;
 }

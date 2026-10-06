@@ -4405,7 +4405,7 @@ test("150. Object.create(Buffer.prototype) under sourceBytes is not_evaluated wi
   assertNonPlainRejection(result, decoded, threw);
 });
 
-test("151. a Buffer subclass instance is not_evaluated before decode", () => {
+test("151. a Uint8Array subclass instance is not_evaluated before decode", () => {
   const source = FIXTURE_SINGLE_FOO;
   const parts = fullBindingParts(source);
   const realBytes = Buffer.from(source, "utf8");
@@ -4662,4 +4662,223 @@ test("161. a Uint8Array sourceBytes is accepted when the body already accepts it
   assert.equal(Object.hasOwn(result, "limits"), false);
   assert.equal(Object.hasOwn(result, "reasons"), false);
   assertContractIdentity(result);
+});
+
+test("162. a DataView with prototype swapped to Uint8Array.prototype is not_evaluated without throwing", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const realBytes = Buffer.from(source, "utf8");
+  const fake = new DataView(new ArrayBuffer(8));
+  Object.setPrototypeOf(fake, Uint8Array.prototype);
+  const input = {
+    name: "foo",
+    sourceBytes: fake,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([realBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("163. a DataView with prototype swapped to Buffer.prototype is not_evaluated without throwing", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const realBytes = Buffer.from(source, "utf8");
+  const fake = new DataView(new ArrayBuffer(8));
+  Object.setPrototypeOf(fake, Buffer.prototype);
+  const input = {
+    name: "foo",
+    sourceBytes: fake,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([realBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("164. a Float32Array with prototype swapped to Buffer.prototype is not_evaluated without throwing", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const realBytes = Buffer.from(source, "utf8");
+  const fake = new Float32Array([1, 2, 3, 4]);
+  Object.setPrototypeOf(fake, Buffer.prototype);
+  const input = {
+    name: "foo",
+    sourceBytes: fake,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([realBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("165. a Float32Array with prototype swapped to Uint8Array.prototype is not_evaluated without throwing", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const realBytes = Buffer.from(source, "utf8");
+  const fake = new Float32Array([1, 2, 3, 4]);
+  Object.setPrototypeOf(fake, Uint8Array.prototype);
+  const input = {
+    name: "foo",
+    sourceBytes: fake,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([realBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("166. a real Buffer subclass prototype chain is not_evaluated before decode", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const realBytes = Buffer.from(source, "utf8");
+  const SubBufferProto = Object.create(Buffer.prototype);
+  const subclass = Object.setPrototypeOf(Buffer.from(source, "utf8"), SubBufferProto);
+  const input = {
+    name: "foo",
+    sourceBytes: subclass,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([realBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("167. Object.create(Uint8Array.prototype) is not_evaluated without throwing", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const realBytes = Buffer.from(source, "utf8");
+  const fake = Object.create(Uint8Array.prototype);
+  const input = {
+    name: "foo",
+    sourceBytes: fake,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([realBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("168. a primitive string root is not_evaluated without throwing", () => {
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1("not-an-object");
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [NON_PLAIN_INPUT_NOTE]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("169. a null-prototype root with otherwise valid input evaluates without the non-plain note", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const input = Object.assign(Object.create(null), {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  });
+  const result = resolveTrackA1(input);
+  assert.equal(result.status, "resolved_unique");
+  const notes = Array.isArray(result.notes) ? result.notes : [];
+  assert.equal(notes.includes(NON_PLAIN_INPUT_NOTE), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("170. a symbol-keyed non-plain data value is not_evaluated before decode", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  input[Symbol("x")] = new Date(0);
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assertNonPlainRejection(result, decoded, threw);
 });
