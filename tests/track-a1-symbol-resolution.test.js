@@ -11216,3 +11216,65 @@ test("501. thirty-three paths with one invalid still get path count note before 
   });
   assert.deepEqual(result.notes, [TASK_PATH_COUNT_EXCEEDS_32_NOTE]);
 });
+
+test("502. adapter caught result respects compactBytes exact size and size-1", () => {
+  const measuredFx = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  measuredFx.request.limits = { compactBytes: 65536 };
+  measuredFx.request.padding = { child: trackA1ThrowingProxy("ownKeys") };
+  const measured = resolveTypeScriptDeclarationEvidence(measuredFx.request, measuredFx.observation);
+  assertInspectionThrew(measured);
+  const size = Buffer.byteLength(JSON.stringify(measured), "utf8");
+  assert.ok(size > 200 && size < 220, "caught size near 210, got " + size);
+
+  const atFx = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  atFx.request.limits = { compactBytes: size };
+  atFx.request.padding = { child: trackA1ThrowingProxy("ownKeys") };
+  const at = resolveTypeScriptDeclarationEvidence(atFx.request, atFx.observation);
+  assertInspectionThrew(at);
+
+  const underFx = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  underFx.request.limits = { compactBytes: size - 1 };
+  underFx.request.padding = { child: trackA1ThrowingProxy("ownKeys") };
+  assert.throws(
+    () => resolveTypeScriptDeclarationEvidence(underFx.request, underFx.observation),
+    (error) => error && error.code === "symbol_resolution_budget_exceeded"
+  );
+});
+
+test("503. adapter success result respects compactBytes exact size and size-1 above caught size", () => {
+  const measuredFx = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  measuredFx.request.limits = { compactBytes: 65536 };
+  const measured = resolveTypeScriptDeclarationEvidence(measuredFx.request, measuredFx.observation);
+  const size = Buffer.byteLength(JSON.stringify(measured), "utf8");
+  assert.ok(size > 210, "success size must exceed caught-result size 210, got " + size);
+
+  const atFx = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  atFx.request.limits = { compactBytes: size };
+  const at = resolveTypeScriptDeclarationEvidence(atFx.request, atFx.observation);
+  assert.equal(Buffer.byteLength(JSON.stringify(at), "utf8"), size);
+
+  const underFx = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  underFx.request.limits = { compactBytes: size - 1 };
+  assert.throws(
+    () => resolveTypeScriptDeclarationEvidence(underFx.request, underFx.observation),
+    (error) => error && error.code === "symbol_resolution_budget_exceeded"
+  );
+});
+
+test("504. flat multi query undefined proceeds past name rejection", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  const result = resolveTrackA1({
+    name: "foo",
+    files: parts.files,
+    binding: { sourceSha256: parts.combinedSha },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: undefined
+  });
+  assert.notDeepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
+});
