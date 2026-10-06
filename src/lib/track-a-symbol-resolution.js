@@ -1645,15 +1645,38 @@ const COMPACT_BYTES_DEFAULT = 65536;
 const COMPACT_BYTES_MAX = 131072;
 const COMPACT_BYTES_REJECTED_NOTE = "compactBytes override was rejected";
 
-function compactBytesCeiling(limits) {
-  if (!isPlainObject(limits) || !Object.hasOwn(limits, "compactBytes")) {
-    return COMPACT_BYTES_DEFAULT;
+function descriptorHasAccessor(desc) {
+  return Object.hasOwn(desc, "get") || Object.hasOwn(desc, "set");
+}
+
+function ownDataProperty(object, key) {
+  if (object === null || typeof object !== "object") {
+    return { kind: "missing" };
   }
-  const value = limits.compactBytes;
+  const desc = Object.getOwnPropertyDescriptor(object, key);
+  if (!desc) return { kind: "missing" };
+  if (descriptorHasAccessor(desc)) return { kind: "accessor" };
+  if (!Object.hasOwn(desc, "value")) return { kind: "missing" };
+  return { kind: "data", value: desc.value };
+}
+
+function readCompactBytesCeiling(input) {
+  const limitsOwn = ownDataProperty(input, "limits");
+  if (limitsOwn.kind === "accessor") return { kind: "accessor" };
+  const limits = limitsOwn.kind === "data" ? limitsOwn.value : undefined;
+  if (!isPlainObject(limits)) {
+    return { kind: "ok", ceiling: COMPACT_BYTES_DEFAULT };
+  }
+  const compactOwn = ownDataProperty(limits, "compactBytes");
+  if (compactOwn.kind === "accessor") return { kind: "accessor" };
+  if (compactOwn.kind === "missing") {
+    return { kind: "ok", ceiling: COMPACT_BYTES_DEFAULT };
+  }
+  const value = compactOwn.value;
   if (!Number.isSafeInteger(value) || value <= 0 || value > COMPACT_BYTES_MAX) {
-    return null;
+    return { kind: "rejected" };
   }
-  return value;
+  return { kind: "ok", ceiling: value };
 }
 
 function rejectCompactBytesOverride(providerNode) {
@@ -1768,10 +1791,19 @@ function visitedJsonValuesExceedLimit(root) {
 }
 
 export function resolveTrackA1(input = {}) {
-  const ceiling = compactBytesCeiling(input.limits);
-  if (ceiling === null) {
-    return stampContractIdentity(rejectCompactBytesOverride(input.providerNode));
+  const compact = readCompactBytesCeiling(input);
+  if (compact.kind === "accessor") {
+    return stampContractIdentity(notEvaluated({ notes: [ACCESSOR_INPUT_NOTE] }));
   }
+  if (compact.kind === "rejected") {
+    const providerOwn = ownDataProperty(input, "providerNode");
+    if (providerOwn.kind === "accessor") {
+      return stampContractIdentity(notEvaluated({ notes: [ACCESSOR_INPUT_NOTE] }));
+    }
+    const providerNode = providerOwn.kind === "data" ? providerOwn.value : undefined;
+    return stampContractIdentity(rejectCompactBytesOverride(providerNode));
+  }
+  const ceiling = compact.ceiling;
   const nestingNote = inspectNesting(input);
   if (nestingNote !== null) {
     return stampContractIdentity(notEvaluated({ notes: [nestingNote] }, input.providerNode));

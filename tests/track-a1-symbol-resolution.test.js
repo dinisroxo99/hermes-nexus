@@ -3708,3 +3708,129 @@ test("131. a symbol-keyed accessor is ignored and evaluation proceeds", () => {
   assert.equal(Object.hasOwn(result, "reasons"), false);
   assertContractIdentity(result);
 });
+
+test("132. an own getter named limits is not_evaluated before decode and does not invoke the getter", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  let getterCalled = false;
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  Object.defineProperty(input, "limits", {
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return { compactBytes: 131072 };
+    }
+  });
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+
+  assert.equal(threw, false);
+  assert.equal(decoded, false);
+  assert.equal(getterCalled, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [ACCESSOR_INPUT_NOTE]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("133. a getter named compactBytes under limits is not_evaluated before decode and does not invoke the getter", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  let getterCalled = false;
+  const limits = {};
+  Object.defineProperty(limits, "compactBytes", {
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return 131072;
+    }
+  });
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    limits
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+
+  assert.equal(threw, false);
+  assert.equal(decoded, false);
+  assert.equal(getterCalled, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [ACCESSOR_INPUT_NOTE]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("134. invalid data compactBytes with a providerNode getter is not_evaluated without invoking the getter", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  let getterCalled = false;
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    limits: { compactBytes: 0 }
+  };
+  Object.defineProperty(input, "providerNode", {
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return { id: "provider-should-not-run" };
+    }
+  });
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+
+  assert.equal(threw, false);
+  assert.equal(decoded, false);
+  assert.equal(getterCalled, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [ACCESSOR_INPUT_NOTE]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
