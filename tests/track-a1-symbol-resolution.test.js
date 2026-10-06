@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { resolveTrackA1 } from "../src/lib/track-a-symbol-resolution.js";
+import { resolveTrackA1, resolveTypeScriptDeclarationEvidence } from "../src/lib/track-a-symbol-resolution.js";
 import { createProviderSnapshot } from "../src/analyzers/common/analyzer-provider-contract.js";
 import { contextDigest } from "../src/lib/project-context-files.js";
 
@@ -8160,4 +8160,801 @@ test("285. both prototype pollution keys together do not change flat single or m
   assert.equal(threw, false);
   assert.deepEqual(pollutedSingle, cleanSingle);
   assert.deepEqual(pollutedMulti, cleanMulti);
+});
+
+
+const PROJECT_LOCATOR_MISMATCH_NOTE = "project locator does not match the observation";
+const EXPECTED_REVISION_MISMATCH_NOTE = "expected revision does not match the snapshot revision";
+const TASK_PATH_NOT_IN_SNAPSHOT_NOTE = "task path is not in the snapshot";
+const SOURCE_BYTE_CEILING_NOTE = "source byte ceiling was exceeded";
+
+function sevenRevisionKeys(revision) {
+  return {
+    status: revision.status,
+    commitSha: revision.commitSha,
+    branch: revision.branch,
+    repositoryId: revision.repositoryId,
+    worktreeId: revision.worktreeId,
+    dirty: revision.dirty,
+    isLinkedWorktree: revision.isLinkedWorktree
+  };
+}
+
+function adapterCollection() {
+  return {
+    limits: {
+      maxDepth: 8,
+      maxEntries: 10000,
+      maxFiles: 500,
+      maxFileBytes: 131072,
+      maxTotalBytes: 4194304
+    },
+    truncated: false,
+    diagnostics: [],
+    digest: "0".repeat(64)
+  };
+}
+
+function buildAdapterFixture(orderedFiles, { revision, query, taskPaths, limits } = {}) {
+  const rev = revision ?? linkedRevision();
+  const produced = createProviderSnapshot(
+    { projectId: SYNTHETIC_PROJECT_ID },
+    orderedFiles.map(([path, text]) => ({ path, text })),
+    providerRevision(rev)
+  );
+  const paths = taskPaths ?? orderedFiles.map(([path]) => path);
+  const request = {
+    projectId: SYNTHETIC_PROJECT_ID,
+    worktree: {
+      rootId: SYNTHETIC_ROOT_ID,
+      relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+    },
+    expectedRevision: sevenRevisionKeys(produced.revision),
+    task: { id: SYNTHETIC_TASK_ID, paths },
+    query: query ?? { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+  };
+  if (limits !== undefined) request.limits = limits;
+  if (Object.hasOwn(rev, "isGit")) {
+    request.expectedRevision = {
+      ...request.expectedRevision,
+      isGit: rev.isGit
+    };
+  }
+  const observation = {
+    project: {
+      projectId: SYNTHETIC_PROJECT_ID,
+      rootId: SYNTHETIC_ROOT_ID,
+      relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+    },
+    snapshot: {
+      schemaVersion: produced.schemaVersion,
+      projectId: produced.projectId,
+      token: produced.token,
+      revision: { ...produced.revision },
+      languages: Array.isArray(produced.languages) ? produced.languages.slice() : produced.languages,
+      files: produced.files.map((file) => ({
+        path: file.path,
+        text: file.text,
+        byteSize: file.byteSize,
+        sha256: file.sha256
+      }))
+    },
+    collection: adapterCollection()
+  };
+  return { request, observation, produced, revision: produced.revision };
+}
+
+function assertAdapterInvariants(result) {
+  assert.equal(result.generatedAt, null);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assert.equal(JSON.stringify(result).includes("repositoryIdentity"), false);
+  if (result.revisionBinding) {
+    assert.deepEqual(Object.keys(result.revisionBinding).sort(), [
+      "branch",
+      "commitSha",
+      "dirty",
+      "isLinkedWorktree",
+      "repositoryId",
+      "status",
+      "worktreeId"
+    ]);
+    assert.equal(Object.hasOwn(result.revisionBinding, "isGit"), false);
+  }
+}
+
+function runAdapter(request, observation) {
+  let threw = false;
+  let result;
+  try {
+    result = resolveTypeScriptDeclarationEvidence(request, observation);
+  } catch (_error) {
+    threw = true;
+  }
+  return { threw, result };
+}
+
+test("286. adapter deep-equals flat resolveTrackA1 on single-path equivalent fixture", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const flat = resolveWithBinding(source, parts);
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, source]]);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result, flat);
+  assertAdapterInvariants(result);
+});
+
+test("287. adapter deep-equals flat resolveTrackA1 on multi-path equivalent fixture", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  const flat = resolveAcrossPaths(ordered, parts);
+  const { request, observation } = buildAdapterFixture(ordered);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result, flat);
+  assertAdapterInvariants(result);
+});
+
+test("288. locator mismatch via request.projectId", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.projectId = "prj_other";
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [PROJECT_LOCATOR_MISMATCH_NOTE]);
+});
+
+test("289. locator mismatch via snapshot.projectId", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.snapshot.projectId = "prj_other";
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [PROJECT_LOCATOR_MISMATCH_NOTE]);
+});
+
+test("290. locator mismatch via worktree rootId", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.worktree.rootId = "root_other";
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [PROJECT_LOCATOR_MISMATCH_NOTE]);
+});
+
+test("291. locator mismatch via worktree relativePath", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.worktree.relativePath = "apps/other";
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [PROJECT_LOCATOR_MISMATCH_NOTE]);
+});
+
+for (const key of ["status", "commitSha", "branch", "repositoryId", "worktreeId", "dirty", "isLinkedWorktree"]) {
+  test(`292. revision mismatch on ${key}`, () => {
+    const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+    if (key === "dirty" || key === "isLinkedWorktree") {
+      request.expectedRevision[key] = !request.expectedRevision[key];
+    } else if (key === "branch") {
+      request.expectedRevision.branch = "main";
+    } else if (key === "status") {
+      request.expectedRevision.status = "unavailable";
+    } else {
+      request.expectedRevision[key] = "ff".repeat(32);
+      if (key === "commitSha") request.expectedRevision[key] = "22".repeat(20);
+    }
+    const { threw, result } = runAdapter(request, observation);
+    assert.equal(threw, false);
+    assert.equal(result.status, "not_evaluated");
+    assert.deepEqual(result.notes, [EXPECTED_REVISION_MISMATCH_NOTE]);
+  });
+}
+
+test("293. isGit present and mismatched rejects", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]], {
+    revision: linkedRevision({ isGit: true })
+  });
+  request.expectedRevision.isGit = false;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [EXPECTED_REVISION_MISMATCH_NOTE]);
+});
+
+test("294. isGit absent is not compared and still resolves", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]], {
+    revision: linkedRevision({ isGit: true })
+  });
+  delete request.expectedRevision.isGit;
+  assert.equal(Object.hasOwn(request.expectedRevision, "isGit"), false);
+  assert.equal(observation.snapshot.revision.isGit, true);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "resolved_unique");
+});
+
+test("295. task path missing from snapshot", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.task.paths = ["src/missing.js"];
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [TASK_PATH_NOT_IN_SNAPSHOT_NOTE]);
+});
+
+test("296. extra snapshot file not in task still resolves", () => {
+  const { request, observation } = buildAdapterFixture([
+    [SYNTHETIC_PATH, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ], { taskPaths: [SYNTHETIC_PATH] });
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "resolved_unique");
+  assert.equal(result.pathRecords.length, 1);
+  assert.equal(result.pathRecords[0].path, SYNTHETIC_PATH);
+});
+
+test("297. forged sha256 is snapshot was rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.snapshot.files[0].sha256 = "0".repeat(64);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+});
+
+test("298. forged byteSize is snapshot was rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.snapshot.files[0].byteSize = observation.snapshot.files[0].byteSize + 1;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+});
+
+test("299. forged token is snapshot token did not recompute", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.snapshot.token = flipLastHex(observation.snapshot.token);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_TOKEN_MISMATCH_NOTE]);
+});
+
+test("300. createProviderSnapshot throw via disallowed extension path is snapshot was rejected", () => {
+  // Relative path passes the adapter relative-path validator, but normalizeContextSources
+  // inside createProviderSnapshot rejects the extension and throws.
+  const text = FIXTURE_SINGLE_FOO;
+  const path = "src/example.dat";
+  const sha = contextDigest(text);
+  const byteSize = Buffer.byteLength(text);
+  const rev = linkedRevision();
+  const request = {
+    projectId: SYNTHETIC_PROJECT_ID,
+    worktree: { rootId: SYNTHETIC_ROOT_ID, relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH },
+    expectedRevision: sevenRevisionKeys(rev),
+    task: { id: SYNTHETIC_TASK_ID, paths: [path] },
+    query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+  };
+  const observation = {
+    project: {
+      projectId: SYNTHETIC_PROJECT_ID,
+      rootId: SYNTHETIC_ROOT_ID,
+      relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+    },
+    snapshot: {
+      schemaVersion: 1,
+      projectId: SYNTHETIC_PROJECT_ID,
+      token: "0".repeat(64),
+      revision: providerRevision(rev),
+      languages: [],
+      files: [{ path, text, byteSize, sha256: sha }]
+    },
+    collection: adapterCollection()
+  };
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+});
+
+test("301. 500 snapshot files is ok (no throw)", () => {
+  const files = [];
+  for (let i = 0; i < 499; i += 1) {
+    const n = String(i).padStart(3, "0");
+    files.push([`src/f${n}.js`, `export const v${n} = 1;\n`]);
+  }
+  files.push([SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]);
+  assert.equal(files.length, 500);
+  const { request, observation } = buildAdapterFixture(files, { taskPaths: [SYNTHETIC_PATH] });
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "resolved_unique");
+});
+
+test("302. 501 snapshot files gives snapshot was rejected", () => {
+  const files = [];
+  for (let i = 0; i < 500; i += 1) {
+    const n = String(i).padStart(3, "0");
+    files.push([`src/f${n}.js`, `export const v${n} = 1;\n`]);
+  }
+  files.push([SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]);
+  assert.equal(files.length, 501);
+  // Bypass createProviderSnapshot (which also caps at 500) by forging the observation.
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  const forged = [];
+  for (let i = 0; i < 501; i += 1) {
+    const n = String(i).padStart(3, "0");
+    const path = i === 500 ? SYNTHETIC_PATH : `src/f${n}.js`;
+    const text = i === 500 ? FIXTURE_SINGLE_FOO : `export const v${n} = 1;\n`;
+    forged.push({
+      path,
+      text,
+      byteSize: Buffer.byteLength(text),
+      sha256: contextDigest(text)
+    });
+  }
+  observation.snapshot.files = forged;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+});
+
+test("303. per-file 131072 is ok", () => {
+  const text = "a".repeat(131072);
+  assert.equal(Buffer.byteLength(text), 131072);
+  // Use .js path but content need not parse uniquely for this ceiling check with matching token path.
+  // Build via createProviderSnapshot which allows 131072.
+  const { request, observation } = buildAdapterFixture([["src/big.js", text]], {
+    taskPaths: ["src/big.js"],
+    query: { name: "does_not_exist_zz", domain: SYMBOL_QUERY_DOMAIN }
+  });
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.notEqual(result.notes && result.notes[0], SOURCE_BYTE_CEILING_NOTE);
+  assert.notEqual(result.status === "not_evaluated" && result.notes && result.notes.includes(SOURCE_BYTE_CEILING_NOTE), true);
+});
+
+test("304. per-file 131073 gives source byte ceiling was exceeded", () => {
+  const text = "a".repeat(131073);
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.snapshot.files = [{
+    path: SYNTHETIC_PATH,
+    text,
+    byteSize: 131073,
+    sha256: contextDigest(text)
+  }];
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SOURCE_BYTE_CEILING_NOTE]);
+});
+
+test("305. total 4194304 is ok", () => {
+  // 32 files * 131072 = 4194304
+  const files = [];
+  for (let i = 0; i < 32; i += 1) {
+    const n = String(i).padStart(2, "0");
+    files.push([`src/t${n}.js`, "b".repeat(131072)]);
+  }
+  assert.equal(files.reduce((n, [, t]) => n + Buffer.byteLength(t), 0), 4194304);
+  const { request, observation } = buildAdapterFixture(files, {
+    taskPaths: ["src/t00.js"],
+    query: { name: "nope", domain: SYMBOL_QUERY_DOMAIN }
+  });
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(
+    Array.isArray(result.notes) && result.notes.includes(SOURCE_BYTE_CEILING_NOTE),
+    false
+  );
+});
+
+test("306. total 4194305 gives source byte ceiling was exceeded", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  const forged = [];
+  for (let i = 0; i < 31; i += 1) {
+    const n = String(i).padStart(2, "0");
+    const text = "b".repeat(131072);
+    forged.push({
+      path: `src/t${n}.js`,
+      text,
+      byteSize: 131072,
+      sha256: contextDigest(text)
+    });
+  }
+  const last = "c".repeat(131073);
+  forged.push({
+    path: "src/t31.js",
+    text: last,
+    byteSize: 131073,
+    sha256: contextDigest(last)
+  });
+  // 31*131072 + 131073 = 4194305, but per-file 131073 triggers first.
+  // Use 32 files where last is 131072+1 distributed: 31*131072 + 1 extra on a small file.
+  const forged2 = [];
+  for (let i = 0; i < 32; i += 1) {
+    const n = String(i).padStart(2, "0");
+    const text = "b".repeat(131072);
+    forged2.push({
+      path: `src/u${n}.js`,
+      text,
+      byteSize: 131072,
+      sha256: contextDigest(text)
+    });
+  }
+  const tiny = "x";
+  forged2.push({
+    path: "src/u32.js",
+    text: tiny,
+    byteSize: 1,
+    sha256: contextDigest(tiny)
+  });
+  assert.equal(forged2.reduce((n, f) => n + f.byteSize, 0), 4194305);
+  observation.snapshot.files = forged2;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SOURCE_BYTE_CEILING_NOTE]);
+});
+
+test("307. non-string text is snapshot was rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.snapshot.files[0].text = 123;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+});
+
+test("308. non-string path is snapshot was rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.snapshot.files[0].path = 123;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+});
+
+test("309. invalid relative path is snapshot was rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.snapshot.files[0].path = "../secret.js";
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+});
+
+test("310. duplicate path is snapshot was rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  const file = { ...observation.snapshot.files[0] };
+  observation.snapshot.files = [file, { ...file }];
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+});
+
+function withExtraKey(target, key = "bogus") {
+  target[key] = 1;
+  return target;
+}
+
+test("311. unknown key on request", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  withExtraKey(request);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("312. unknown key on worktree", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  withExtraKey(request.worktree);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("313. unknown key on expectedRevision", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  withExtraKey(request.expectedRevision);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("314. unknown key on task", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  withExtraKey(request.task);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("315. unknown key on query", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  withExtraKey(request.query);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("316. unknown key on limits", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]], {
+    limits: { compactBytes: 65536, extra: 1 }
+  });
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("317. unknown key on observation", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  withExtraKey(observation);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("318. unknown key on project", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  withExtraKey(observation.project);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("319. unknown key on snapshot", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  withExtraKey(observation.snapshot);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("320. unknown key on files[i]", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  withExtraKey(observation.snapshot.files[0]);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("321. unknown key on revision", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  withExtraKey(observation.snapshot.revision);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("322. unknown key on collection", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  withExtraKey(observation.collection);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("323. collection missing gives snapshot was rejected", () => {
+  // Operator decision for S7: r2 C3.2 requires collection; C8 names no dedicated
+  // absence note. Missing/non-plain collection uses SNAPSHOT_WAS_REJECTED_NOTE.
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  delete observation.collection;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+});
+
+test("324. limits absent is ok", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  assert.equal(Object.hasOwn(request, "limits"), false);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "resolved_unique");
+});
+
+test("325. result invariants: no providerNode, no repositoryIdentity, generatedAt null, no limits/reasons, revisionBinding 7 keys", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "resolved_unique");
+  assertAdapterInvariants(result);
+  assert.equal(JSON.stringify(result).includes("providerNode"), false);
+});
+
+test("326. expectedRevision equals snapshot.revision but dirty true must not reach resolved_unique", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]], {
+    revision: linkedRevision({ dirty: true })
+  });
+  assert.equal(request.expectedRevision.dirty, true);
+  assert.equal(observation.snapshot.revision.dirty, true);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.notEqual(result.status, "resolved_unique");
+});
+
+test("327. multi-path order is preserved", () => {
+  const ordered = [
+    [PATH_B, FILE_B_OTHER],
+    [PATH_A, FIXTURE_SINGLE_FOO]
+  ];
+  const { request, observation } = buildAdapterFixture(ordered);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "resolved_unique");
+  assert.deepEqual(result.pathRecords.map((r) => r.path), [PATH_B, PATH_A]);
+});
+
+test("328. precedence: walk beats keys", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.bogus = 1;
+  let nest = request;
+  for (let i = 0; i < 40; i += 1) {
+    nest.child = {};
+    nest = nest.child;
+  }
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [NESTING_NOTE]);
+});
+
+test("329. precedence: keys beat locator", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.bogus = 1;
+  request.projectId = "prj_other";
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("330. precedence: locator beats revision", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.projectId = "prj_other";
+  request.expectedRevision.dirty = true;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [PROJECT_LOCATOR_MISMATCH_NOTE]);
+});
+
+test("331. precedence: revision beats files", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.expectedRevision.dirty = true;
+  observation.snapshot.files[0].sha256 = "0".repeat(64);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [EXPECTED_REVISION_MISMATCH_NOTE]);
+});
+
+test("332. precedence: ceilings beat sha/token", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  const text = "a".repeat(131073);
+  observation.snapshot.files = [{
+    path: SYNTHETIC_PATH,
+    text,
+    byteSize: 999,
+    sha256: "0".repeat(64)
+  }];
+  observation.snapshot.token = flipLastHex(observation.snapshot.token);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [SOURCE_BYTE_CEILING_NOTE]);
+});
+
+test("333. precedence: token beats task-path", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.snapshot.token = flipLastHex(observation.snapshot.token);
+  request.task.paths = ["src/missing.js"];
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [SNAPSHOT_TOKEN_MISMATCH_NOTE]);
+});
+
+
+test("334. empty snapshot.files list is snapshot was rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.snapshot.files = [];
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+});
+
+test("335. secret path .env is snapshot was rejected via createProviderSnapshot throw", () => {
+  const text = FIXTURE_SINGLE_FOO;
+  const path = ".env";
+  const rev = linkedRevision();
+  const request = {
+    projectId: SYNTHETIC_PROJECT_ID,
+    worktree: { rootId: SYNTHETIC_ROOT_ID, relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH },
+    expectedRevision: sevenRevisionKeys(rev),
+    task: { id: SYNTHETIC_TASK_ID, paths: [path] },
+    query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+  };
+  const observation = {
+    project: {
+      projectId: SYNTHETIC_PROJECT_ID,
+      rootId: SYNTHETIC_ROOT_ID,
+      relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+    },
+    snapshot: {
+      schemaVersion: 1,
+      projectId: SYNTHETIC_PROJECT_ID,
+      token: "0".repeat(64),
+      revision: providerRevision(rev),
+      languages: [],
+      files: [{ path, text, byteSize: Buffer.byteLength(text), sha256: contextDigest(text) }]
+    },
+    collection: adapterCollection()
+  };
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+});
+
+test("336. wrong bytes against genuine list yield snapshot token did not recompute", () => {
+  const good = FIXTURE_SINGLE_FOO;
+  const wrong = "export function foo() { return 999; }\n";
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, good]]);
+  observation.snapshot.files[0].text = wrong;
+  observation.snapshot.files[0].byteSize = Buffer.byteLength(wrong);
+  observation.snapshot.files[0].sha256 = contextDigest(wrong);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_TOKEN_MISMATCH_NOTE]);
+});
+
+test("337. adapter Object.prototype pollution cannot skip token verify", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.snapshot.token = flipLastHex(observation.snapshot.token);
+  const proto = Object.prototype;
+  const hadPre = Object.hasOwn(proto, "snapshotTokenPreverified");
+  const hadFiles = Object.hasOwn(proto, "snapshotVerificationFiles");
+  const prevPre = proto.snapshotTokenPreverified;
+  const prevFiles = proto.snapshotVerificationFiles;
+  let threw = false;
+  let result;
+  try {
+    proto.snapshotTokenPreverified = true;
+    proto.snapshotVerificationFiles = observation.snapshot.files.map((f) => ({
+      path: f.path,
+      text: f.text
+    }));
+    const ran = runAdapter(request, observation);
+    threw = ran.threw;
+    result = ran.result;
+  } finally {
+    if (hadPre) proto.snapshotTokenPreverified = prevPre;
+    else delete proto.snapshotTokenPreverified;
+    if (hadFiles) proto.snapshotVerificationFiles = prevFiles;
+    else delete proto.snapshotVerificationFiles;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_TOKEN_MISMATCH_NOTE]);
+});
+
+test("338. adapter deep-equal preserves identical declarationId and requestToken", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const flat = resolveWithBinding(source, parts);
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, source]]);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "resolved_unique");
+  assert.equal(result.requestToken, flat.requestToken);
+  assert.equal(result.occurrences[0].declarationId, flat.occurrences[0].declarationId);
+  assert.equal(result.occurrences[0].symbolId, flat.occurrences[0].symbolId);
 });

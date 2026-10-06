@@ -2271,3 +2271,359 @@ export function resolveTrackA1(input) {
   const result = stampContractIdentity(resolveTrackA1Body(input));
   return throwIfCompactBytesExceeded(result, ceiling);
 }
+
+const PROJECT_LOCATOR_MISMATCH_NOTE = "project locator does not match the observation";
+const EXPECTED_REVISION_MISMATCH_NOTE = "expected revision does not match the snapshot revision";
+const TASK_PATH_NOT_IN_SNAPSHOT_NOTE = "task path is not in the snapshot";
+const MAX_CONTRACT_SNAPSHOT_FILES = 500;
+
+const CLOSED_REQUEST_KEYS = new Set([
+  "projectId",
+  "worktree",
+  "expectedRevision",
+  "task",
+  "query",
+  "limits"
+]);
+const CLOSED_WORKTREE_KEYS = new Set(["rootId", "relativePath"]);
+const CLOSED_EXPECTED_REVISION_KEYS = new Set([
+  "status",
+  "commitSha",
+  "branch",
+  "repositoryId",
+  "worktreeId",
+  "dirty",
+  "isLinkedWorktree",
+  "isGit"
+]);
+const CLOSED_EXPECTED_REVISION_REQUIRED_KEYS = [
+  "status",
+  "commitSha",
+  "branch",
+  "repositoryId",
+  "worktreeId",
+  "dirty",
+  "isLinkedWorktree"
+];
+const CLOSED_OBSERVATION_KEYS = new Set(["project", "snapshot", "collection"]);
+const CLOSED_CONTRACT_SNAPSHOT_KEYS = new Set([
+  "schemaVersion",
+  "projectId",
+  "token",
+  "revision",
+  "languages",
+  "files"
+]);
+const CLOSED_CONTRACT_FILE_KEYS = new Set(["path", "text", "byteSize", "sha256"]);
+const CLOSED_COLLECTION_KEYS = new Set(["limits", "truncated", "diagnostics", "digest"]);
+
+function isValidRelativePath(path) {
+  return typeof path === "string" && path.length > 0 && !isAbsolutePath(path) && !path.includes("..");
+}
+
+function adapterNotEvaluated(note) {
+  return stampContractIdentity(notEvaluated({ notes: [note] }));
+}
+
+function contractClosedKeysNote(request, observation) {
+  if (!isClosedKeyObject(request)) return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  if (firstUnknownOwnStringKey(request, CLOSED_REQUEST_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (isClosedKeyObject(request.worktree) && firstUnknownOwnStringKey(request.worktree, CLOSED_WORKTREE_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (
+    isClosedKeyObject(request.expectedRevision) &&
+    firstUnknownOwnStringKey(request.expectedRevision, CLOSED_EXPECTED_REVISION_KEYS) !== null
+  ) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (isClosedKeyObject(request.task) && firstUnknownOwnStringKey(request.task, CLOSED_TASK_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (isClosedKeyObject(request.query) && firstUnknownOwnStringKey(request.query, CLOSED_QUERY_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (isClosedKeyObject(request.limits) && firstUnknownOwnStringKey(request.limits, CLOSED_LIMITS_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (!isClosedKeyObject(observation)) return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  if (firstUnknownOwnStringKey(observation, CLOSED_OBSERVATION_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (isClosedKeyObject(observation.project) && firstUnknownOwnStringKey(observation.project, CLOSED_PROJECT_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (isClosedKeyObject(observation.snapshot)) {
+    if (firstUnknownOwnStringKey(observation.snapshot, CLOSED_CONTRACT_SNAPSHOT_KEYS) !== null) {
+      return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+    }
+    if (
+      isClosedKeyObject(observation.snapshot.revision) &&
+      firstUnknownOwnStringKey(observation.snapshot.revision, CLOSED_REVISION_KEYS) !== null
+    ) {
+      return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+    }
+    if (Array.isArray(observation.snapshot.files)) {
+      for (let i = 0; i < observation.snapshot.files.length; i += 1) {
+        const entry = observation.snapshot.files[i];
+        if (isClosedKeyObject(entry) && firstUnknownOwnStringKey(entry, CLOSED_CONTRACT_FILE_KEYS) !== null) {
+          return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function collectionKeysNote(collection) {
+  if (!isClosedKeyObject(collection)) return null;
+  if (firstUnknownOwnStringKey(collection, CLOSED_COLLECTION_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  return null;
+}
+
+function locatorMatches(request, observation) {
+  const project = observation.project;
+  const snapshot = observation.snapshot;
+  if (!isPlainObject(project) || !isPlainObject(snapshot)) return false;
+  if (request.projectId !== project.projectId) return false;
+  if (project.projectId !== snapshot.projectId) return false;
+  if (!isPlainObject(request.worktree)) return false;
+  if (request.worktree.rootId !== project.rootId) return false;
+  if (request.worktree.relativePath !== project.relativePath) return false;
+  return true;
+}
+
+function expectedRevisionMatches(expectedRevision, revision) {
+  if (!isPlainObject(expectedRevision) || !isPlainObject(revision)) return false;
+  for (let i = 0; i < CLOSED_EXPECTED_REVISION_REQUIRED_KEYS.length; i += 1) {
+    const key = CLOSED_EXPECTED_REVISION_REQUIRED_KEYS[i];
+    if (expectedRevision[key] !== revision[key]) return false;
+  }
+  if (Object.hasOwn(expectedRevision, "isGit")) {
+    if (expectedRevision.isGit !== revision.isGit) return false;
+  }
+  return true;
+}
+
+function verifyContractSnapshotFiles(files) {
+  if (!Array.isArray(files)) {
+    return { ok: false, note: SNAPSHOT_WAS_REJECTED_NOTE };
+  }
+  if (files.length === 0) {
+    return { ok: false, note: SNAPSHOT_WAS_REJECTED_NOTE };
+  }
+  if (files.length > MAX_CONTRACT_SNAPSHOT_FILES) {
+    return { ok: false, note: SNAPSHOT_WAS_REJECTED_NOTE };
+  }
+  const seen = new Set();
+  let total = 0;
+  const verified = [];
+  for (let i = 0; i < files.length; i += 1) {
+    const file = files[i];
+    if (!isPlainObject(file)) {
+      return { ok: false, note: SNAPSHOT_WAS_REJECTED_NOTE };
+    }
+    if (typeof file.path !== "string" || typeof file.text !== "string") {
+      return { ok: false, note: SNAPSHOT_WAS_REJECTED_NOTE };
+    }
+    if (!isValidRelativePath(file.path)) {
+      return { ok: false, note: SNAPSHOT_WAS_REJECTED_NOTE };
+    }
+    if (seen.has(file.path)) {
+      return { ok: false, note: SNAPSHOT_WAS_REJECTED_NOTE };
+    }
+    seen.add(file.path);
+    if (!Object.hasOwn(file, "byteSize") || !Object.hasOwn(file, "sha256")) {
+      return { ok: false, note: SNAPSHOT_WAS_REJECTED_NOTE };
+    }
+    const byteSize = Buffer.byteLength(file.text);
+    if (byteSize > MAX_TRACK_A1_FILE_UTF8_BYTES) {
+      return { ok: false, note: SOURCE_BYTE_CEILING_NOTE };
+    }
+    total += byteSize;
+    if (total > MAX_TRACK_A1_TOTAL_SOURCE_BYTES) {
+      return { ok: false, note: SOURCE_BYTE_CEILING_NOTE };
+    }
+    if (file.byteSize !== byteSize || file.sha256 !== contextDigest(file.text)) {
+      return { ok: false, note: SNAPSHOT_WAS_REJECTED_NOTE };
+    }
+    verified.push({ path: file.path, text: file.text, byteSize, sha256: file.sha256 });
+  }
+  return { ok: true, files: verified };
+}
+
+function verifyContractSnapshotToken(snapshot, verifiedFiles) {
+  if (!isPlainObject(snapshot)) return snapshotRejection();
+  if (typeof snapshot.projectId !== "string" || snapshot.projectId.length === 0) return snapshotRejection();
+  if (typeof snapshot.token !== "string" || snapshot.token.length === 0) return snapshotRejection();
+  const revision = snapshot.revision;
+  if (!isPlainObject(revision)) return snapshotRejection();
+  if (Object.hasOwn(revision, "repositoryIdentity")) return snapshotRejection();
+  const revisionForRecompute = {
+    status: revision.status,
+    commitSha: revision.commitSha,
+    branch: revision.branch,
+    repositoryId: revision.repositoryId,
+    worktreeId: revision.worktreeId,
+    dirty: revision.dirty,
+    isLinkedWorktree: revision.isLinkedWorktree
+  };
+  const isGitOwn = ownDataProperty(revision, "isGit");
+  if (isGitOwn.kind === "data") {
+    revisionForRecompute.isGit = isGitOwn.value;
+  }
+  let recomputed;
+  try {
+    recomputed = createProviderSnapshot(
+      { projectId: snapshot.projectId },
+      verifiedFiles.map((file) => ({ path: file.path, text: file.text })),
+      revisionForRecompute
+    );
+  } catch {
+    return snapshotRejection();
+  }
+  if (!recomputed || recomputed.token !== snapshot.token) {
+    return snapshotRejection(SNAPSHOT_TOKEN_MISMATCH_NOTE);
+  }
+  return { ok: true };
+}
+
+export function resolveTypeScriptDeclarationEvidence(request, observation) {
+  const compact = readCompactBytesCeiling(request);
+  if (compact.kind === "accessor") {
+    return stampContractIdentity(notEvaluated({ notes: [ACCESSOR_INPUT_NOTE] }));
+  }
+  if (compact.kind === "rejected") {
+    return stampContractIdentity(rejectCompactBytesOverride());
+  }
+  const ceiling = compact.ceiling;
+
+  const requestNesting = inspectNesting(request);
+  if (requestNesting !== null) {
+    return stampContractIdentity(notEvaluated({ notes: [requestNesting] }));
+  }
+  if (visitedJsonValuesExceedLimit(request)) {
+    return stampContractIdentity(notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] }));
+  }
+  const observationNesting = inspectNesting(observation);
+  if (observationNesting !== null) {
+    return stampContractIdentity(notEvaluated({ notes: [observationNesting] }));
+  }
+  if (visitedJsonValuesExceedLimit(observation)) {
+    return stampContractIdentity(notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] }));
+  }
+
+  const closedNote = contractClosedKeysNote(request, observation);
+  if (closedNote !== null) {
+    return adapterNotEvaluated(closedNote);
+  }
+
+  // Collection is required (C3.2 / S7). Values are not read until S8; key set only.
+  // NOTE AMBIGUITY: r2 names no note for a missing collection. See STOP report.
+  const collectionOwn = ownDataProperty(observation, "collection");
+  if (collectionOwn.kind !== "data" || !isClosedKeyObject(collectionOwn.value)) {
+    return adapterNotEvaluated(SNAPSHOT_WAS_REJECTED_NOTE);
+  }
+  const collectionNote = collectionKeysNote(collectionOwn.value);
+  if (collectionNote !== null) {
+    return adapterNotEvaluated(collectionNote);
+  }
+
+  if (!locatorMatches(request, observation)) {
+    return adapterNotEvaluated(PROJECT_LOCATOR_MISMATCH_NOTE);
+  }
+
+  const snapshot = observation.snapshot;
+  if (!isPlainObject(snapshot)) {
+    return adapterNotEvaluated(SNAPSHOT_WAS_REJECTED_NOTE);
+  }
+  if (!expectedRevisionMatches(request.expectedRevision, snapshot.revision)) {
+    return adapterNotEvaluated(EXPECTED_REVISION_MISMATCH_NOTE);
+  }
+
+  const filesCheck = verifyContractSnapshotFiles(snapshot.files);
+  if (!filesCheck.ok) {
+    return adapterNotEvaluated(filesCheck.note);
+  }
+  const verifiedFiles = filesCheck.files;
+
+  const tokenCheck = verifyContractSnapshotToken(snapshot, verifiedFiles);
+  if (!tokenCheck.ok) {
+    return adapterNotEvaluated(tokenCheck.note);
+  }
+
+  const task = request.task;
+  const scope = resolveTaskPathScope(task);
+  if (scope.kind === "absent" || scope.kind === "invalid") {
+    return adapterNotEvaluated(TASK_PATHS_WERE_REJECTED_NOTE);
+  }
+  if (scope.kind === "unsupported_count") {
+    return adapterNotEvaluated(TASK_PATH_COUNT_EXCEEDS_32_NOTE);
+  }
+
+  const filesByPath = new Map(verifiedFiles.map((file) => [file.path, file]));
+  const taskPaths = scope.kind === "single" ? [scope.path] : scope.paths;
+  for (let i = 0; i < taskPaths.length; i += 1) {
+    if (!filesByPath.has(taskPaths[i])) {
+      return adapterNotEvaluated(TASK_PATH_NOT_IN_SNAPSHOT_NOTE);
+    }
+  }
+
+  const query = request.query;
+  if (!isPlainObject(query) || typeof query.name !== "string") {
+    return adapterNotEvaluated(NAME_WAS_REJECTED_NOTE);
+  }
+
+  const verificationFiles = verifiedFiles.map((file) => ({ path: file.path, text: file.text }));
+  const project = observation.project;
+  const flatInput = {
+    name: query.name,
+    binding: null,
+    snapshot: null,
+    task,
+    project,
+    query
+  };
+  if (isClosedKeyObject(request.limits)) {
+    flatInput.limits = request.limits;
+  }
+
+  if (scope.kind === "single") {
+    const file = filesByPath.get(scope.path);
+    const bytes = Buffer.from(file.text, "utf8");
+    flatInput.sourceBytes = bytes;
+    flatInput.binding = { sourceSha256: file.sha256 };
+    flatInput.snapshot = {
+      projectId: snapshot.projectId,
+      path: file.path,
+      sourceSha256: file.sha256,
+      byteSize: file.byteSize,
+      token: snapshot.token,
+      revision: snapshot.revision
+    };
+  } else {
+    const ordered = taskPaths.map((path) => filesByPath.get(path));
+    flatInput.files = ordered.map((file) => ({
+      path: file.path,
+      sourceBytes: Buffer.from(file.text, "utf8")
+    }));
+    const combinedSha = sha256Bytes(Buffer.concat(ordered.map((file) => Buffer.from(file.text, "utf8"))));
+    flatInput.binding = { sourceSha256: combinedSha };
+    flatInput.snapshot = {
+      projectId: snapshot.projectId,
+      token: snapshot.token,
+      revision: snapshot.revision
+    };
+  }
+
+  const result = stampContractIdentity(
+    resolveTrackA1Body(flatInput, Object.assign(Object.create(null), {
+      snapshotVerificationFiles: verificationFiles
+    }))
+  );
+  return throwIfCompactBytesExceeded(result, ceiling);
+}
