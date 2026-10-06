@@ -2241,6 +2241,48 @@ function visitedJsonValuesExceedLimit(root) {
   return false;
 }
 
+const COMPACT_INPUT_BYTE_LIMIT = 27262976;
+const COMPACT_INPUT_EXCEEDED_NOTE = "compact input exceeds 27262976 bytes";
+
+function compactLeafByteLength(value) {
+  if (typeof value === "string") return Buffer.byteLength(value, "utf8");
+  if (types.isUint8Array(value)) {
+    const proto = Object.getPrototypeOf(value);
+    if (proto === Buffer.prototype || proto === Uint8Array.prototype) {
+      return uint8ArrayLengthWithoutOwnGet(value);
+    }
+  }
+  if (ArrayBuffer.isView(value)) return value.byteLength;
+  if (types.isArrayBuffer(value)) return value.byteLength;
+  return 0;
+}
+
+function compactInputExceedsLimit(roots) {
+  let bytes = 0;
+  const seen = new Set();
+  const stack = Array.isArray(roots) ? roots.slice() : [roots];
+  while (stack.length > 0) {
+    const value = stack.pop();
+    if (value !== null && (typeof value === "object" || typeof value === "string")) {
+      if (seen.has(value)) continue;
+      seen.add(value);
+    }
+    bytes += compactLeafByteLength(value);
+    if (bytes > COMPACT_INPUT_BYTE_LIMIT) return true;
+    if (!isVisitedJsonContainer(value)) continue;
+    const names = Object.getOwnPropertyNames(value);
+    const isArray = Array.isArray(value);
+    for (let i = 0; i < names.length; i += 1) {
+      const key = names[i];
+      if (isArray && key === "length") continue;
+      const desc = Object.getOwnPropertyDescriptor(value, key);
+      if (!desc || !Object.hasOwn(desc, "value")) continue;
+      stack.push(desc.value);
+    }
+  }
+  return false;
+}
+
 function providerNodeArg(input) {
   const providerOwn = ownDataProperty(input, "providerNode");
   if (providerOwn.kind === "data") return providerOwn.value;
@@ -2267,6 +2309,9 @@ export function resolveTrackA1(input) {
   }
   if (visitedJsonValuesExceedLimit(input)) {
     return stampContractIdentity(notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] }, providerNodeArg(input)));
+  }
+  if (compactInputExceedsLimit(input)) {
+    return stampContractIdentity(notEvaluated({ notes: [COMPACT_INPUT_EXCEEDED_NOTE] }, providerNodeArg(input)));
   }
   const result = stampContractIdentity(resolveTrackA1Body(input));
   return throwIfCompactBytesExceeded(result, ceiling);
@@ -2714,6 +2759,9 @@ export function resolveTypeScriptDeclarationEvidence(request, observation) {
   }
   if (visitedJsonValuesExceedLimit(observation)) {
     return stampContractIdentity(notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] }));
+  }
+  if (compactInputExceedsLimit([request, observation])) {
+    return stampContractIdentity(notEvaluated({ notes: [COMPACT_INPUT_EXCEEDED_NOTE] }));
   }
 
   const closedNote = contractClosedKeysNote(request, observation);

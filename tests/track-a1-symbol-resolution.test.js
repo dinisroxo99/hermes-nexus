@@ -9689,3 +9689,230 @@ test("387. parser round-trip failure plus diagnostics keeps not_evaluated with r
   assert.equal(Object.hasOwn(result, "provider"), true);
   assert.equal(Object.hasOwn(result, "pathRecords"), false);
 });
+
+function testCompactLeafByteLength(value) {
+  if (typeof value === "string") return Buffer.byteLength(value, "utf8");
+  if (typeof Buffer !== "undefined" && Buffer.isBuffer(value)) return value.byteLength;
+  if (typeof Uint8Array !== "undefined" && value instanceof Uint8Array) return value.byteLength;
+  if (ArrayBuffer.isView(value)) return value.byteLength;
+  if (typeof ArrayBuffer !== "undefined" && value instanceof ArrayBuffer) return value.byteLength;
+  return 0;
+}
+
+function testIsVisitedJsonContainer(value) {
+  if (Array.isArray(value) && Object.getPrototypeOf(value) === Array.prototype) return true;
+  if (value === null || typeof value !== "object") return false;
+  if (ArrayBuffer.isView(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function testCompactInputBytes(roots) {
+  let bytes = 0;
+  const seen = new Set();
+  const stack = Array.isArray(roots) ? roots.slice() : [roots];
+  while (stack.length > 0) {
+    const value = stack.pop();
+    if (value !== null && (typeof value === "object" || typeof value === "string")) {
+      if (seen.has(value)) continue;
+      seen.add(value);
+    }
+    bytes += testCompactLeafByteLength(value);
+    if (!testIsVisitedJsonContainer(value)) continue;
+    const names = Object.getOwnPropertyNames(value);
+    const isArray = Array.isArray(value);
+    for (let i = 0; i < names.length; i += 1) {
+      const key = names[i];
+      if (isArray && key === "length") continue;
+      const desc = Object.getOwnPropertyDescriptor(value, key);
+      if (!desc || !Object.hasOwn(desc, "value")) continue;
+      stack.push(desc.value);
+    }
+  }
+  return bytes;
+}
+
+const COMPACT_INPUT_BYTE_LIMIT = 27262976;
+const COMPACT_INPUT_EXCEEDED_NOTE = "compact input exceeds 27262976 bytes";
+
+function measureRun(label, fn) {
+  const before = process.memoryUsage();
+  const t0 = performance.now();
+  const value = fn();
+  const t1 = performance.now();
+  const after = process.memoryUsage();
+  const stats = {
+    label,
+    ms: t1 - t0,
+    heapUsedDeltaMb: (after.heapUsed - before.heapUsed) / (1024 * 1024),
+    heapUsedPeakMb: after.heapUsed / (1024 * 1024),
+    rssMb: after.rss / (1024 * 1024)
+  };
+  console.log("A1_COMPACT_MEM", JSON.stringify(stats));
+  return { value, stats };
+}
+
+test("388. flat compact input just over 27262976 via providerNode is compact note", () => {
+  const over = "x".repeat(COMPACT_INPUT_BYTE_LIMIT + 1);
+  const { value: result, stats } = measureRun("388-flat-over", () =>
+    resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+      binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+      providerNode: over
+    })
+  );
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [COMPACT_INPUT_EXCEEDED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.ok(stats.ms > 0);
+});
+
+test("389. flat compact input exactly 27262976 proceeds to normal validation", () => {
+  const base = {
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    providerNode: ""
+  };
+  const used = testCompactInputBytes(base);
+  assert.ok(used < COMPACT_INPUT_BYTE_LIMIT);
+  base.providerNode = "y".repeat(COMPACT_INPUT_BYTE_LIMIT - used);
+  assert.equal(testCompactInputBytes(base), COMPACT_INPUT_BYTE_LIMIT);
+  const { value: result } = measureRun("389-flat-exact", () => resolveTrackA1(base));
+  assert.notDeepEqual(result.notes, [COMPACT_INPUT_EXCEEDED_NOTE]);
+});
+
+test("390. flat byte leaf counts by byteLength", () => {
+  const leaf = Buffer.alloc(COMPACT_INPUT_BYTE_LIMIT + 1);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    providerNode: leaf
+  });
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [COMPACT_INPUT_EXCEEDED_NOTE]);
+});
+
+test("391. flat shared 14MiB string referenced twice counts once and proceeds", () => {
+  const shared = "z".repeat(14 * 1048576);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    providerNode: { a: shared, b: shared }
+  });
+  assert.notDeepEqual(result.notes, [COMPACT_INPUT_EXCEEDED_NOTE]);
+});
+
+test("392. flat multibyte UTF-8 counted in bytes not characters", () => {
+  const charsNeeded = Math.floor(COMPACT_INPUT_BYTE_LIMIT / 2) + 1;
+  const s = "\u00e9".repeat(charsNeeded);
+  assert.ok(s.length < COMPACT_INPUT_BYTE_LIMIT);
+  assert.ok(Buffer.byteLength(s, "utf8") > COMPACT_INPUT_BYTE_LIMIT);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    providerNode: s
+  });
+  assert.deepEqual(result.notes, [COMPACT_INPUT_EXCEEDED_NOTE]);
+});
+
+test("393. flat accessor plus over 26MiB gives accessor note", () => {
+  const input = {
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    providerNode: "x".repeat(COMPACT_INPUT_BYTE_LIMIT + 1)
+  };
+  Object.defineProperty(input, "limits", {
+    get() { return { compactBytes: 1 }; },
+    enumerable: true,
+    configurable: true
+  });
+  const result = resolveTrackA1(input);
+  assert.deepEqual(result.notes, ["accessor input was rejected"]);
+});
+
+test("394. flat cyclic plus over 26MiB gives cyclic note", () => {
+  const input = {
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    providerNode: "x".repeat(COMPACT_INPUT_BYTE_LIMIT + 1)
+  };
+  input.self = input;
+  const result = resolveTrackA1(input);
+  assert.deepEqual(result.notes, ["cyclic input was rejected"]);
+});
+
+test("395. flat over 26MiB plus over-long name gives compact note", () => {
+  const result = resolveTrackA1({
+    name: "n".repeat(129),
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    providerNode: "x".repeat(COMPACT_INPUT_BYTE_LIMIT + 1)
+  });
+  assert.deepEqual(result.notes, [COMPACT_INPUT_EXCEEDED_NOTE]);
+});
+
+test("396. adapter compact input just over 27262976 is compact note with 0 hashes", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.padding = "x".repeat(COMPACT_INPUT_BYTE_LIMIT + 1);
+  const { count, result } = withCreateHashCounter(() => {
+    const { value } = measureRun("396-adapter-over", () => {
+      const ran = runAdapter(request, observation);
+      assert.equal(ran.threw, false);
+      return ran.result;
+    });
+    return value;
+  });
+  assert.equal(count, 0);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [COMPACT_INPUT_EXCEEDED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("397. adapter compact input exactly 27262976 proceeds to normal validation", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.padding = "";
+  const used = testCompactInputBytes([request, observation]);
+  assert.ok(used < COMPACT_INPUT_BYTE_LIMIT);
+  request.padding = "y".repeat(COMPACT_INPUT_BYTE_LIMIT - used);
+  assert.equal(testCompactInputBytes([request, observation]), COMPACT_INPUT_BYTE_LIMIT);
+  const { value: ran } = measureRun("397-adapter-exact", () => runAdapter(request, observation));
+  assert.equal(ran.threw, false);
+  assert.notDeepEqual(ran.result.notes, [COMPACT_INPUT_EXCEEDED_NOTE]);
+});
+
+test("398. adapter shared 14MiB string referenced twice counts once and proceeds", () => {
+  const shared = "z".repeat(14 * 1048576);
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.padding = { a: shared, b: shared };
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.notDeepEqual(result.notes, [COMPACT_INPUT_EXCEEDED_NOTE]);
+});
+
+test("399. adapter over 26MiB plus over-long query name gives compact note", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]], {
+    query: { name: "n".repeat(129), domain: SYMBOL_QUERY_DOMAIN }
+  });
+  request.padding = "x".repeat(COMPACT_INPUT_BYTE_LIMIT + 1);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [COMPACT_INPUT_EXCEEDED_NOTE]);
+});
+
+test("400. adapter cyclic observation plus over 26MiB gives cyclic note", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.padding = "x".repeat(COMPACT_INPUT_BYTE_LIMIT + 1);
+  observation.self = observation;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, ["cyclic input was rejected"]);
+});
