@@ -136,6 +136,7 @@ test("4. incompatible or omitted binding: not_evaluated", () => {
     sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8")
   });
   assert.equal(omitted.status, "not_evaluated");
+  assert.deepEqual(omitted.notes, [SOURCE_HASH_BINDING_WAS_REJECTED_NOTE]);
   assertNoStableId(omitted);
   assertNoOccurrencesKey(omitted);
 
@@ -145,6 +146,7 @@ test("4. incompatible or omitted binding: not_evaluated", () => {
     binding: { sourceSha256: "0".repeat(64) }
   });
   assert.equal(incompatible.status, "not_evaluated");
+  assert.deepEqual(incompatible.notes, [SOURCE_HASH_BINDING_WAS_REJECTED_NOTE]);
   assertNoStableId(incompatible);
   assertNoOccurrencesKey(incompatible);
 });
@@ -716,9 +718,11 @@ test("19. absolute or parent-segment paths => not_evaluated", () => {
     });
 
     assert.equal(result.status, "not_evaluated");
+    assert.deepEqual(result.notes, [TASK_PATHS_WERE_REJECTED_NOTE]);
     assert.notEqual(result.status, "partial");
     assert.notEqual(result.status, "resolved_unique");
     assert.equal(Object.hasOwn(result, "pathRecords"), false);
+    assert.equal(Object.hasOwn(result, "provider"), false);
     assertNoIdentityFields(result);
     assertNoOccurrencesKey(result);
   }
@@ -1007,6 +1011,9 @@ test("29. bad name returns before parse and does not gain an occurrence", () => 
     binding: { sourceSha256: sha256Text(FIXTURE_FOO_AT_START) }
   });
   assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
   assertNoOccurrencesKey(result);
   assertNoIdentityFields(result);
 });
@@ -1228,6 +1235,7 @@ test("37. sha-mismatch result has no provider key", () => {
   });
 
   assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SOURCE_HASH_BINDING_WAS_REJECTED_NOTE]);
   assert.equal(Object.hasOwn(result, "provider"), false);
   assertNoIdentityFields(result);
   assertNoOccurrencesKey(result);
@@ -2375,6 +2383,7 @@ test("72. an empty name stays rejected without the length note", () => {
     query: { name: "", domain: SYMBOL_QUERY_DOMAIN }
   });
   assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
   assertNoNameLengthNote(result);
   assert.equal(Object.hasOwn(result, "pathRecords"), false);
 });
@@ -2709,6 +2718,7 @@ test("85. an empty projectId or rootId stays rejected without the length notes",
 
   assert.equal(emptyProjectId.status, "not_evaluated");
   assert.equal(emptyRootId.status, "not_evaluated");
+  assert.deepEqual(emptyProjectId.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
   assertNoIdLengthNotes(emptyProjectId);
   assertNoIdLengthNotes(emptyRootId);
 });
@@ -2855,6 +2865,7 @@ test("92. an absent branch stays rejected without the length note", () => {
   const result = resolveWithBinding(source, parts);
 
   assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
   assertNoBranchLengthNote(result);
 });
 
@@ -4049,6 +4060,11 @@ test("139. invalid compactBytes with a providerNode id getter keeps the override
 });
 
 const NON_PLAIN_INPUT_NOTE = "non-plain input was rejected";
+const NAME_WAS_REJECTED_NOTE = "name was rejected";
+const SOURCE_BYTES_WERE_REJECTED_NOTE = "source bytes were rejected";
+const SOURCE_HASH_BINDING_WAS_REJECTED_NOTE = "source hash binding was rejected";
+const TASK_PATHS_WERE_REJECTED_NOTE = "task paths were rejected";
+const SNAPSHOT_WAS_REJECTED_NOTE = "snapshot was rejected";
 
 function assertNonPlainRejection(result, decoded, threw) {
   assert.equal(threw, false);
@@ -5582,7 +5598,9 @@ test("188. multi-path detached Uint8Array is not_evaluated without throwing", ()
   }
   assert.equal(threw, false);
   assert.equal(result.status, "not_evaluated");
-  assert.equal(Object.hasOwn(result, "notes") && result.notes != null, false);
+  assert.deepEqual(result.notes, [SOURCE_HASH_BINDING_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
   assert.deepEqual(result.completeness, {
     source: "not_evaluated",
     parse: "not_evaluated",
@@ -5628,7 +5646,7 @@ test("189. multi-path detached Buffer matches detached Uint8Array without throwi
   assert.equal(threw, false);
   assert.deepEqual(bufResult, u8Result);
   assert.equal(u8Result.status, "not_evaluated");
-  assert.equal(Object.hasOwn(u8Result, "notes") && u8Result.notes != null, false);
+  assert.deepEqual(u8Result.notes, [SOURCE_HASH_BINDING_WAS_REJECTED_NOTE]);
 });
 
 test("190. resizable ArrayBuffer view shrunk below offset equals empty on single and multi paths", () => {
@@ -6016,4 +6034,105 @@ test("201. partial result stamps generatedAt null", () => {
   assert.equal(result.status, "partial");
   assert.equal(Object.hasOwn(result, "generatedAt"), true);
   assert.equal(result.generatedAt, null);
+});
+
+test("202. empty name is not_evaluated with name was rejected", () => {
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "",
+      sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+      binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) }
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("203. bad sourceBytes is not_evaluated with source bytes were rejected", () => {
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: 123,
+      binding: { sourceSha256: "a".repeat(64) }
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SOURCE_BYTES_WERE_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("204. missing binding is not_evaluated with source hash binding was rejected", () => {
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8")
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SOURCE_HASH_BINDING_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("205. absolute task path is not_evaluated with task paths were rejected", () => {
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+      binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+      task: { paths: ["/tmp/x.js"] }
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [TASK_PATHS_WERE_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("206. snapshot shape failure is not_evaluated with snapshot was rejected", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: { ...parts.snapshot, projectId: "" },
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
 });

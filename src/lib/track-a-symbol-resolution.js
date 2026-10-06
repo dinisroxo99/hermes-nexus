@@ -76,6 +76,11 @@ const PROVIDER_ID_NOT_COPIED_NOTE =
   "provider node id was not validated against the symbol, file, and snapshot and was not copied";
 
 const SNAPSHOT_TOKEN_MISMATCH_NOTE = "snapshot token did not recompute";
+const NAME_WAS_REJECTED_NOTE = "name was rejected";
+const SOURCE_BYTES_WERE_REJECTED_NOTE = "source bytes were rejected";
+const SOURCE_HASH_BINDING_WAS_REJECTED_NOTE = "source hash binding was rejected";
+const TASK_PATHS_WERE_REJECTED_NOTE = "task paths were rejected";
+const SNAPSHOT_WAS_REJECTED_NOTE = "snapshot was rejected";
 
 const SNAPSHOT_TOKEN_MATCHED_NOTE =
   "snapshot token matched the supplied bytes but this is not accepted A1 evidence (declaration identity and completeness are not produced here)";
@@ -463,7 +468,7 @@ function attachDeclarationIds(occurrences, snapshotTokenMatched, snapshot, sourc
 }
 
 function snapshotRejection(note) {
-  return note ? { ok: false, note } : { ok: false };
+  return { ok: false, note: note || SNAPSHOT_WAS_REJECTED_NOTE };
 }
 
 function recomputeSnapshotToken(snapshot, bytes, binding, actualSha) {
@@ -1075,17 +1080,29 @@ function resolveMulti(input, paths) {
 
   const combinedSha = sha256Bytes(Buffer.concat(ordered.map((file) => file.bytes)));
   if (!isPlainObject(binding) || typeof binding.sourceSha256 !== "string" || binding.sourceSha256.length === 0) {
-    return notEvaluated(withCompleteness({}, buildCompleteness()), providerNode);
+    return notEvaluated(
+      withCompleteness(
+        { notes: [SOURCE_HASH_BINDING_WAS_REJECTED_NOTE] },
+        buildCompleteness()
+      ),
+      providerNode
+    );
   }
   if (binding.sourceSha256 !== combinedSha) {
-    return notEvaluated(withCompleteness({}, buildCompleteness()), providerNode);
+    return notEvaluated(
+      withCompleteness(
+        { notes: [SOURCE_HASH_BINDING_WAS_REJECTED_NOTE] },
+        buildCompleteness()
+      ),
+      providerNode
+    );
   }
 
   let snapshotTokenMatched = false;
   if (snapshot !== undefined) {
     const checked = recomputeMultiSnapshotToken(snapshot, ordered);
     if (!checked.ok) {
-      const extra = checked.note ? { notes: [checked.note] } : {};
+      const extra = { notes: [checked.note] };
       return notEvaluated(withCompleteness(extra, buildCompleteness()), providerNode);
     }
     snapshotTokenMatched = true;
@@ -1338,7 +1355,7 @@ function resolveTrackA1Body(input = {}) {
   const { name, sourceBytes, binding, providerNode, snapshot, task, query, project } = input;
 
   if (typeof name !== "string" || name.length === 0) {
-    return notEvaluated({}, providerNode);
+    return notEvaluated({ notes: [NAME_WAS_REJECTED_NOTE] }, providerNode);
   }
 
   const queryName = isPlainObject(query) ? query.name : undefined;
@@ -1374,7 +1391,7 @@ function resolveTrackA1Body(input = {}) {
   } else {
     bytes = toBuffer(sourceBytes);
     if (!bytes) {
-      return notEvaluated({}, providerNode);
+      return notEvaluated({ notes: [SOURCE_BYTES_WERE_REJECTED_NOTE] }, providerNode);
     }
     if (exceedsSourceByteCeiling([bytes.byteLength])) {
       return sourceByteCeilingResult(providerNode);
@@ -1382,12 +1399,12 @@ function resolveTrackA1Body(input = {}) {
   }
 
   if (!isPlainObject(binding) || typeof binding.sourceSha256 !== "string" || binding.sourceSha256.length === 0) {
-    return notEvaluated({}, providerNode);
+    return notEvaluated({ notes: [SOURCE_HASH_BINDING_WAS_REJECTED_NOTE] }, providerNode);
   }
 
   const actualSha = sha256Bytes(bytes);
   if (actualSha !== binding.sourceSha256) {
-    return notEvaluated({}, providerNode);
+    return notEvaluated({ notes: [SOURCE_HASH_BINDING_WAS_REJECTED_NOTE] }, providerNode);
   }
 
   const pathScope = resolveTaskPathScope(task);
@@ -1405,7 +1422,10 @@ function resolveTrackA1Body(input = {}) {
 
   if (pathScope.kind === "invalid") {
     return notEvaluated(
-      withCompleteness({}, buildCompleteness()),
+      withCompleteness(
+        { notes: [TASK_PATHS_WERE_REJECTED_NOTE] },
+        buildCompleteness()
+      ),
       providerNode
     );
   }
@@ -1414,7 +1434,7 @@ function resolveTrackA1Body(input = {}) {
   if (snapshot !== undefined) {
     const checked = recomputeSnapshotToken(snapshot, bytes, binding, actualSha);
     if (!checked.ok) {
-      const extra = checked.note ? { notes: [checked.note] } : {};
+      const extra = { notes: [checked.note] };
       if (pathScoped) {
         return notEvaluated(withCompleteness(extra, buildCompleteness()), providerNode);
       }
