@@ -10396,16 +10396,17 @@ test("435. flat single query array is unknown input key not name was rejected", 
   assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
 });
 
-test("436. flat single binding array is unknown input key", () => {
+test("436. flat single limits array is unknown input key", () => {
   const parts = fullBindingParts(FIXTURE_SINGLE_FOO);
   const result = resolveTrackA1({
     name: "foo",
     sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
-    binding: [],
+    binding: { sourceSha256: parts.sourceSha256 },
     snapshot: parts.snapshot,
     task: parts.task,
     project: parts.project,
-    query: parts.query
+    query: parts.query,
+    limits: []
   });
   assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
 });
