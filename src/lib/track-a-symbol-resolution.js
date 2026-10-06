@@ -199,6 +199,7 @@ function uint8ArrayLengthWithoutOwnGet(value) {
 function copyByteLeafToBuffer(leaf) {
   const len = uint8ArrayLengthWithoutOwnGet(leaf);
   const copy = Buffer.alloc(len);
+  if (len === 0) return copy;
   Reflect.apply(typedArraySet, copy, [leaf]);
   return copy;
 }

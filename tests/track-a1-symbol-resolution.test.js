@@ -5483,3 +5483,294 @@ test("185. one thousand references to one leaf scan Object.getOwnPropertyNames o
   const notes = Array.isArray(result.notes) ? result.notes : [];
   assert.equal(notes.includes(ACCESSOR_INPUT_NOTE), false);
 });
+
+test("186. single-path detached Uint8Array equals empty Buffer without throwing", () => {
+  const emptySha = sha256Text("");
+  const empty = Buffer.alloc(0);
+  const ab = new ArrayBuffer(8);
+  const detached = new Uint8Array(ab);
+  ab.transfer();
+  function run(sourceBytes) {
+    return resolveTrackA1({
+      name: "foo",
+      sourceBytes,
+      binding: { sourceSha256: emptySha },
+      task: { id: SYNTHETIC_TASK_ID, paths: [SYNTHETIC_PATH] },
+      project: {
+        projectId: SYNTHETIC_PROJECT_ID,
+        rootId: SYNTHETIC_ROOT_ID,
+        relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+      },
+      query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+    });
+  }
+  let threw = false;
+  let emptyResult;
+  let detachedResult;
+  try {
+    emptyResult = run(empty);
+    detachedResult = run(detached);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.deepEqual(detachedResult, emptyResult);
+  assert.equal(emptyResult.status, "not_evaluated");
+});
+
+test("187. single-path detached Buffer equals empty Buffer without throwing", () => {
+  const emptySha = sha256Text("");
+  const empty = Buffer.alloc(0);
+  const ab = new ArrayBuffer(8);
+  const detached = Buffer.from(ab);
+  ab.transfer();
+  function run(sourceBytes) {
+    return resolveTrackA1({
+      name: "foo",
+      sourceBytes,
+      binding: { sourceSha256: emptySha },
+      task: { id: SYNTHETIC_TASK_ID, paths: [SYNTHETIC_PATH] },
+      project: {
+        projectId: SYNTHETIC_PROJECT_ID,
+        rootId: SYNTHETIC_ROOT_ID,
+        relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+      },
+      query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+    });
+  }
+  let threw = false;
+  let emptyResult;
+  let detachedResult;
+  try {
+    emptyResult = run(empty);
+    detachedResult = run(detached);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.deepEqual(detachedResult, emptyResult);
+  assert.equal(emptyResult.status, "not_evaluated");
+});
+
+test("188. multi-path detached Uint8Array is not_evaluated without throwing", () => {
+  const ab = new ArrayBuffer(8);
+  const detached = new Uint8Array(ab);
+  ab.transfer();
+  const other = Buffer.from(FILE_B_OTHER, "utf8");
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files: [
+        { path: PATH_A, sourceBytes: detached },
+        { path: PATH_B, sourceBytes: other }
+      ],
+      binding: { sourceSha256: "a".repeat(64) },
+      task: { id: SYNTHETIC_TASK_ID, paths: [PATH_A, PATH_B] },
+      project: {
+        projectId: SYNTHETIC_PROJECT_ID,
+        rootId: SYNTHETIC_ROOT_ID,
+        relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+      },
+      query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(result, "notes") && result.notes != null, false);
+  assert.deepEqual(result.completeness, {
+    source: "not_evaluated",
+    parse: "not_evaluated",
+    enumeration: "not_evaluated",
+    output: "not_evaluated"
+  });
+});
+
+test("189. multi-path detached Buffer matches detached Uint8Array without throwing", () => {
+  const abU8 = new ArrayBuffer(8);
+  const detachedU8 = new Uint8Array(abU8);
+  abU8.transfer();
+  const abBuf = new ArrayBuffer(8);
+  const detachedBuf = Buffer.from(abBuf);
+  abBuf.transfer();
+  const other = Buffer.from(FILE_B_OTHER, "utf8");
+  function run(leaf) {
+    return resolveTrackA1({
+      name: "foo",
+      files: [
+        { path: PATH_A, sourceBytes: leaf },
+        { path: PATH_B, sourceBytes: other }
+      ],
+      binding: { sourceSha256: "a".repeat(64) },
+      task: { id: SYNTHETIC_TASK_ID, paths: [PATH_A, PATH_B] },
+      project: {
+        projectId: SYNTHETIC_PROJECT_ID,
+        rootId: SYNTHETIC_ROOT_ID,
+        relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+      },
+      query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+    });
+  }
+  let threw = false;
+  let u8Result;
+  let bufResult;
+  try {
+    u8Result = run(detachedU8);
+    bufResult = run(detachedBuf);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.deepEqual(bufResult, u8Result);
+  assert.equal(u8Result.status, "not_evaluated");
+  assert.equal(Object.hasOwn(u8Result, "notes") && u8Result.notes != null, false);
+});
+
+test("190. resizable ArrayBuffer view shrunk below offset equals empty on single and multi paths", () => {
+  const emptySha = sha256Text("");
+  function makeShrunk() {
+    const rab = new ArrayBuffer(8, { maxByteLength: 64 });
+    const view = new Uint8Array(rab, 4, 2);
+    rab.resize(2);
+    return view;
+  }
+  const empty = Buffer.alloc(0);
+  function runSingle(sourceBytes) {
+    return resolveTrackA1({
+      name: "foo",
+      sourceBytes,
+      binding: { sourceSha256: emptySha },
+      task: { id: SYNTHETIC_TASK_ID, paths: [SYNTHETIC_PATH] },
+      project: {
+        projectId: SYNTHETIC_PROJECT_ID,
+        rootId: SYNTHETIC_ROOT_ID,
+        relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+      },
+      query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+    });
+  }
+  const other = Buffer.from(FILE_B_OTHER, "utf8");
+  function runMulti(leaf) {
+    return resolveTrackA1({
+      name: "foo",
+      files: [
+        { path: PATH_A, sourceBytes: leaf },
+        { path: PATH_B, sourceBytes: other }
+      ],
+      binding: { sourceSha256: "a".repeat(64) },
+      task: { id: SYNTHETIC_TASK_ID, paths: [PATH_A, PATH_B] },
+      project: {
+        projectId: SYNTHETIC_PROJECT_ID,
+        rootId: SYNTHETIC_ROOT_ID,
+        relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+      },
+      query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+    });
+  }
+  let threw = false;
+  let singleEmpty;
+  let singleShrunk;
+  let multiEmpty;
+  let multiShrunk;
+  try {
+    singleEmpty = runSingle(empty);
+    singleShrunk = runSingle(makeShrunk());
+    multiEmpty = runMulti(Buffer.alloc(0));
+    multiShrunk = runMulti(makeShrunk());
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.deepEqual(singleShrunk, singleEmpty);
+  assert.deepEqual(multiShrunk, multiEmpty);
+  assert.equal(singleEmpty.status, "not_evaluated");
+  assert.equal(multiEmpty.status, "not_evaluated");
+});
+
+test("191. own data valueOf on a leaf is never called and equals clean", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const clean = Buffer.from(source, "utf8");
+  const shadowed = Buffer.from(source, "utf8");
+  let valueOfCalled = 0;
+  Object.defineProperty(shadowed, "valueOf", {
+    configurable: true,
+    enumerable: true,
+    writable: true,
+    value() {
+      valueOfCalled += 1;
+      return 0;
+    }
+  });
+  const cleanResult = resolveTrackA1({
+    name: "foo",
+    sourceBytes: clean,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  });
+  const shadowedResult = resolveTrackA1({
+    name: "foo",
+    sourceBytes: shadowed,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  });
+  assert.equal(valueOfCalled, 0);
+  assert.deepEqual(shadowedResult, cleanResult);
+  assert.equal(cleanResult.status, "resolved_unique");
+});
+
+test("192. multi-path own data toString shadow is never called and equals clean", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  const cleanFiles = parts.files.map((file) => ({
+    path: file.path,
+    sourceBytes: Buffer.from(file.sourceBytes)
+  }));
+  const shadowedFiles = parts.files.map((file) => ({
+    path: file.path,
+    sourceBytes: Buffer.from(file.sourceBytes)
+  }));
+  let toStringCalled = 0;
+  Object.defineProperty(shadowedFiles[0].sourceBytes, "toString", {
+    configurable: true,
+    enumerable: true,
+    writable: true,
+    value() {
+      toStringCalled += 1;
+      return "export function evil() { return 0; }\n";
+    }
+  });
+  const cleanResult = resolveTrackA1({
+    name: "foo",
+    files: cleanFiles,
+    binding: { sourceSha256: parts.combinedSha },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  });
+  const shadowedResult = resolveTrackA1({
+    name: "foo",
+    files: shadowedFiles,
+    binding: { sourceSha256: parts.combinedSha },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  });
+  assert.equal(toStringCalled, 0);
+  assert.deepEqual(shadowedResult, cleanResult);
+  assert.equal(cleanResult.status, "resolved_unique");
+});
