@@ -7421,3 +7421,658 @@ test("259. full allowed multi-path key sets still resolve", () => {
   assert.equal(threw, false);
   assert.equal(result.status, "resolved_unique");
 });
+
+const NOT_ACCEPTED_A1_NOTE =
+  "source-hash match is not full observation binding and is not accepted A1 evidence";
+const SNAPSHOT_TOKEN_MATCHED_NOTE =
+  "snapshot token matched the supplied bytes but this is not accepted A1 evidence (declaration identity and completeness are not produced here)";
+const OUTPUT_COVERAGE_INCOMPLETE_NOTE_S6FIX =
+  "output coverage is not complete, so this is neither not_found nor resolved_unique";
+const SYMBOL_ID_SNAPSHOT_ONLY_NOTE =
+  "symbol id is the declaration id for this snapshot only and is not stable across snapshots";
+
+function assertNoThrowResolvedOrNotes(result, threw, { status, notes, hasProvider, hasPathRecords }) {
+  assert.equal(threw, false);
+  assert.equal(result.status, status);
+  if (notes !== undefined) assert.deepEqual(result.notes, notes);
+  if (hasProvider !== undefined) assert.equal(Object.hasOwn(result, "provider"), hasProvider);
+  if (hasPathRecords !== undefined) assert.equal(Object.hasOwn(result, "pathRecords"), hasPathRecords);
+}
+
+test("260. single limits Uint8Array 2-byte leaf keeps 47d9b1e resolved_unique", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query,
+      limits: new Uint8Array([1, 2])
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assertNoThrowResolvedOrNotes(result, threw, {
+    status: "resolved_unique",
+    notes: [SYMBOL_ID_SNAPSHOT_ONLY_NOTE],
+    hasProvider: true,
+    hasPathRecords: true
+  });
+});
+
+test("261. single task Uint8Array 2-byte leaf keeps 47d9b1e not_evaluated notes", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: new Uint8Array([1, 2]),
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assertNoThrowResolvedOrNotes(result, threw, {
+    status: "not_evaluated",
+    notes: [NOT_ACCEPTED_A1_NOTE, SNAPSHOT_TOKEN_MATCHED_NOTE],
+    hasProvider: true,
+    hasPathRecords: false
+  });
+});
+
+test("262. single project Uint8Array 2-byte leaf keeps 47d9b1e not_evaluated notes", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: new Uint8Array([1, 2]),
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assertNoThrowResolvedOrNotes(result, threw, {
+    status: "not_evaluated",
+    notes: [NOT_ACCEPTED_A1_NOTE, OUTPUT_COVERAGE_INCOMPLETE_NOTE_S6FIX, SYMBOL_ID_SNAPSHOT_ONLY_NOTE],
+    hasProvider: true,
+    hasPathRecords: true
+  });
+});
+
+test("263. multi limits Buffer 2-byte leaf keeps 47d9b1e resolved_unique", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files: parts.files,
+      binding: { sourceSha256: parts.combinedSha },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query,
+      limits: Buffer.from([1, 2])
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assertNoThrowResolvedOrNotes(result, threw, {
+    status: "resolved_unique",
+    notes: [SYMBOL_ID_SNAPSHOT_ONLY_NOTE],
+    hasProvider: true,
+    hasPathRecords: true
+  });
+});
+
+test("264. multi project Buffer 2-byte leaf keeps 47d9b1e not_evaluated notes", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files: parts.files,
+      binding: { sourceSha256: parts.combinedSha },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: Buffer.from([1, 2]),
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assertNoThrowResolvedOrNotes(result, threw, {
+    status: "not_evaluated",
+    notes: [NOT_ACCEPTED_A1_NOTE, OUTPUT_COVERAGE_INCOMPLETE_NOTE_S6FIX, SYMBOL_ID_SNAPSHOT_ONLY_NOTE],
+    hasProvider: true,
+    hasPathRecords: true
+  });
+});
+
+test("265. single files entry as Uint8Array leaf keeps 47d9b1e resolved_unique", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      files: [new Uint8Array([1, 2])],
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assertNoThrowResolvedOrNotes(result, threw, {
+    status: "resolved_unique",
+    notes: [SYMBOL_ID_SNAPSHOT_ONLY_NOTE],
+    hasProvider: true,
+    hasPathRecords: true
+  });
+});
+
+test("266. single limits 20_000_000-byte Uint8Array finishes quickly with 47d9b1e result", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const leaf = new Uint8Array(20_000_000);
+  const t0 = performance.now();
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query,
+      limits: leaf
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  const ms = performance.now() - t0;
+  assert.equal(threw, false);
+  assert.equal(result.status, "resolved_unique");
+  assert.deepEqual(result.notes, [SYMBOL_ID_SNAPSHOT_ONLY_NOTE]);
+  assert.ok(ms < 2000, "large limits leaf must finish under 2000ms, took " + ms);
+});
+
+test("267. single task 20_000_000-byte Buffer finishes quickly with 47d9b1e result", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const leaf = Buffer.alloc(20_000_000);
+  const t0 = performance.now();
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: leaf,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  const ms = performance.now() - t0;
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [NOT_ACCEPTED_A1_NOTE, SNAPSHOT_TOKEN_MATCHED_NOTE]);
+  assert.ok(ms < 2000, "large task leaf must finish under 2000ms, took " + ms);
+});
+
+test("268. single project 20_000_000-byte Uint8Array finishes quickly with 47d9b1e result", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const leaf = new Uint8Array(20_000_000);
+  const t0 = performance.now();
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: leaf,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  const ms = performance.now() - t0;
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [
+    NOT_ACCEPTED_A1_NOTE,
+    OUTPUT_COVERAGE_INCOMPLETE_NOTE_S6FIX,
+    SYMBOL_ID_SNAPSHOT_ONLY_NOTE
+  ]);
+  assert.ok(ms < 2000, "large project leaf must finish under 2000ms, took " + ms);
+});
+
+test("269. multi limits 20_000_000-byte Buffer finishes quickly with 47d9b1e result", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  const leaf = Buffer.alloc(20_000_000);
+  const t0 = performance.now();
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files: parts.files,
+      binding: { sourceSha256: parts.combinedSha },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query,
+      limits: leaf
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  const ms = performance.now() - t0;
+  assert.equal(threw, false);
+  assert.equal(result.status, "resolved_unique");
+  assert.deepEqual(result.notes, [SYMBOL_ID_SNAPSHOT_ONLY_NOTE]);
+  assert.ok(ms < 2000, "large multi limits leaf must finish under 2000ms, took " + ms);
+});
+
+test("270. multi project 20_000_000-byte Uint8Array finishes quickly with 47d9b1e result", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  const leaf = new Uint8Array(20_000_000);
+  const t0 = performance.now();
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files: parts.files,
+      binding: { sourceSha256: parts.combinedSha },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: leaf,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  const ms = performance.now() - t0;
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [
+    NOT_ACCEPTED_A1_NOTE,
+    OUTPUT_COVERAGE_INCOMPLETE_NOTE_S6FIX,
+    SYMBOL_ID_SNAPSHOT_ONLY_NOTE
+  ]);
+  assert.ok(ms < 2000, "large multi project leaf must finish under 2000ms, took " + ms);
+});
+
+test("271. multi task extra key is not_evaluated with unknown input key was rejected", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files: parts.files,
+      binding: { sourceSha256: parts.combinedSha },
+      snapshot: parts.snapshot,
+      task: { ...parts.task, extra: 1 },
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("272. multi query extra key is not_evaluated with unknown input key was rejected", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files: parts.files,
+      binding: { sourceSha256: parts.combinedSha },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: { ...parts.query, extra: 1 }
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("273. multi project extra key is not_evaluated with unknown input key was rejected", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files: parts.files,
+      binding: { sourceSha256: parts.combinedSha },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: { ...parts.project, extra: 1 },
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("274. multi binding extra key is not_evaluated with unknown input key was rejected", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files: parts.files,
+      binding: { sourceSha256: parts.combinedSha, extra: 1 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("275. multi limits extra key is not_evaluated with unknown input key was rejected", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files: parts.files,
+      binding: { sourceSha256: parts.combinedSha },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query,
+      limits: { compactBytes: 65536, extra: 1 }
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("276. multi revision extra key is not_evaluated with unknown input key was rejected", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files: parts.files,
+      binding: { sourceSha256: parts.combinedSha },
+      snapshot: {
+        ...parts.snapshot,
+        revision: { ...parts.snapshot.revision, extra: 1 }
+      },
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("277. single-path files entry extra key is not_evaluated with unknown input key was rejected", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      files: [{ path: parts.task.paths[0], sourceBytes: Buffer.from(source, "utf8"), extra: 1 }],
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("278. single-snapshot keys on a multi snapshot are not_evaluated with unknown input key was rejected", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files: parts.files,
+      binding: { sourceSha256: parts.combinedSha },
+      snapshot: {
+        ...parts.snapshot,
+        path: PATH_A,
+        sourceSha256: parts.combinedSha,
+        byteSize: 1
+      },
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("279. own __proto__ key is not_evaluated with unknown input key was rejected", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const input = {
+    name: "foo",
+    sourceBytes: Buffer.from(source, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  Object.defineProperty(input, "__proto__", {
+    value: { polluted: 1 },
+    enumerable: true,
+    configurable: true,
+    writable: true
+  });
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1(input);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("280. own toString key is not_evaluated with unknown input key was rejected", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query,
+      toString: 1
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("281. null-prototype object with extra key is not_evaluated with unknown input key was rejected", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const project = Object.assign(Object.create(null), {
+    projectId: parts.project.projectId,
+    rootId: parts.project.rootId,
+    relativePath: parts.project.relativePath,
+    extra: 1
+  });
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("282. unknown key plus binding mismatch yields binding note", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: "0".repeat(64) },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query,
+      bogus: 1
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SOURCE_HASH_BINDING_WAS_REJECTED_NOTE]);
+});

@@ -144,32 +144,40 @@ function firstUnknownOwnStringKey(object, allowed) {
   return null;
 }
 
+
+function isClosedKeyObject(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  if (ArrayBuffer.isView(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
 function closedKeySetsNote(input, { multi }) {
   if (firstUnknownOwnStringKey(input, CLOSED_ROOT_KEYS) !== null) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
-  if (isPlainObject(input.limits) && firstUnknownOwnStringKey(input.limits, CLOSED_LIMITS_KEYS) !== null) {
+  if (isClosedKeyObject(input.limits) && firstUnknownOwnStringKey(input.limits, CLOSED_LIMITS_KEYS) !== null) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
-  if (isPlainObject(input.binding) && firstUnknownOwnStringKey(input.binding, CLOSED_BINDING_KEYS) !== null) {
+  if (isClosedKeyObject(input.binding) && firstUnknownOwnStringKey(input.binding, CLOSED_BINDING_KEYS) !== null) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
-  if (isPlainObject(input.task) && firstUnknownOwnStringKey(input.task, CLOSED_TASK_KEYS) !== null) {
+  if (isClosedKeyObject(input.task) && firstUnknownOwnStringKey(input.task, CLOSED_TASK_KEYS) !== null) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
-  if (isPlainObject(input.query) && firstUnknownOwnStringKey(input.query, CLOSED_QUERY_KEYS) !== null) {
+  if (isClosedKeyObject(input.query) && firstUnknownOwnStringKey(input.query, CLOSED_QUERY_KEYS) !== null) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
-  if (isPlainObject(input.project) && firstUnknownOwnStringKey(input.project, CLOSED_PROJECT_KEYS) !== null) {
+  if (isClosedKeyObject(input.project) && firstUnknownOwnStringKey(input.project, CLOSED_PROJECT_KEYS) !== null) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
-  if (isPlainObject(input.snapshot)) {
+  if (isClosedKeyObject(input.snapshot)) {
     const snapshotKeys = multi ? CLOSED_MULTI_SNAPSHOT_KEYS : CLOSED_SINGLE_SNAPSHOT_KEYS;
     if (firstUnknownOwnStringKey(input.snapshot, snapshotKeys) !== null) {
       return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
     }
     if (
-      isPlainObject(input.snapshot.revision) &&
+      isClosedKeyObject(input.snapshot.revision) &&
       firstUnknownOwnStringKey(input.snapshot.revision, CLOSED_REVISION_KEYS) !== null
     ) {
       return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
@@ -178,7 +186,7 @@ function closedKeySetsNote(input, { multi }) {
   if (Array.isArray(input.files)) {
     for (let i = 0; i < input.files.length; i += 1) {
       const entry = input.files[i];
-      if (isPlainObject(entry) && firstUnknownOwnStringKey(entry, CLOSED_FILES_ENTRY_KEYS) !== null) {
+      if (isClosedKeyObject(entry) && firstUnknownOwnStringKey(entry, CLOSED_FILES_ENTRY_KEYS) !== null) {
         return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
       }
     }
