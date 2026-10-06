@@ -10614,7 +10614,6 @@ test("450. adapter budget throw still propagates outside inspection catch", () =
 });
 
 // Option B catch hides internal bugs; budget throws stay outside try.
-// Probe: Proxy [[Has]] is never invoked by Track A1 walks (0 calls); has-trap RED omitted.
 
 
 function assertAdapterRejectionBudgeted(mutate, expectedNotes) {
@@ -10819,4 +10818,351 @@ test("467. nesting rejection through deeper shared path after shallow visit", ()
     deep: { mid: shared }
   });
   assert.deepEqual(result.notes, [NESTING_NOTE]);
+});
+
+
+test("468. flat multi task.paths has-trap is input inspection threw", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  const paths = new Proxy([PATH_A, PATH_B], {
+    has() {
+      throw new Error("proxy:has");
+    }
+  });
+  const result = resolveTrackA1({
+    name: "foo",
+    files: parts.files,
+    binding: { sourceSha256: parts.combinedSha },
+    snapshot: parts.snapshot,
+    task: { id: parts.task.id, paths },
+    project: parts.project,
+    query: parts.query
+  });
+  assertInspectionThrew(result);
+});
+
+test("469. adapter multi task.paths has-trap is input inspection threw", () => {
+  const { request, observation } = buildAdapterFixture([
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ]);
+  request.task.paths = new Proxy([PATH_A, PATH_B], {
+    has() {
+      throw new Error("proxy:has");
+    }
+  });
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assertInspectionThrew(result);
+});
+
+test("470. flat query undefined proceeds past name rejection", () => {
+  const parts = fullBindingParts(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: undefined
+  });
+  assert.notDeepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
+});
+
+test("471. flat multi query number is name was rejected", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  const result = resolveTrackA1({
+    name: "foo",
+    files: parts.files,
+    binding: { sourceSha256: parts.combinedSha },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: 1
+  });
+  assert.deepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
+});
+
+test("472. flat multi query boolean is name was rejected", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  const result = resolveTrackA1({
+    name: "foo",
+    files: parts.files,
+    binding: { sourceSha256: parts.combinedSha },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: true
+  });
+  assert.deepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
+});
+
+test("473. flat single byte-leaf query is unknown input key", () => {
+  const parts = fullBindingParts(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: new Uint8Array([1, 2])
+  });
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("474. snapshot rejection wins over non-plain query", () => {
+  const parts = fullBindingParts(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: { ...parts.snapshot, revision: null },
+    task: parts.task,
+    project: parts.project,
+    query: null
+  });
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+});
+
+test("475. flat query name mismatch is query name does not match name", () => {
+  const parts = fullBindingParts(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: { name: "bar", domain: parts.query.domain }
+  });
+  assert.deepEqual(result.notes, [QUERY_NAME_DOES_NOT_MATCH_NAME_NOTE]);
+});
+
+function assertAdapterClosedSlotUnknown(mutate) {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  mutate(request, observation);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+}
+
+test("476. adapter expectedRevision array is unknown input key", () => {
+  assertAdapterClosedSlotUnknown((request) => {
+    request.expectedRevision = [];
+  });
+});
+
+test("477. adapter expectedRevision small byte leaf is unknown input key", () => {
+  assertAdapterClosedSlotUnknown((request) => {
+    request.expectedRevision = new Uint8Array([1, 2]);
+  });
+});
+
+test("478. adapter task array is unknown input key", () => {
+  assertAdapterClosedSlotUnknown((request) => {
+    request.task = [];
+  });
+});
+
+test("479. adapter task small byte leaf is unknown input key", () => {
+  assertAdapterClosedSlotUnknown((request) => {
+    request.task = new Uint8Array([1, 2]);
+  });
+});
+
+test("480. adapter query array is unknown input key", () => {
+  assertAdapterClosedSlotUnknown((request) => {
+    request.query = [];
+  });
+});
+
+test("481. adapter query small byte leaf is unknown input key", () => {
+  assertAdapterClosedSlotUnknown((request) => {
+    request.query = new Uint8Array([1, 2]);
+  });
+});
+
+test("482. adapter project array is unknown input key", () => {
+  assertAdapterClosedSlotUnknown((_request, observation) => {
+    observation.project = [];
+  });
+});
+
+test("483. adapter project small byte leaf is unknown input key", () => {
+  assertAdapterClosedSlotUnknown((_request, observation) => {
+    observation.project = new Uint8Array([1, 2]);
+  });
+});
+
+test("484. adapter snapshot array is unknown input key", () => {
+  assertAdapterClosedSlotUnknown((_request, observation) => {
+    observation.snapshot = [];
+  });
+});
+
+test("485. adapter snapshot small byte leaf is unknown input key", () => {
+  assertAdapterClosedSlotUnknown((_request, observation) => {
+    observation.snapshot = new Uint8Array([1, 2]);
+  });
+});
+
+test("486. adapter snapshot.revision array is unknown input key", () => {
+  assertAdapterClosedSlotUnknown((_request, observation) => {
+    observation.snapshot.revision = [];
+  });
+});
+
+test("487. adapter snapshot.revision small byte leaf is unknown input key", () => {
+  assertAdapterClosedSlotUnknown((_request, observation) => {
+    observation.snapshot.revision = new Uint8Array([1, 2]);
+  });
+});
+
+test("488. adapter files[i] array is unknown input key", () => {
+  assertAdapterClosedSlotUnknown((_request, observation) => {
+    observation.snapshot.files[0] = [];
+  });
+});
+
+test("489. adapter files[i] small byte leaf is unknown input key", () => {
+  assertAdapterClosedSlotUnknown((_request, observation) => {
+    observation.snapshot.files[0] = new Uint8Array([1, 2]);
+  });
+});
+
+test("490. S12 caught result respects caller compactBytes exact size and size-1", () => {
+  const base = {
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    limits: { compactBytes: 65536 },
+    padding: { child: trackA1ThrowingProxy("ownKeys") }
+  };
+  const measured = resolveTrackA1(base);
+  assertInspectionThrew(measured);
+  const size = Buffer.byteLength(JSON.stringify(measured), "utf8");
+  const at = resolveTrackA1({
+    ...base,
+    limits: { compactBytes: size },
+    padding: { child: trackA1ThrowingProxy("ownKeys") }
+  });
+  assertInspectionThrew(at);
+  assert.throws(
+    () =>
+      resolveTrackA1({
+        ...base,
+        limits: { compactBytes: size - 1 },
+        padding: { child: trackA1ThrowingProxy("ownKeys") }
+      }),
+    (error) => error && error.code === "symbol_resolution_budget_exceeded"
+  );
+});
+
+test("491. S12 catch before ceiling read uses default 65536 not caller compactBytes", () => {
+  const real = {
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    limits: { compactBytes: 50 }
+  };
+  const proxied = new Proxy(real, {
+    getOwnPropertyDescriptor(_t, key) {
+      if (key === "limits") throw new Error("proxy:gopd-limits");
+      return Object.getOwnPropertyDescriptor(real, key);
+    },
+    ownKeys() {
+      return Reflect.ownKeys(real);
+    },
+    get(_t, key) {
+      return real[key];
+    },
+    getPrototypeOf() {
+      return Object.prototype;
+    }
+  });
+  const result = resolveTrackA1(proxied);
+  assertInspectionThrew(result);
+  assert.ok(Buffer.byteLength(JSON.stringify(result), "utf8") <= 65536);
+});
+
+test("492. adapter success over compactBytes budget throws", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.limits = { compactBytes: 50 };
+  assert.throws(
+    () => resolveTypeScriptDeclarationEvidence(request, observation),
+    (error) => error && error.code === "symbol_resolution_budget_exceeded"
+  );
+});
+
+test("493. flat RangeError inside inspection is input inspection threw", () => {
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    providerNode: {
+      child: new Proxy(
+        {},
+        {
+          ownKeys() {
+            throw new RangeError("proxy:range");
+          },
+          getOwnPropertyDescriptor() {
+            return { configurable: true, enumerable: true, value: 1 };
+          },
+          getPrototypeOf() {
+            return Object.prototype;
+          }
+        }
+      )
+    }
+  });
+  assertInspectionThrew(result);
+});
+
+test("494. adapter observation nesting rejection with compactBytes below result size throws", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.limits = { compactBytes: 50 };
+  let cur = observation;
+  for (let i = 0; i < 40; i += 1) {
+    cur.child = {};
+    cur = cur.child;
+  }
+  assert.throws(
+    () => resolveTypeScriptDeclarationEvidence(request, observation),
+    (error) => error && error.code === "symbol_resolution_budget_exceeded"
+  );
+});
+
+test("495. adapter observation visited rejection with compactBytes below result size throws", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.limits = { compactBytes: 50 };
+  for (let i = 0; i < 20001; i += 1) {
+    observation[`f${i}`] = null;
+  }
+  assert.throws(
+    () => resolveTypeScriptDeclarationEvidence(request, observation),
+    (error) => error && error.code === "symbol_resolution_budget_exceeded"
+  );
+});
+
+test("496. adapter collection key-set rejection respects compactBytes exact size and size-1", () => {
+  assertAdapterRejectionBudgeted(
+    (_request, observation) => {
+      observation.collection.extra = 1;
+    },
+    [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]
+  );
 });
