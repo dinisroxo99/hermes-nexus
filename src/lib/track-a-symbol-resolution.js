@@ -1673,6 +1673,7 @@ function throwIfCompactBytesExceeded(result, ceiling) {
 const NESTING_DEPTH_LIMIT = 32;
 const NESTING_EXCEEDED_NOTE = "nesting exceeds 32";
 const CYCLIC_INPUT_NOTE = "cyclic input was rejected";
+const ACCESSOR_INPUT_NOTE = "accessor input was rejected";
 
 function isNestingContainer(value) {
   if (value === null || typeof value !== "object") return false;
@@ -1683,13 +1684,24 @@ function isNestingContainer(value) {
 
 function nestingChildContainers(node) {
   const children = [];
-  const keys = Object.getOwnPropertyNames(node).concat(Object.getOwnPropertySymbols(node));
-  for (let i = 0; i < keys.length; i += 1) {
-    const desc = Object.getOwnPropertyDescriptor(node, keys[i]);
+  const names = Object.getOwnPropertyNames(node);
+  for (let i = 0; i < names.length; i += 1) {
+    const desc = Object.getOwnPropertyDescriptor(node, names[i]);
+    if (!desc) continue;
+    if (Object.hasOwn(desc, "get") || Object.hasOwn(desc, "set")) {
+      return { note: ACCESSOR_INPUT_NOTE, children: null };
+    }
+    if (Object.hasOwn(desc, "value") && isNestingContainer(desc.value)) {
+      children.push(desc.value);
+    }
+  }
+  const symbols = Object.getOwnPropertySymbols(node);
+  for (let i = 0; i < symbols.length; i += 1) {
+    const desc = Object.getOwnPropertyDescriptor(node, symbols[i]);
     if (!desc || !Object.hasOwn(desc, "value")) continue;
     if (isNestingContainer(desc.value)) children.push(desc.value);
   }
-  return children;
+  return { note: null, children };
 }
 
 function inspectNesting(root) {
@@ -1700,7 +1712,9 @@ function inspectNesting(root) {
     const frame = stack[stack.length - 1];
     if (frame.children === null) {
       path.push(frame.node);
-      frame.children = nestingChildContainers(frame.node);
+      const scanned = nestingChildContainers(frame.node);
+      if (scanned.note !== null) return scanned.note;
+      frame.children = scanned.children;
     }
     if (frame.index >= frame.children.length) {
       path.pop();
