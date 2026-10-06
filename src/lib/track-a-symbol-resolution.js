@@ -1343,6 +1343,22 @@ function resolveMulti(input, paths, internal) {
       );
     }
   }
+  {
+    const queryOwn = ownDataProperty(input, "query");
+    if (
+      queryOwn.kind === "data" &&
+      queryOwn.value !== undefined &&
+      !isClosedKeyObject(queryOwn.value)
+    ) {
+      return notEvaluated(
+        withCompleteness(
+          { notes: [NAME_WAS_REJECTED_NOTE] },
+          buildCompleteness()
+        ),
+        providerNode
+      );
+    }
+  }
   if (isPlainObject(query)) {
     if (query.domain !== SYMBOL_QUERY_DOMAIN) {
       return notEvaluated(
@@ -1712,6 +1728,20 @@ function resolveTrackA1Body(input = {}, internal) {
     const closedNote = closedKeySetsNote(input, { multi: false });
     if (closedNote !== null) {
       const extra = { notes: [closedNote] };
+      if (pathScoped) {
+        return notEvaluated(withCompleteness(extra, buildCompleteness()), providerNode);
+      }
+      return notEvaluated(extra, providerNode);
+    }
+  }
+  {
+    const queryOwn = ownDataProperty(input, "query");
+    if (
+      queryOwn.kind === "data" &&
+      queryOwn.value !== undefined &&
+      !isClosedKeyObject(queryOwn.value)
+    ) {
+      const extra = { notes: [NAME_WAS_REJECTED_NOTE] };
       if (pathScoped) {
         return notEvaluated(withCompleteness(extra, buildCompleteness()), providerNode);
       }

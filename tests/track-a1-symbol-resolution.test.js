@@ -10236,3 +10236,151 @@ test("424. adapter compact input rejection respects compactBytes budget", () => 
   assert.equal(threw, true);
   assert.equal(code, "symbol_resolution_budget_exceeded");
 });
+
+test("425. flat single query null is name was rejected before domain", () => {
+  const parts = fullBindingParts(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: null
+  });
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("426. flat single query string is name was rejected", () => {
+  const parts = fullBindingParts(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: "foo"
+  });
+  assert.deepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+});
+
+test("427. flat single query number is name was rejected", () => {
+  const parts = fullBindingParts(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: 1
+  });
+  assert.deepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
+});
+
+test("428. flat single query boolean is name was rejected", () => {
+  const parts = fullBindingParts(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: true
+  });
+  assert.deepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
+});
+
+test("429. flat multi query null is name was rejected", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  const result = resolveTrackA1({
+    name: "foo",
+    files: parts.files,
+    binding: { sourceSha256: parts.combinedSha },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: null
+  });
+  assert.deepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+});
+
+test("430. flat multi query string is name was rejected", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  const result = resolveTrackA1({
+    name: "foo",
+    files: parts.files,
+    binding: { sourceSha256: parts.combinedSha },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: "foo"
+  });
+  assert.deepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
+});
+
+test("431. adapter query null still gives name was rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.query = null;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
+});
+
+test("432. unknown closed key beats non-plain query", () => {
+  const parts = fullBindingParts(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: null,
+    extraKey: 1
+  });
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("433. non-plain query beats unsupported domain", () => {
+  const parts = fullBindingParts(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: 1
+  });
+  assert.deepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
+  assert.equal(result.notes.includes(QUERY_DOMAIN_IS_NOT_SUPPORTED_NOTE), false);
+});
+
+test("434. absent flat query still proceeds past name rejection", () => {
+  const parts = fullBindingParts(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project
+  });
+  assert.notDeepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
+});
