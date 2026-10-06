@@ -180,31 +180,32 @@ test("5. provider node id is not copied and is not treated as a stable id", () =
 
 test("6. extra binding fields do not flip a source-hash match to positive", () => {
   const sourceSha256 = sha256Text(FIXTURE_SINGLE_FOO);
-  const result = resolveTrackA1({
-    name: "foo",
-    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
-    binding: {
-      sourceSha256,
-      projectId: "fake-project-not-an-observation",
-      snapshotToken: "fake-snapshot-token-not-recomputed"
-    }
-  });
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+      binding: {
+        sourceSha256,
+        projectId: "fake-project-not-an-observation",
+        snapshotToken: "fake-snapshot-token-not-recomputed"
+      }
+    });
+  } catch (_error) {
+    threw = true;
+  }
 
+  assert.equal(threw, false);
   assert.equal(result.status, "not_evaluated");
-  assert.equal(result.census, 1);
-  assert.equal(result.occurrences.length, 1);
-  assert.equal(result.occurrences[0].name, "foo");
-  assert.equal(result.occurrences[0].kind, "function");
-  assert.equal(result.coverage.wholeByteString, true);
-  assert.equal(result.coverage.syntacticDiagnosticCount, 0);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "occurrences"), false);
   assertNoStableId(result);
   const serialized = JSON.stringify(result);
   assert.equal(serialized.includes("fake-project-not-an-observation"), false);
   assert.equal(serialized.includes("fake-snapshot-token-not-recomputed"), false);
-  assert.ok(
-    result.notes.some((note) => note.includes("not accepted A1 evidence")),
-    "extra binding fields are still not accepted A1 evidence"
-  );
 });
 
 const SYNTHETIC_REPOSITORY_ID = "ab".repeat(32);
@@ -3153,20 +3154,23 @@ function shallowNestedInput(chain) {
   const source = FIXTURE_SINGLE_FOO;
   const parts = fullBindingParts(source);
   const sourceBytes = Buffer.from(source, "utf8");
+  // Nesting payload rides on a symbol key so S6 closed string-key sets ignore
+  // it while the raw input walk still visits the chain for depth/cycle rules.
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  input[Symbol.for("trackA1.nestingPayload")] = chain;
   return {
     source,
     parts,
     sourceBytes,
-    input: {
-      name: "foo",
-      sourceBytes,
-      binding: { sourceSha256: parts.sourceSha256 },
-      snapshot: parts.snapshot,
-      task: parts.task,
-      project: parts.project,
-      query: parts.query,
-      nested: chain
-    }
+    input
   };
 }
 
@@ -4103,6 +4107,7 @@ const TASK_PATH_COUNT_EXCEEDS_32_NOTE = "task path count exceeds 32";
 const FILES_WERE_REJECTED_NOTE = "files were rejected";
 const QUERY_DOMAIN_IS_NOT_SUPPORTED_NOTE = "query domain is not supported";
 const QUERY_NAME_DOES_NOT_MATCH_NAME_NOTE = "query name does not match name";
+const UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE = "unknown input key was rejected";
 
 function assertNonPlainRejection(result, decoded, threw) {
   assert.equal(threw, false);
@@ -5519,9 +5524,9 @@ test("185. one thousand references to one leaf scan Object.getOwnPropertyNames o
     snapshot: parts.snapshot,
     task: parts.task,
     project: parts.project,
-    query: parts.query,
-    nested: refs
+    query: parts.query
   };
+  input[Symbol.for("trackA1.nestingPayload")] = refs;
   const original = Object.getOwnPropertyNames;
   let leafCalls = 0;
   Object.getOwnPropertyNames = function spyGetOwnPropertyNames(value) {
@@ -6923,4 +6928,496 @@ test("241. accessor isGit is not_evaluated with accessor input was rejected", ()
   assert.equal(threw, false);
   assert.equal(result.status, "not_evaluated");
   assert.deepEqual(result.notes, [ACCESSOR_INPUT_NOTE]);
+});
+
+test("242. root extra key is not_evaluated with unknown input key was rejected", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query,
+      bogus: 1
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("243. task extra key is not_evaluated with unknown input key was rejected", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: { ...parts.task, extra: 1 },
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("244. query extra key is not_evaluated with unknown input key was rejected", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: { ...parts.query, extra: 1 }
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("245. project extra key is not_evaluated with unknown input key was rejected", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: { ...parts.project, extra: 1 },
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("246. binding extra key is not_evaluated with unknown input key was rejected", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256, extra: 1 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("247. limits extra key is not_evaluated with unknown input key was rejected", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query,
+      limits: { compactBytes: 65536, extra: 1 }
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("248. single snapshot extra key is not_evaluated with unknown input key was rejected", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: { ...parts.snapshot, extra: 1 },
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("249. multi snapshot extra key is not_evaluated with unknown input key was rejected", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files: parts.files,
+      binding: { sourceSha256: parts.combinedSha },
+      snapshot: { ...parts.snapshot, extra: 1 },
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("250. revision extra key is not_evaluated with unknown input key was rejected", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: {
+        ...parts.snapshot,
+        revision: { ...parts.snapshot.revision, extra: 1 }
+      },
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("251. files entry extra key is not_evaluated with unknown input key was rejected", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  const files = [
+    { ...parts.files[0], extra: 1 },
+    parts.files[1]
+  ];
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files,
+      binding: { sourceSha256: parts.combinedSha },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("252. multi root extra key is not_evaluated with unknown input key was rejected", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files: parts.files,
+      binding: { sourceSha256: parts.combinedSha },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query,
+      bogus: true
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("253. repositoryIdentity still yields snapshot was rejected before unknown keys", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: {
+        ...parts.snapshot,
+        revision: { ...parts.snapshot.revision, repositoryIdentity: parts.snapshot.revision.repositoryId },
+        extra: 1
+      },
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("254. unknown key beats unsupported query domain", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source, {
+    query: { name: "foo", domain: "other_domain_not_direct_declarations" }
+  });
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query,
+      bogus: 1
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("255. accessor beats unknown key", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const input = {
+    name: "foo",
+    sourceBytes: Buffer.from(source, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    bogus: 1
+  };
+  Object.defineProperty(input, "sneaky", {
+    enumerable: true,
+    configurable: true,
+    get() {
+      return 1;
+    }
+  });
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1(input);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [ACCESSOR_INPUT_NOTE]);
+});
+
+test("256. non-enumerable extra string key is rejected", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const input = {
+    name: "foo",
+    sourceBytes: Buffer.from(source, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  Object.defineProperty(input, "hidden", {
+    value: 1,
+    enumerable: false,
+    configurable: true,
+    writable: true
+  });
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1(input);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("257. extra symbol key is ignored and still resolves", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const input = {
+    name: "foo",
+    sourceBytes: Buffer.from(source, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  input[Symbol("extra")] = 1;
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1(input);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "resolved_unique");
+});
+
+test("258. full allowed single-path key sets still resolve", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source, { revision: linkedRevision({ isGit: true }) });
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      files: [{ path: parts.task.paths[0], sourceBytes: Buffer.from(source, "utf8") }],
+      binding: { sourceSha256: parts.sourceSha256 },
+      providerNode: { id: "opaque-provider-node" },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      query: parts.query,
+      project: parts.project,
+      limits: { compactBytes: 65536 }
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "resolved_unique");
+});
+
+test("259. full allowed multi-path key sets still resolve", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered, { revision: linkedRevision({ isGit: false }) });
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+      files: parts.files,
+      binding: { sourceSha256: parts.combinedSha },
+      providerNode: { id: "opaque-provider-node" },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      query: parts.query,
+      project: parts.project,
+      limits: { compactBytes: 65536 }
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "resolved_unique");
 });

@@ -96,6 +96,97 @@ const FILES_WERE_REJECTED_NOTE = "files were rejected";
 const QUERY_DOMAIN_IS_NOT_SUPPORTED_NOTE = "query domain is not supported";
 const QUERY_NAME_DOES_NOT_MATCH_NAME_NOTE = "query name does not match name";
 
+const UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE = "unknown input key was rejected";
+
+const CLOSED_ROOT_KEYS = new Set([
+  "name",
+  "sourceBytes",
+  "files",
+  "binding",
+  "providerNode",
+  "snapshot",
+  "task",
+  "query",
+  "project",
+  "limits"
+]);
+const CLOSED_TASK_KEYS = new Set(["id", "paths"]);
+const CLOSED_QUERY_KEYS = new Set(["name", "domain"]);
+const CLOSED_PROJECT_KEYS = new Set(["projectId", "rootId", "relativePath"]);
+const CLOSED_BINDING_KEYS = new Set(["sourceSha256"]);
+const CLOSED_LIMITS_KEYS = new Set(["compactBytes"]);
+const CLOSED_SINGLE_SNAPSHOT_KEYS = new Set([
+  "projectId",
+  "path",
+  "sourceSha256",
+  "byteSize",
+  "token",
+  "revision"
+]);
+const CLOSED_MULTI_SNAPSHOT_KEYS = new Set(["projectId", "token", "revision"]);
+const CLOSED_REVISION_KEYS = new Set([
+  "status",
+  "commitSha",
+  "branch",
+  "repositoryId",
+  "worktreeId",
+  "dirty",
+  "isLinkedWorktree",
+  "isGit"
+]);
+const CLOSED_FILES_ENTRY_KEYS = new Set(["path", "sourceBytes"]);
+
+function firstUnknownOwnStringKey(object, allowed) {
+  const names = Object.getOwnPropertyNames(object);
+  for (let i = 0; i < names.length; i += 1) {
+    if (!allowed.has(names[i])) return names[i];
+  }
+  return null;
+}
+
+function closedKeySetsNote(input, { multi }) {
+  if (firstUnknownOwnStringKey(input, CLOSED_ROOT_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (isPlainObject(input.limits) && firstUnknownOwnStringKey(input.limits, CLOSED_LIMITS_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (isPlainObject(input.binding) && firstUnknownOwnStringKey(input.binding, CLOSED_BINDING_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (isPlainObject(input.task) && firstUnknownOwnStringKey(input.task, CLOSED_TASK_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (isPlainObject(input.query) && firstUnknownOwnStringKey(input.query, CLOSED_QUERY_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (isPlainObject(input.project) && firstUnknownOwnStringKey(input.project, CLOSED_PROJECT_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (isPlainObject(input.snapshot)) {
+    const snapshotKeys = multi ? CLOSED_MULTI_SNAPSHOT_KEYS : CLOSED_SINGLE_SNAPSHOT_KEYS;
+    if (firstUnknownOwnStringKey(input.snapshot, snapshotKeys) !== null) {
+      return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+    }
+    if (
+      isPlainObject(input.snapshot.revision) &&
+      firstUnknownOwnStringKey(input.snapshot.revision, CLOSED_REVISION_KEYS) !== null
+    ) {
+      return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+    }
+  }
+  if (Array.isArray(input.files)) {
+    for (let i = 0; i < input.files.length; i += 1) {
+      const entry = input.files[i];
+      if (isPlainObject(entry) && firstUnknownOwnStringKey(entry, CLOSED_FILES_ENTRY_KEYS) !== null) {
+        return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+      }
+    }
+  }
+  return null;
+}
+
+
 const OUTPUT_COVERAGE_INCOMPLETE_NOTE =
   "output coverage is not complete, so this is neither not_found nor resolved_unique";
 
@@ -1134,6 +1225,18 @@ function resolveMulti(input, paths) {
     }
     snapshotTokenMatched = true;
   }
+  {
+    const closedNote = closedKeySetsNote(input, { multi: true });
+    if (closedNote !== null) {
+      return notEvaluated(
+        withCompleteness(
+          { notes: [closedNote] },
+          buildCompleteness()
+        ),
+        providerNode
+      );
+    }
+  }
   if (isPlainObject(query)) {
     if (query.domain !== SYMBOL_QUERY_DOMAIN) {
       return notEvaluated(
@@ -1493,6 +1596,16 @@ function resolveTrackA1Body(input = {}) {
       return notEvaluated(extra, providerNode);
     }
     snapshotTokenMatched = true;
+  }
+  {
+    const closedNote = closedKeySetsNote(input, { multi: false });
+    if (closedNote !== null) {
+      const extra = { notes: [closedNote] };
+      if (pathScoped) {
+        return notEvaluated(withCompleteness(extra, buildCompleteness()), providerNode);
+      }
+      return notEvaluated(extra, providerNode);
+    }
   }
   if (isPlainObject(query)) {
     if (query.domain !== SYMBOL_QUERY_DOMAIN) {
