@@ -575,7 +575,26 @@ function snapshotRejection(note) {
   return { ok: false, note: note || SNAPSHOT_WAS_REJECTED_NOTE };
 }
 
-function recomputeSnapshotToken(snapshot, bytes, binding, actualSha) {
+
+// Internal-only seam for the future contract adapter: full snapshot file list
+// (or snapshotTokenPreverified) for token recomputation. Never read from flat
+// `input`. resolveTrackA1 always calls the body with one argument, so flat
+// callers cannot set this. Module-private; not exported.
+function normalizeSnapshotVerificationFiles(verificationFiles) {
+  if (verificationFiles === undefined) return undefined;
+  if (!Array.isArray(verificationFiles)) return undefined;
+  const out = [];
+  for (let i = 0; i < verificationFiles.length; i += 1) {
+    const file = verificationFiles[i];
+    if (!file || typeof file.path !== "string" || typeof file.text !== "string") {
+      return undefined;
+    }
+    out.push({ path: file.path, text: file.text });
+  }
+  return out;
+}
+
+function recomputeSnapshotToken(snapshot, bytes, binding, actualSha, verificationFiles) {
   if (!isPlainObject(snapshot)) return snapshotRejection();
   if (typeof snapshot.projectId !== "string" || snapshot.projectId.length === 0) return snapshotRejection();
   if (typeof snapshot.path !== "string" || snapshot.path.length === 0) return snapshotRejection();
@@ -619,11 +638,16 @@ function recomputeSnapshotToken(snapshot, bytes, binding, actualSha) {
     revisionForRecompute.isGit = isGitOwn.value;
   }
 
+  const verifiedFiles = normalizeSnapshotVerificationFiles(verificationFiles);
+  const tokenFiles = verifiedFiles !== undefined
+    ? verifiedFiles
+    : [{ path: snapshot.path, text }];
+
   let recomputed;
   try {
     recomputed = createProviderSnapshot(
       { projectId: snapshot.projectId },
-      [{ path: snapshot.path, text }],
+      tokenFiles,
       revisionForRecompute
     );
   } catch {
@@ -1058,7 +1082,7 @@ function decodeOrderedFiles(rawFiles) {
   return ordered;
 }
 
-function recomputeMultiSnapshotToken(snapshot, orderedFiles) {
+function recomputeMultiSnapshotToken(snapshot, orderedFiles, verificationFiles) {
   if (!isPlainObject(snapshot)) return snapshotRejection();
   if (typeof snapshot.projectId !== "string" || snapshot.projectId.length === 0) return snapshotRejection();
   if (typeof snapshot.token !== "string" || snapshot.token.length === 0) return snapshotRejection();
@@ -1093,11 +1117,16 @@ function recomputeMultiSnapshotToken(snapshot, orderedFiles) {
     revisionForRecompute.isGit = isGitOwn.value;
   }
 
+  const verifiedFiles = normalizeSnapshotVerificationFiles(verificationFiles);
+  const tokenFiles = verifiedFiles !== undefined
+    ? verifiedFiles
+    : orderedFiles.map((file) => ({ path: file.path, text: file.text }));
+
   let recomputed;
   try {
     recomputed = createProviderSnapshot(
       { projectId: snapshot.projectId },
-      orderedFiles.map((file) => ({ path: file.path, text: file.text })),
+      tokenFiles,
       revisionForRecompute
     );
   } catch {
@@ -1177,7 +1206,7 @@ function multiUniqueBindingReady(args) {
   return true;
 }
 
-function resolveMulti(input, paths) {
+function resolveMulti(input, paths, internal) {
   const { name, files, binding, providerNode, snapshot, task, query, project } = input;
   const collected = collectRawOrderedFiles(paths, files);
   if (!collected || collected.kind === "invalid") {
@@ -1226,7 +1255,13 @@ function resolveMulti(input, paths) {
 
   let snapshotTokenMatched = false;
   if (snapshot !== undefined) {
-    const checked = recomputeMultiSnapshotToken(snapshot, ordered);
+    const checked = internal && internal.snapshotTokenPreverified === true
+      ? { ok: true }
+      : recomputeMultiSnapshotToken(
+        snapshot,
+        ordered,
+        internal && internal.snapshotVerificationFiles
+      );
     if (!checked.ok) {
       const extra = { notes: [checked.note] };
       return notEvaluated(withCompleteness(extra, buildCompleteness()), providerNode);
@@ -1514,7 +1549,7 @@ function identifierCeilingNotes(project, snapshot) {
   return notes;
 }
 
-function resolveTrackA1Body(input = {}) {
+function resolveTrackA1Body(input = {}, internal) {
   const { name, sourceBytes, binding, providerNode, snapshot, task, query, project } = input;
 
   if (typeof name !== "string" || name.length === 0) {
@@ -1541,7 +1576,7 @@ function resolveTrackA1Body(input = {}) {
 
   const earlyScope = resolveTaskPathScope(task);
   if (earlyScope.kind === "multi") {
-    return resolveMulti(input, earlyScope.paths);
+    return resolveMulti(input, earlyScope.paths, internal);
   }
 
   let bytes;
@@ -1595,7 +1630,15 @@ function resolveTrackA1Body(input = {}) {
 
   let snapshotTokenMatched = false;
   if (snapshot !== undefined) {
-    const checked = recomputeSnapshotToken(snapshot, bytes, binding, actualSha);
+    const checked = internal && internal.snapshotTokenPreverified === true
+      ? { ok: true }
+      : recomputeSnapshotToken(
+        snapshot,
+        bytes,
+        binding,
+        actualSha,
+        internal && internal.snapshotVerificationFiles
+      );
     if (!checked.ok) {
       const extra = { notes: [checked.note] };
       if (pathScoped) {
