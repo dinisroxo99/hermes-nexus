@@ -3834,3 +3834,118 @@ test("134. invalid data compactBytes with a providerNode getter is not_evaluated
   assert.equal(Object.hasOwn(result, "reasons"), false);
   assertContractIdentity(result);
 });
+
+test("135. a providerNode getter alone is not_evaluated without invoking the getter", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  let getterCalled = false;
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  Object.defineProperty(input, "providerNode", {
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return { id: "provider-should-not-run" };
+    }
+  });
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+
+  assert.equal(threw, false);
+  assert.equal(decoded, false);
+  assert.equal(getterCalled, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [ACCESSOR_INPUT_NOTE]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("136. a providerNode getter with a depth-33 chain reached first does not invoke the getter", () => {
+  const { sourceBytes, input } = shallowNestedInput(nestedPlainObjects(32));
+  let getterCalled = false;
+  Object.defineProperty(input, "providerNode", {
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return { id: "provider-should-not-run" };
+    }
+  });
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+
+  assert.equal(threw, false);
+  assert.equal(decoded, false);
+  assert.equal(getterCalled, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Array.isArray(result.notes), true);
+  assert.equal(result.notes.length, 1);
+  assert.equal(
+    result.notes[0] === ACCESSOR_INPUT_NOTE || result.notes[0] === NESTING_NOTE,
+    true
+  );
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("137. a providerNode getter with a cycle reached first does not invoke the getter", () => {
+  const left = {};
+  const right = {};
+  left.other = right;
+  right.other = left;
+  const { sourceBytes, input } = shallowNestedInput(left);
+  let getterCalled = false;
+  Object.defineProperty(input, "providerNode", {
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return { id: "provider-should-not-run" };
+    }
+  });
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+
+  assert.equal(threw, false);
+  assert.equal(decoded, false);
+  assert.equal(getterCalled, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Array.isArray(result.notes), true);
+  assert.equal(result.notes.length, 1);
+  assert.equal(
+    result.notes[0] === ACCESSOR_INPUT_NOTE || result.notes[0] === CYCLIC_INPUT_NOTE,
+    true
+  );
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});

@@ -1790,6 +1790,12 @@ function visitedJsonValuesExceedLimit(root) {
   return false;
 }
 
+function providerNodeArg(input) {
+  const providerOwn = ownDataProperty(input, "providerNode");
+  if (providerOwn.kind === "data") return providerOwn.value;
+  return undefined;
+}
+
 export function resolveTrackA1(input = {}) {
   const compact = readCompactBytesCeiling(input);
   if (compact.kind === "accessor") {
@@ -1806,10 +1812,10 @@ export function resolveTrackA1(input = {}) {
   const ceiling = compact.ceiling;
   const nestingNote = inspectNesting(input);
   if (nestingNote !== null) {
-    return stampContractIdentity(notEvaluated({ notes: [nestingNote] }, input.providerNode));
+    return stampContractIdentity(notEvaluated({ notes: [nestingNote] }, providerNodeArg(input)));
   }
   if (visitedJsonValuesExceedLimit(input)) {
-    return stampContractIdentity(notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] }, input.providerNode));
+    return stampContractIdentity(notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] }, providerNodeArg(input)));
   }
   const result = stampContractIdentity(resolveTrackA1Body(input));
   return throwIfCompactBytesExceeded(result, ceiling);
