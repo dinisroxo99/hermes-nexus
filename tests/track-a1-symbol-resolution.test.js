@@ -9385,3 +9385,275 @@ test("368. limits rejection plus truncated emits only limits note", () => {
   assert.equal(threw, false);
   assert.deepEqual(result.notes, [COLLECTION_LIMITS_WERE_REJECTED_NOTE]);
 });
+
+const C12_RESULT_KEY_ORDER = [
+  "status",
+  "census",
+  "coverage",
+  "notes",
+  "occurrences",
+  "completeness",
+  "revisionBinding",
+  "snapshotBinding",
+  "requestToken",
+  "counts",
+  "generatedAt",
+  "pathRecords",
+  "provider",
+  "schemaVersion",
+  "analysisVersion",
+  "policyVersion"
+];
+
+const C12_COMPLETENESS_KEY_ORDER = ["source", "parse", "enumeration", "output"];
+
+function assertKeyOrder(object, expectedOrder) {
+  const actual = Object.keys(object);
+  const filtered = expectedOrder.filter((key) => Object.hasOwn(object, key));
+  assert.deepEqual(actual, filtered);
+}
+
+function withCollectionTruncation(observation, { truncated = false, diagnostics = [] } = {}) {
+  observation.collection.truncated = truncated;
+  observation.collection.diagnostics = diagnostics;
+}
+
+test("369. query domain rejection plus truncated deep-equals clean (B28)", () => {
+  const clean = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  clean.request.query.domain = "other_domain";
+  const trunc = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  trunc.request.query.domain = "other_domain";
+  withCollectionTruncation(trunc.observation, { truncated: true });
+  const a = runAdapter(clean.request, clean.observation);
+  const b = runAdapter(trunc.request, trunc.observation);
+  assert.equal(a.threw, false);
+  assert.equal(b.threw, false);
+  assert.deepEqual(b.result, a.result);
+  assert.deepEqual(Object.keys(b.result), Object.keys(a.result));
+});
+
+test("370. query domain rejection plus diagnostics deep-equals clean (B28)", () => {
+  const clean = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  clean.request.query.domain = "other_domain";
+  const dirty = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  dirty.request.query.domain = "other_domain";
+  withCollectionTruncation(dirty.observation, { diagnostics: [{ code: "source_scan_limit" }] });
+  const a = runAdapter(clean.request, clean.observation);
+  const b = runAdapter(dirty.request, dirty.observation);
+  assert.equal(a.threw, false);
+  assert.equal(b.threw, false);
+  assert.deepEqual(b.result, a.result);
+  assert.deepEqual(Object.keys(b.result), Object.keys(a.result));
+});
+
+test("371. name exceeds 128 plus truncated deep-equals clean (B28)", () => {
+  const longName = "n".repeat(129);
+  const clean = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]], {
+    query: { name: longName, domain: SYMBOL_QUERY_DOMAIN }
+  });
+  const trunc = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]], {
+    query: { name: longName, domain: SYMBOL_QUERY_DOMAIN }
+  });
+  withCollectionTruncation(trunc.observation, { truncated: true });
+  const a = runAdapter(clean.request, clean.observation);
+  const b = runAdapter(trunc.request, trunc.observation);
+  assert.equal(a.threw, false);
+  assert.equal(b.threw, false);
+  assert.deepEqual(a.result.notes, ["name exceeds 128 characters"]);
+  assert.deepEqual(b.result, a.result);
+  assert.deepEqual(Object.keys(b.result), Object.keys(a.result));
+});
+
+test("372. name exceeds 128 plus diagnostics deep-equals clean (B28)", () => {
+  const longName = "n".repeat(129);
+  const clean = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]], {
+    query: { name: longName, domain: SYMBOL_QUERY_DOMAIN }
+  });
+  const dirty = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]], {
+    query: { name: longName, domain: SYMBOL_QUERY_DOMAIN }
+  });
+  withCollectionTruncation(dirty.observation, { diagnostics: [{ code: "source_scan_limit" }] });
+  const a = runAdapter(clean.request, clean.observation);
+  const b = runAdapter(dirty.request, dirty.observation);
+  assert.equal(a.threw, false);
+  assert.equal(b.threw, false);
+  assert.deepEqual(b.result, a.result);
+  assert.deepEqual(Object.keys(b.result), Object.keys(a.result));
+});
+
+test("373. rootId exceeds 128 plus truncated deep-equals clean (B28)", () => {
+  const longRoot = "r".repeat(129);
+  const clean = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  clean.request.worktree.rootId = longRoot;
+  clean.observation.project.rootId = longRoot;
+  const trunc = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  trunc.request.worktree.rootId = longRoot;
+  trunc.observation.project.rootId = longRoot;
+  withCollectionTruncation(trunc.observation, { truncated: true });
+  const a = runAdapter(clean.request, clean.observation);
+  const b = runAdapter(trunc.request, trunc.observation);
+  assert.equal(a.threw, false);
+  assert.equal(b.threw, false);
+  assert.deepEqual(a.result.notes, ["rootId exceeds 128 characters"]);
+  assert.deepEqual(b.result, a.result);
+  assert.deepEqual(Object.keys(b.result), Object.keys(a.result));
+});
+
+test("374. rootId exceeds 128 plus diagnostics deep-equals clean (B28)", () => {
+  const longRoot = "r".repeat(129);
+  const clean = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  clean.request.worktree.rootId = longRoot;
+  clean.observation.project.rootId = longRoot;
+  const dirty = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  dirty.request.worktree.rootId = longRoot;
+  dirty.observation.project.rootId = longRoot;
+  withCollectionTruncation(dirty.observation, { diagnostics: [{ code: "source_scan_limit" }] });
+  const a = runAdapter(clean.request, clean.observation);
+  const b = runAdapter(dirty.request, dirty.observation);
+  assert.equal(a.threw, false);
+  assert.equal(b.threw, false);
+  assert.deepEqual(b.result, a.result);
+  assert.deepEqual(Object.keys(b.result), Object.keys(a.result));
+});
+
+test("375. path exceeds 1024 plus truncated deep-equals clean (B28)", () => {
+  const longRel = "r".repeat(1025);
+  assert.ok(longRel.length > 1024);
+  const clean = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  clean.request.worktree.relativePath = longRel;
+  clean.observation.project.relativePath = longRel;
+  const trunc = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  trunc.request.worktree.relativePath = longRel;
+  trunc.observation.project.relativePath = longRel;
+  withCollectionTruncation(trunc.observation, { truncated: true });
+  const a = runAdapter(clean.request, clean.observation);
+  const b = runAdapter(trunc.request, trunc.observation);
+  assert.equal(a.threw, false);
+  assert.equal(b.threw, false);
+  assert.deepEqual(a.result.notes, ["path exceeds 1024 characters"]);
+  assert.deepEqual(b.result, a.result);
+  assert.deepEqual(Object.keys(b.result), Object.keys(a.result));
+});
+
+test("376. path exceeds 1024 plus diagnostics deep-equals clean (B28)", () => {
+  const longRel = "r".repeat(1025);
+  assert.ok(longRel.length > 1024);
+  const clean = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  clean.request.worktree.relativePath = longRel;
+  clean.observation.project.relativePath = longRel;
+  const dirty = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  dirty.request.worktree.relativePath = longRel;
+  dirty.observation.project.relativePath = longRel;
+  withCollectionTruncation(dirty.observation, { diagnostics: [{ code: "source_scan_limit" }] });
+  const a = runAdapter(clean.request, clean.observation);
+  const b = runAdapter(dirty.request, dirty.observation);
+  assert.equal(a.threw, false);
+  assert.equal(b.threw, false);
+  assert.deepEqual(b.result, a.result);
+  assert.deepEqual(Object.keys(b.result), Object.keys(a.result));
+});
+
+test("377. truncation note is not double-appended", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.truncated = true;
+  observation.collection.diagnostics = [{ code: "source_scan_limit" }];
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "partial");
+  const hits = result.notes.filter((n) => n === SOURCE_COLLECTION_WAS_TRUNCATED_NOTE);
+  assert.equal(hits.length, 1);
+});
+
+test("378. maxFileBytes alone over-max gives collection limits were rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.limits.maxFileBytes = CONTEXT_SOURCE_LIMITS.maxFileBytes + 1;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [COLLECTION_LIMITS_WERE_REJECTED_NOTE]);
+});
+
+test("379. maxTotalBytes alone over-max gives collection limits were rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.limits.maxTotalBytes = CONTEXT_SOURCE_LIMITS.maxTotalBytes + 1;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [COLLECTION_LIMITS_WERE_REJECTED_NOTE]);
+});
+
+test("380. shape before digest: malformed truncated plus bad digest gives snapshot was rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.truncated = "yes";
+  observation.collection.digest = "0".repeat(64);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE_ADAPTER]);
+});
+
+test("381. diagnostics record with non-string path gives snapshot was rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.diagnostics = [{ code: "source_scan_limit", path: 1 }];
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE_ADAPTER]);
+});
+
+test("382. diagnostics record with non-string code gives snapshot was rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.diagnostics = [{ code: 1 }];
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE_ADAPTER]);
+});
+
+test("383. parse-diagnostics partial plus truncated has C12 notes key order", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_TRUNCATED]]);
+  observation.collection.truncated = true;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "partial");
+  assert.equal(result.completeness.parse, "partial");
+  assert.equal(result.completeness.source, "partial");
+  assert.equal(result.notes[result.notes.length - 1], SOURCE_COLLECTION_WAS_TRUNCATED_NOTE);
+  assertKeyOrder(result, C12_RESULT_KEY_ORDER);
+  assertKeyOrder(result.completeness, C12_COMPLETENESS_KEY_ORDER);
+  const keys = Object.keys(result);
+  assert.ok(keys.indexOf("coverage") < keys.indexOf("notes"));
+  assert.ok(keys.indexOf("notes") < keys.indexOf("completeness"));
+  assert.notEqual(keys[keys.length - 1], "notes");
+});
+
+test("384. inherited isGit on snapshot.revision when expected carries isGit is expected revision mismatch (MR2)", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]], {
+    revision: linkedRevision({ isGit: true })
+  });
+  assert.equal(request.expectedRevision.isGit, true);
+  assert.equal(Object.hasOwn(observation.snapshot.revision, "isGit"), true);
+  const inherited = observation.snapshot.revision.isGit;
+  delete observation.snapshot.revision.isGit;
+  Object.defineProperty(Object.prototype, "isGit", {
+    value: inherited,
+    configurable: true,
+    enumerable: false,
+    writable: true
+  });
+  try {
+    assert.equal(Object.hasOwn(observation.snapshot.revision, "isGit"), false);
+    assert.equal(observation.snapshot.revision.isGit, inherited);
+    const { threw, result } = runAdapter(request, observation);
+    assert.equal(threw, false);
+    assert.equal(result.status, "not_evaluated");
+    assert.deepEqual(result.notes, [EXPECTED_REVISION_MISMATCH_NOTE]);
+  } finally {
+    delete Object.prototype.isGit;
+  }
+});
+
+test("385. diagnostics array with extra non-index own property gives snapshot was rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  const diagnostics = [{ code: "source_scan_limit" }];
+  diagnostics.extra = true;
+  observation.collection.diagnostics = diagnostics;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE_ADAPTER]);
+});

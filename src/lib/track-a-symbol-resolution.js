@@ -2402,6 +2402,12 @@ function collectionTruncationOrDiagnosticsShapeNote(collection) {
   }
   const diagnostics = diagnosticsOwn.value;
   if (diagnostics.length > 40) return SNAPSHOT_WAS_REJECTED_NOTE;
+  const diagnosticOwnNames = Object.getOwnPropertyNames(diagnostics);
+  for (let i = 0; i < diagnosticOwnNames.length; i += 1) {
+    const name = diagnosticOwnNames[i];
+    if (name === "length") continue;
+    if (!/^(0|[1-9][0-9]*)$/.test(name)) return SNAPSHOT_WAS_REJECTED_NOTE;
+  }
   for (let i = 0; i < diagnostics.length; i += 1) {
     const record = diagnostics[i];
     if (!isClosedKeyObject(record)) return SNAPSHOT_WAS_REJECTED_NOTE;
@@ -2461,7 +2467,57 @@ function collectionDutyBeforeParseNote(collection, files) {
   return collectionLimitsNote(collection);
 }
 
+function resultReachedParser(result) {
+  // deliverParsed / withParsedProvider attach provider only after createSourceFile.
+  // Pre-parse body rejections (domain, name/rootId/path ceilings) never set provider.
+  return Object.hasOwn(result, "provider");
+}
+
+function assignNotesAtC12Position(result, notes) {
+  if (Object.hasOwn(result, "notes")) {
+    result.notes = notes;
+    return;
+  }
+  const order = [
+    "status",
+    "census",
+    "coverage",
+    "notes",
+    "occurrences",
+    "completeness",
+    "revisionBinding",
+    "snapshotBinding",
+    "requestToken",
+    "counts",
+    "generatedAt",
+    "pathRecords",
+    "provider",
+    "schemaVersion",
+    "analysisVersion",
+    "policyVersion"
+  ];
+  const rebuilt = Object.create(null);
+  for (let i = 0; i < order.length; i += 1) {
+    const key = order[i];
+    if (key === "notes") {
+      rebuilt.notes = notes;
+      continue;
+    }
+    if (Object.hasOwn(result, key)) rebuilt[key] = result[key];
+  }
+  const remaining = Object.keys(result);
+  for (let i = 0; i < remaining.length; i += 1) {
+    const key = remaining[i];
+    if (!Object.hasOwn(rebuilt, key)) rebuilt[key] = result[key];
+  }
+  const existing = Object.keys(result);
+  for (let i = 0; i < existing.length; i += 1) delete result[existing[i]];
+  Object.assign(result, rebuilt);
+}
+
 function applyCollectionTruncationOverride(result, collection) {
+  if (!resultReachedParser(result)) return result;
+
   const truncatedOwn = ownDataProperty(collection, "truncated");
   const diagnosticsOwn = ownDataProperty(collection, "diagnostics");
   const truncated = truncatedOwn.kind === "data" && truncatedOwn.value === true;
@@ -2478,18 +2534,13 @@ function applyCollectionTruncationOverride(result, collection) {
       enumeration: result.completeness.enumeration,
       output: result.completeness.output
     };
-  } else {
-    result.completeness = {
-      source: "partial",
-      parse: "not_evaluated",
-      enumeration: "not_evaluated",
-      output: "not_evaluated"
-    };
   }
 
   const notes = Array.isArray(result.notes) ? result.notes.slice() : [];
-  notes.push(SOURCE_COLLECTION_WAS_TRUNCATED_NOTE);
-  result.notes = notes;
+  if (!notes.includes(SOURCE_COLLECTION_WAS_TRUNCATED_NOTE)) {
+    notes.push(SOURCE_COLLECTION_WAS_TRUNCATED_NOTE);
+  }
+  assignNotesAtC12Position(result, notes);
 
   if (result.status === "resolved_unique" || result.status === "not_found") {
     result.status = "partial";
