@@ -2263,7 +2263,7 @@ function compactInputExceedsLimit(roots) {
   const stack = Array.isArray(roots) ? roots.slice() : [roots];
   while (stack.length > 0) {
     const value = stack.pop();
-    if (value !== null && (typeof value === "object" || typeof value === "string")) {
+    if (value !== null && typeof value === "object") {
       if (seen.has(value)) continue;
       seen.add(value);
     }
