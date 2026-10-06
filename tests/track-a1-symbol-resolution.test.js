@@ -7439,7 +7439,7 @@ function assertNoThrowResolvedOrNotes(result, threw, { status, notes, hasProvide
   if (hasPathRecords !== undefined) assert.equal(Object.hasOwn(result, "pathRecords"), hasPathRecords);
 }
 
-test("260. single limits Uint8Array 2-byte leaf keeps 47d9b1e resolved_unique", () => {
+test("260. single limits Uint8Array 2-byte leaf is unknown input key", () => {
   const source = FIXTURE_SINGLE_FOO;
   const parts = fullBindingParts(source);
   let threw = false;
@@ -7459,14 +7459,14 @@ test("260. single limits Uint8Array 2-byte leaf keeps 47d9b1e resolved_unique", 
     threw = true;
   }
   assertNoThrowResolvedOrNotes(result, threw, {
-    status: "resolved_unique",
-    notes: [SYMBOL_ID_SNAPSHOT_ONLY_NOTE],
-    hasProvider: true,
-    hasPathRecords: true
+    status: "not_evaluated",
+    notes: [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE],
+    hasProvider: false,
+    hasPathRecords: false
   });
 });
 
-test("261. single task Uint8Array 2-byte leaf keeps 47d9b1e not_evaluated notes", () => {
+test("261. single task Uint8Array 2-byte leaf is unknown input key", () => {
   const source = FIXTURE_SINGLE_FOO;
   const parts = fullBindingParts(source);
   let threw = false;
@@ -7486,13 +7486,13 @@ test("261. single task Uint8Array 2-byte leaf keeps 47d9b1e not_evaluated notes"
   }
   assertNoThrowResolvedOrNotes(result, threw, {
     status: "not_evaluated",
-    notes: [NOT_ACCEPTED_A1_NOTE, SNAPSHOT_TOKEN_MATCHED_NOTE],
-    hasProvider: true,
+    notes: [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE],
+    hasProvider: false,
     hasPathRecords: false
   });
 });
 
-test("262. single project Uint8Array 2-byte leaf keeps 47d9b1e not_evaluated notes", () => {
+test("262. single project Uint8Array 2-byte leaf is unknown input key", () => {
   const source = FIXTURE_SINGLE_FOO;
   const parts = fullBindingParts(source);
   let threw = false;
@@ -7512,13 +7512,13 @@ test("262. single project Uint8Array 2-byte leaf keeps 47d9b1e not_evaluated not
   }
   assertNoThrowResolvedOrNotes(result, threw, {
     status: "not_evaluated",
-    notes: [NOT_ACCEPTED_A1_NOTE, OUTPUT_COVERAGE_INCOMPLETE_NOTE_S6FIX, SYMBOL_ID_SNAPSHOT_ONLY_NOTE],
-    hasProvider: true,
-    hasPathRecords: true
+    notes: [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE],
+    hasProvider: false,
+    hasPathRecords: false
   });
 });
 
-test("263. multi limits Buffer 2-byte leaf keeps 47d9b1e resolved_unique", () => {
+test("263. multi limits Buffer 2-byte leaf is unknown input key", () => {
   const ordered = [
     [PATH_A, FIXTURE_SINGLE_FOO],
     [PATH_B, FILE_B_OTHER]
@@ -7541,14 +7541,14 @@ test("263. multi limits Buffer 2-byte leaf keeps 47d9b1e resolved_unique", () =>
     threw = true;
   }
   assertNoThrowResolvedOrNotes(result, threw, {
-    status: "resolved_unique",
-    notes: [SYMBOL_ID_SNAPSHOT_ONLY_NOTE],
-    hasProvider: true,
-    hasPathRecords: true
+    status: "not_evaluated",
+    notes: [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE],
+    hasProvider: false,
+    hasPathRecords: false
   });
 });
 
-test("264. multi project Buffer 2-byte leaf keeps 47d9b1e not_evaluated notes", () => {
+test("264. multi project Buffer 2-byte leaf is unknown input key", () => {
   const ordered = [
     [PATH_A, FIXTURE_SINGLE_FOO],
     [PATH_B, FILE_B_OTHER]
@@ -7571,13 +7571,13 @@ test("264. multi project Buffer 2-byte leaf keeps 47d9b1e not_evaluated notes", 
   }
   assertNoThrowResolvedOrNotes(result, threw, {
     status: "not_evaluated",
-    notes: [NOT_ACCEPTED_A1_NOTE, OUTPUT_COVERAGE_INCOMPLETE_NOTE_S6FIX, SYMBOL_ID_SNAPSHOT_ONLY_NOTE],
-    hasProvider: true,
-    hasPathRecords: true
+    notes: [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE],
+    hasProvider: false,
+    hasPathRecords: false
   });
 });
 
-test("265. single files entry as Uint8Array leaf keeps 47d9b1e resolved_unique", () => {
+test("265. single files entry as Uint8Array leaf is unknown input key", () => {
   const source = FIXTURE_SINGLE_FOO;
   const parts = fullBindingParts(source);
   let threw = false;
@@ -7597,14 +7597,14 @@ test("265. single files entry as Uint8Array leaf keeps 47d9b1e resolved_unique",
     threw = true;
   }
   assertNoThrowResolvedOrNotes(result, threw, {
-    status: "resolved_unique",
-    notes: [SYMBOL_ID_SNAPSHOT_ONLY_NOTE],
-    hasProvider: true,
-    hasPathRecords: true
+    status: "not_evaluated",
+    notes: [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE],
+    hasProvider: false,
+    hasPathRecords: false
   });
 });
 
-test("266. single limits 20_000_000-byte Uint8Array finishes quickly with 47d9b1e result", () => {
+test("266. single limits 20_000_000-byte Uint8Array is unknown input key under 2000ms", () => {
   const source = FIXTURE_SINGLE_FOO;
   const parts = fullBindingParts(source);
   const leaf = new Uint8Array(20_000_000);
@@ -7627,12 +7627,13 @@ test("266. single limits 20_000_000-byte Uint8Array finishes quickly with 47d9b1
   }
   const ms = performance.now() - t0;
   assert.equal(threw, false);
-  assert.equal(result.status, "resolved_unique");
-  assert.deepEqual(result.notes, [SYMBOL_ID_SNAPSHOT_ONLY_NOTE]);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
   assert.ok(ms < 2000, "large limits leaf must finish under 2000ms, took " + ms);
 });
 
-test("267. single task 20_000_000-byte Buffer finishes quickly with 47d9b1e result", () => {
+test("267. single task 20_000_000-byte Buffer is unknown input key under 2000ms", () => {
   const source = FIXTURE_SINGLE_FOO;
   const parts = fullBindingParts(source);
   const leaf = Buffer.alloc(20_000_000);
@@ -7655,11 +7656,12 @@ test("267. single task 20_000_000-byte Buffer finishes quickly with 47d9b1e resu
   const ms = performance.now() - t0;
   assert.equal(threw, false);
   assert.equal(result.status, "not_evaluated");
-  assert.deepEqual(result.notes, [NOT_ACCEPTED_A1_NOTE, SNAPSHOT_TOKEN_MATCHED_NOTE]);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
   assert.ok(ms < 2000, "large task leaf must finish under 2000ms, took " + ms);
 });
 
-test("268. single project 20_000_000-byte Uint8Array finishes quickly with 47d9b1e result", () => {
+test("268. single project 20_000_000-byte Uint8Array is unknown input key under 2000ms", () => {
   const source = FIXTURE_SINGLE_FOO;
   const parts = fullBindingParts(source);
   const leaf = new Uint8Array(20_000_000);
@@ -7682,15 +7684,12 @@ test("268. single project 20_000_000-byte Uint8Array finishes quickly with 47d9b
   const ms = performance.now() - t0;
   assert.equal(threw, false);
   assert.equal(result.status, "not_evaluated");
-  assert.deepEqual(result.notes, [
-    NOT_ACCEPTED_A1_NOTE,
-    OUTPUT_COVERAGE_INCOMPLETE_NOTE_S6FIX,
-    SYMBOL_ID_SNAPSHOT_ONLY_NOTE
-  ]);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
   assert.ok(ms < 2000, "large project leaf must finish under 2000ms, took " + ms);
 });
 
-test("269. multi limits 20_000_000-byte Buffer finishes quickly with 47d9b1e result", () => {
+test("269. multi limits 20_000_000-byte Buffer is unknown input key under 2000ms", () => {
   const ordered = [
     [PATH_A, FIXTURE_SINGLE_FOO],
     [PATH_B, FILE_B_OTHER]
@@ -7716,12 +7715,13 @@ test("269. multi limits 20_000_000-byte Buffer finishes quickly with 47d9b1e res
   }
   const ms = performance.now() - t0;
   assert.equal(threw, false);
-  assert.equal(result.status, "resolved_unique");
-  assert.deepEqual(result.notes, [SYMBOL_ID_SNAPSHOT_ONLY_NOTE]);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
   assert.ok(ms < 2000, "large multi limits leaf must finish under 2000ms, took " + ms);
 });
 
-test("270. multi project 20_000_000-byte Uint8Array finishes quickly with 47d9b1e result", () => {
+test("270. multi project 20_000_000-byte Uint8Array is unknown input key under 2000ms", () => {
   const ordered = [
     [PATH_A, FIXTURE_SINGLE_FOO],
     [PATH_B, FILE_B_OTHER]
@@ -7747,11 +7747,8 @@ test("270. multi project 20_000_000-byte Uint8Array finishes quickly with 47d9b1
   const ms = performance.now() - t0;
   assert.equal(threw, false);
   assert.equal(result.status, "not_evaluated");
-  assert.deepEqual(result.notes, [
-    NOT_ACCEPTED_A1_NOTE,
-    OUTPUT_COVERAGE_INCOMPLETE_NOTE_S6FIX,
-    SYMBOL_ID_SNAPSHOT_ONLY_NOTE
-  ]);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
   assert.ok(ms < 2000, "large multi project leaf must finish under 2000ms, took " + ms);
 });
 
@@ -10383,4 +10380,59 @@ test("434. absent flat query still proceeds past name rejection", () => {
     project: parts.project
   });
   assert.notDeepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
+});
+
+test("435. flat single query array is unknown input key not name was rejected", () => {
+  const parts = fullBindingParts(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: []
+  });
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("436. flat single binding array is unknown input key", () => {
+  const parts = fullBindingParts(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: [],
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  });
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("437. adapter limits Uint8Array is unknown input key", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.limits = new Uint8Array([1, 2]);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("438. adapter worktree array is unknown input key", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.worktree = [];
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+});
+
+test("439. adapter limits 20_000_000-byte Buffer finishes under 2000ms with unknown input key", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.limits = Buffer.alloc(20_000_000);
+  const t0 = performance.now();
+  const { threw, result } = runAdapter(request, observation);
+  const ms = performance.now() - t0;
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
+  assert.ok(ms < 2000, "adapter large limits leaf took " + ms);
 });

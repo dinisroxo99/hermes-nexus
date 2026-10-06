@@ -152,28 +152,53 @@ function isClosedKeyObject(value) {
   return proto === Object.prototype || proto === null;
 }
 
+function isArrayOrByteLeafClosedSlot(value) {
+  return Array.isArray(value) || ArrayBuffer.isView(value);
+}
+
 function closedKeySetsNote(input, { multi }) {
   if (firstUnknownOwnStringKey(input, CLOSED_ROOT_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (isArrayOrByteLeafClosedSlot(input.limits)) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
   if (isClosedKeyObject(input.limits) && firstUnknownOwnStringKey(input.limits, CLOSED_LIMITS_KEYS) !== null) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
+  if (isArrayOrByteLeafClosedSlot(input.binding)) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
   if (isClosedKeyObject(input.binding) && firstUnknownOwnStringKey(input.binding, CLOSED_BINDING_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (isArrayOrByteLeafClosedSlot(input.task)) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
   if (isClosedKeyObject(input.task) && firstUnknownOwnStringKey(input.task, CLOSED_TASK_KEYS) !== null) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
+  if (isArrayOrByteLeafClosedSlot(input.query)) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
   if (isClosedKeyObject(input.query) && firstUnknownOwnStringKey(input.query, CLOSED_QUERY_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (isArrayOrByteLeafClosedSlot(input.project)) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
   if (isClosedKeyObject(input.project) && firstUnknownOwnStringKey(input.project, CLOSED_PROJECT_KEYS) !== null) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
+  if (isArrayOrByteLeafClosedSlot(input.snapshot)) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
   if (isClosedKeyObject(input.snapshot)) {
     const snapshotKeys = multi ? CLOSED_MULTI_SNAPSHOT_KEYS : CLOSED_SINGLE_SNAPSHOT_KEYS;
     if (firstUnknownOwnStringKey(input.snapshot, snapshotKeys) !== null) {
+      return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+    }
+    if (isArrayOrByteLeafClosedSlot(input.snapshot.revision)) {
       return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
     }
     if (
@@ -186,6 +211,9 @@ function closedKeySetsNote(input, { multi }) {
   if (Array.isArray(input.files)) {
     for (let i = 0; i < input.files.length; i += 1) {
       const entry = input.files[i];
+      if (isArrayOrByteLeafClosedSlot(entry)) {
+        return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+      }
       if (isClosedKeyObject(entry) && firstUnknownOwnStringKey(entry, CLOSED_FILES_ENTRY_KEYS) !== null) {
         return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
       }
@@ -2433,7 +2461,13 @@ function contractClosedKeysNote(request, observation) {
   if (firstUnknownOwnStringKey(request, CLOSED_REQUEST_KEYS) !== null) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
+  if (isArrayOrByteLeafClosedSlot(request.worktree)) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
   if (isClosedKeyObject(request.worktree) && firstUnknownOwnStringKey(request.worktree, CLOSED_WORKTREE_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (isArrayOrByteLeafClosedSlot(request.expectedRevision)) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
   if (
@@ -2442,10 +2476,19 @@ function contractClosedKeysNote(request, observation) {
   ) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
+  if (isArrayOrByteLeafClosedSlot(request.task)) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
   if (isClosedKeyObject(request.task) && firstUnknownOwnStringKey(request.task, CLOSED_TASK_KEYS) !== null) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
+  if (isArrayOrByteLeafClosedSlot(request.query)) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
   if (isClosedKeyObject(request.query) && firstUnknownOwnStringKey(request.query, CLOSED_QUERY_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (isArrayOrByteLeafClosedSlot(request.limits)) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
   if (isClosedKeyObject(request.limits) && firstUnknownOwnStringKey(request.limits, CLOSED_LIMITS_KEYS) !== null) {
@@ -2455,11 +2498,20 @@ function contractClosedKeysNote(request, observation) {
   if (firstUnknownOwnStringKey(observation, CLOSED_OBSERVATION_KEYS) !== null) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
+  if (isArrayOrByteLeafClosedSlot(observation.project)) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
   if (isClosedKeyObject(observation.project) && firstUnknownOwnStringKey(observation.project, CLOSED_PROJECT_KEYS) !== null) {
+    return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+  }
+  if (isArrayOrByteLeafClosedSlot(observation.snapshot)) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
   if (isClosedKeyObject(observation.snapshot)) {
     if (firstUnknownOwnStringKey(observation.snapshot, CLOSED_CONTRACT_SNAPSHOT_KEYS) !== null) {
+      return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+    }
+    if (isArrayOrByteLeafClosedSlot(observation.snapshot.revision)) {
       return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
     }
     if (
@@ -2471,6 +2523,9 @@ function contractClosedKeysNote(request, observation) {
     if (Array.isArray(observation.snapshot.files)) {
       for (let i = 0; i < observation.snapshot.files.length; i += 1) {
         const entry = observation.snapshot.files[i];
+        if (isArrayOrByteLeafClosedSlot(entry)) {
+          return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
+        }
         if (isClosedKeyObject(entry) && firstUnknownOwnStringKey(entry, CLOSED_CONTRACT_FILE_KEYS) !== null) {
           return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
         }
