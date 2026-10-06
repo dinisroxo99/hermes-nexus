@@ -10803,3 +10803,20 @@ test("466. flat compact rejection with compactBytes below result size throws bud
     (error) => error && error.code === "symbol_resolution_budget_exceeded"
   );
 });
+
+test("467. nesting rejection through deeper shared path after shallow visit", () => {
+  const shared = {};
+  let cur = shared;
+  for (let i = 0; i < 30; i += 1) {
+    cur.t = {};
+    cur = cur.t;
+  }
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    shallow: shared,
+    deep: { mid: shared }
+  });
+  assert.deepEqual(result.notes, [NESTING_NOTE]);
+});
