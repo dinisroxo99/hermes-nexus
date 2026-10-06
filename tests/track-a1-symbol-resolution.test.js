@@ -11167,34 +11167,34 @@ test("496. adapter collection key-set rejection respects compactBytes exact size
   );
 });
 
-test("497. flat invalid path scope plus null bytes is task paths were rejected", () => {
+test("497. flat invalid path scope plus null bytes is source bytes were rejected", () => {
   const result = resolveTrackA1({
     name: "foo",
     sourceBytes: null,
     binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
     task: { id: "t", paths: ["../x.js"] }
   });
-  assert.deepEqual(result.notes, [TASK_PATHS_WERE_REJECTED_NOTE]);
+  assert.deepEqual(result.notes, [SOURCE_BYTES_WERE_REJECTED_NOTE]);
 });
 
-test("498. flat invalid path scope plus binding mismatch is task paths were rejected", () => {
+test("498. flat invalid path scope plus binding mismatch is source hash binding was rejected", () => {
   const result = resolveTrackA1({
     name: "foo",
     sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
     binding: { sourceSha256: "0".repeat(64) },
     task: { id: "t", paths: ["../x.js"] }
   });
-  assert.deepEqual(result.notes, [TASK_PATHS_WERE_REJECTED_NOTE]);
+  assert.deepEqual(result.notes, [SOURCE_HASH_BINDING_WAS_REJECTED_NOTE]);
 });
 
-test("499. flat absolute path scope plus null bytes is task paths were rejected", () => {
+test("499. flat absolute path scope plus null bytes is source bytes were rejected", () => {
   const result = resolveTrackA1({
     name: "foo",
     sourceBytes: null,
     binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
     task: { id: "t", paths: ["/tmp/x.js"] }
   });
-  assert.deepEqual(result.notes, [TASK_PATHS_WERE_REJECTED_NOTE]);
+  assert.deepEqual(result.notes, [SOURCE_BYTES_WERE_REJECTED_NOTE]);
 });
 
 test("500. adapter invalid path scope plus binding-irrelevant still task paths were rejected", () => {
@@ -11203,4 +11203,16 @@ test("500. adapter invalid path scope plus binding-irrelevant still task paths w
   const { threw, result } = runAdapter(request, observation);
   assert.equal(threw, false);
   assert.deepEqual(result.notes, [TASK_PATHS_WERE_REJECTED_NOTE]);
+});
+
+test("501. thirty-three paths with one invalid still get path count note before path scope", () => {
+  const paths = Array.from({ length: 32 }, (_, i) => `f${i}.ts`);
+  paths.push("../bad.js");
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    task: { id: "t", paths }
+  });
+  assert.deepEqual(result.notes, [TASK_PATH_COUNT_EXCEEDS_32_NOTE]);
 });
