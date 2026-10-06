@@ -93,6 +93,8 @@ const SINGLE_PATH_ONLY_NOTE =
   "only a single explicit path is implemented";
 const TASK_PATH_COUNT_EXCEEDS_32_NOTE = "task path count exceeds 32";
 const FILES_WERE_REJECTED_NOTE = "files were rejected";
+const QUERY_DOMAIN_IS_NOT_SUPPORTED_NOTE = "query domain is not supported";
+const QUERY_NAME_DOES_NOT_MATCH_NAME_NOTE = "query name does not match name";
 
 const OUTPUT_COVERAGE_INCOMPLETE_NOTE =
   "output coverage is not complete, so this is neither not_found nor resolved_unique";
@@ -1110,7 +1112,26 @@ function resolveMulti(input, paths) {
     }
     snapshotTokenMatched = true;
   }
-
+  if (isPlainObject(query)) {
+    if (query.domain !== SYMBOL_QUERY_DOMAIN) {
+      return notEvaluated(
+        withCompleteness(
+          { notes: [QUERY_DOMAIN_IS_NOT_SUPPORTED_NOTE] },
+          buildCompleteness()
+        ),
+        providerNode
+      );
+    }
+    if (query.name !== name) {
+      return notEvaluated(
+        withCompleteness(
+          { notes: [QUERY_NAME_DOES_NOT_MATCH_NAME_NOTE] },
+          buildCompleteness()
+        ),
+        providerNode
+      );
+    }
+  }
   const parsedFiles = [];
   for (const file of ordered) {
     const parsed = parseTrackSource(file.text);
@@ -1451,7 +1472,22 @@ function resolveTrackA1Body(input = {}) {
     }
     snapshotTokenMatched = true;
   }
-
+  if (isPlainObject(query)) {
+    if (query.domain !== SYMBOL_QUERY_DOMAIN) {
+      const extra = { notes: [QUERY_DOMAIN_IS_NOT_SUPPORTED_NOTE] };
+      if (pathScoped) {
+        return notEvaluated(withCompleteness(extra, buildCompleteness()), providerNode);
+      }
+      return notEvaluated(extra, providerNode);
+    }
+    if (query.name !== name) {
+      const extra = { notes: [QUERY_NAME_DOES_NOT_MATCH_NAME_NOTE] };
+      if (pathScoped) {
+        return notEvaluated(withCompleteness(extra, buildCompleteness()), providerNode);
+      }
+      return notEvaluated(extra, providerNode);
+    }
+  }
   const text = bytes.toString("utf8");
   const morphProject = new Project({
     useInMemoryFileSystem: true,

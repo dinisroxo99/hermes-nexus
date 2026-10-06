@@ -1572,11 +1572,21 @@ test("43. full binding with query.domain omitted stays not_evaluated", () => {
   const source = FIXTURE_SINGLE_FOO;
   const parts = fullBindingParts(source, { query: { name: "foo" } });
   assert.equal(Object.hasOwn(parts.query, "domain"), false);
-  const result = resolveWithBinding(source, parts);
+  let threw = false;
+  let result;
+  try {
+    result = resolveWithBinding(source, parts);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
   assert.equal(result.status, "not_evaluated");
   assert.notEqual(result.status, "resolved_unique");
   assert.notEqual(result.status, "unsupported");
-  assert.equal(result.completeness.output, "not_evaluated");
+  assert.deepEqual(result.notes, [QUERY_DOMAIN_IS_NOT_SUPPORTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "occurrences"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
 });
 
 test("44. full binding with a different query.domain stays not_evaluated", () => {
@@ -1584,11 +1594,21 @@ test("44. full binding with a different query.domain stays not_evaluated", () =>
   const parts = fullBindingParts(source, {
     query: { name: "foo", domain: "other_domain_not_direct_declarations" }
   });
-  const result = resolveWithBinding(source, parts);
+  let threw = false;
+  let result;
+  try {
+    result = resolveWithBinding(source, parts);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
   assert.equal(result.status, "not_evaluated");
   assert.notEqual(result.status, "resolved_unique");
   assert.notEqual(result.status, "unsupported");
-  assert.equal(result.completeness.output, "not_evaluated");
+  assert.deepEqual(result.notes, [QUERY_DOMAIN_IS_NOT_SUPPORTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "occurrences"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
 });
 
 test("45. full binding with dirty revision stays not_evaluated", () => {
@@ -1682,9 +1702,20 @@ test("49. census 0 with query.domain omitted stays not_evaluated, not not_found"
   const source = FIXTURE_NO_FOO;
   const parts = fullBindingParts(source, { query: { name: "foo" } });
   assert.equal(Object.hasOwn(parts.query, "domain"), false);
-  const result = resolveWithBinding(source, parts);
+  let threw = false;
+  let result;
+  try {
+    result = resolveWithBinding(source, parts);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
   assert.notEqual(result.status, "not_found");
   assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [QUERY_DOMAIN_IS_NOT_SUPPORTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "occurrences"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
 });
 
 test("50. full binding and truncated invalid source stays partial, not not_found", () => {
@@ -4065,6 +4096,8 @@ const SNAPSHOT_WAS_REJECTED_NOTE = "snapshot was rejected";
 const SOURCE_DID_NOT_ROUND_TRIP_NOTE = "source did not round-trip through the parser";
 const TASK_PATH_COUNT_EXCEEDS_32_NOTE = "task path count exceeds 32";
 const FILES_WERE_REJECTED_NOTE = "files were rejected";
+const QUERY_DOMAIN_IS_NOT_SUPPORTED_NOTE = "query domain is not supported";
+const QUERY_NAME_DOES_NOT_MATCH_NAME_NOTE = "query name does not match name";
 
 function assertNonPlainRejection(result, decoded, threw) {
   assert.equal(threw, false);
@@ -6465,4 +6498,183 @@ test("223. multi files non-utf8 round-trip is not_evaluated with files were reje
     { path: PATH_A, sourceBytes: Buffer.from([0xff, 0xfe, 0x00]) },
     { path: PATH_B, sourceBytes: Buffer.from(FILE_B_OTHER, "utf8") }
   ]);
+});
+
+test("224. unsupported query.domain is not_evaluated before parse on single path", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source, {
+    query: { name: "foo", domain: "other_domain_not_direct_declarations" }
+  });
+  let threw = false;
+  let result;
+  try {
+    result = resolveWithBinding(source, parts);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [QUERY_DOMAIN_IS_NOT_SUPPORTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "occurrences"), false);
+});
+
+test("225. unsupported query.domain is not_evaluated before parse on multi path", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered, {
+    query: { name: "foo", domain: "other_domain_not_direct_declarations" }
+  });
+  let threw = false;
+  let result;
+  try {
+    result = resolveAcrossPaths(ordered, parts);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [QUERY_DOMAIN_IS_NOT_SUPPORTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "occurrences"), false);
+});
+
+test("226. query.name mismatch is not_evaluated before parse on single path", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source, {
+    query: { name: "bar", domain: SYMBOL_QUERY_DOMAIN }
+  });
+  let threw = false;
+  let result;
+  try {
+    result = resolveWithBinding(source, parts);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [QUERY_NAME_DOES_NOT_MATCH_NAME_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "occurrences"), false);
+});
+
+test("227. query.name mismatch is not_evaluated before parse on multi path", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered, {
+    query: { name: "bar", domain: SYMBOL_QUERY_DOMAIN }
+  });
+  let threw = false;
+  let result;
+  try {
+    result = resolveAcrossPaths(ordered, parts);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [QUERY_NAME_DOES_NOT_MATCH_NAME_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "occurrences"), false);
+});
+
+test("228. bad domain and mismatched name emit only the domain note", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source, {
+    query: { name: "bar", domain: "other_domain_not_direct_declarations" }
+  });
+  let threw = false;
+  let result;
+  try {
+    result = resolveWithBinding(source, parts);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [QUERY_DOMAIN_IS_NOT_SUPPORTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("229. bad binding and bad domain emit only the binding note", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source, {
+    query: { name: "foo", domain: "other_domain_not_direct_declarations" }
+  });
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: "0".repeat(64) },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SOURCE_HASH_BINDING_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("230. bad snapshot and mismatched name emit only the snapshot note", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source, {
+    query: { name: "bar", domain: SYMBOL_QUERY_DOMAIN }
+  });
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: { ...parts.snapshot, projectId: "" },
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("231. valid query with supported domain and matching name still resolves", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  assert.equal(parts.query.domain, SYMBOL_QUERY_DOMAIN);
+  assert.equal(parts.query.name, "foo");
+  let threw = false;
+  let result;
+  try {
+    result = resolveWithBinding(source, parts);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "resolved_unique");
+  assert.equal(result.census, 1);
+  assert.equal(Object.hasOwn(result, "provider"), true);
+  assert.equal(Object.hasOwn(result, "pathRecords"), true);
+  assert.equal(result.pathRecords.length, 1);
 });
