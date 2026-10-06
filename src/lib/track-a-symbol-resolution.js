@@ -497,24 +497,35 @@ function recomputeSnapshotToken(snapshot, bytes, binding, actualSha) {
   if (!(revision.branch === null || typeof revision.branch === "string")) return snapshotRejection();
   if (typeof revision.dirty !== "boolean") return snapshotRejection();
   if (typeof revision.isLinkedWorktree !== "boolean") return snapshotRejection();
+  const isGitOwn = ownDataProperty(revision, "isGit");
+  if (isGitOwn.kind === "data") {
+    if (!(isGitOwn.value === null || typeof isGitOwn.value === "boolean")) {
+      return snapshotRejection();
+    }
+  }
 
   const text = bytes.toString("utf8");
   if (!Buffer.from(text, "utf8").equals(bytes)) return snapshotRejection();
+
+  const revisionForRecompute = {
+    status: revision.status,
+    commitSha: revision.commitSha,
+    branch: revision.branch,
+    repositoryId: revision.repositoryId,
+    worktreeId: revision.worktreeId,
+    dirty: revision.dirty,
+    isLinkedWorktree: revision.isLinkedWorktree
+  };
+  if (isGitOwn.kind === "data") {
+    revisionForRecompute.isGit = isGitOwn.value;
+  }
 
   let recomputed;
   try {
     recomputed = createProviderSnapshot(
       { projectId: snapshot.projectId },
       [{ path: snapshot.path, text }],
-      {
-        status: revision.status,
-        commitSha: revision.commitSha,
-        branch: revision.branch,
-        repositoryId: revision.repositoryId,
-        worktreeId: revision.worktreeId,
-        dirty: revision.dirty,
-        isLinkedWorktree: revision.isLinkedWorktree
-      }
+      revisionForRecompute
     );
   } catch {
     return snapshotRejection();
@@ -963,21 +974,32 @@ function recomputeMultiSnapshotToken(snapshot, orderedFiles) {
   if (!(revision.branch === null || typeof revision.branch === "string")) return snapshotRejection();
   if (typeof revision.dirty !== "boolean") return snapshotRejection();
   if (typeof revision.isLinkedWorktree !== "boolean") return snapshotRejection();
+  const isGitOwn = ownDataProperty(revision, "isGit");
+  if (isGitOwn.kind === "data") {
+    if (!(isGitOwn.value === null || typeof isGitOwn.value === "boolean")) {
+      return snapshotRejection();
+    }
+  }
+
+  const revisionForRecompute = {
+    status: revision.status,
+    commitSha: revision.commitSha,
+    branch: revision.branch,
+    repositoryId: revision.repositoryId,
+    worktreeId: revision.worktreeId,
+    dirty: revision.dirty,
+    isLinkedWorktree: revision.isLinkedWorktree
+  };
+  if (isGitOwn.kind === "data") {
+    revisionForRecompute.isGit = isGitOwn.value;
+  }
 
   let recomputed;
   try {
     recomputed = createProviderSnapshot(
       { projectId: snapshot.projectId },
       orderedFiles.map((file) => ({ path: file.path, text: file.text })),
-      {
-        status: revision.status,
-        commitSha: revision.commitSha,
-        branch: revision.branch,
-        repositoryId: revision.repositoryId,
-        worktreeId: revision.worktreeId,
-        dirty: revision.dirty,
-        isLinkedWorktree: revision.isLinkedWorktree
-      }
+      revisionForRecompute
     );
   } catch {
     return snapshotRejection();

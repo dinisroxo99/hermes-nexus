@@ -226,7 +226,7 @@ function syntheticRevision() {
 }
 
 function providerRevision(revision) {
-  return {
+  const out = {
     repositoryId: revision.repositoryId,
     worktreeId: revision.worktreeId,
     status: revision.status,
@@ -235,6 +235,10 @@ function providerRevision(revision) {
     dirty: revision.dirty,
     isLinkedWorktree: revision.isLinkedWorktree
   };
+  if (Object.hasOwn(revision, "isGit")) {
+    out.isGit = revision.isGit;
+  }
+  return out;
 }
 
 function snapshotFromBytes(text, { token, sourceSha256, revision } = {}) {
@@ -4093,6 +4097,7 @@ const SOURCE_BYTES_WERE_REJECTED_NOTE = "source bytes were rejected";
 const SOURCE_HASH_BINDING_WAS_REJECTED_NOTE = "source hash binding was rejected";
 const TASK_PATHS_WERE_REJECTED_NOTE = "task paths were rejected";
 const SNAPSHOT_WAS_REJECTED_NOTE = "snapshot was rejected";
+const SNAPSHOT_TOKEN_MISMATCH_NOTE = "snapshot token did not recompute";
 const SOURCE_DID_NOT_ROUND_TRIP_NOTE = "source did not round-trip through the parser";
 const TASK_PATH_COUNT_EXCEEDS_32_NOTE = "task path count exceeds 32";
 const FILES_WERE_REJECTED_NOTE = "files were rejected";
@@ -6677,4 +6682,245 @@ test("231. valid query with supported domain and matching name still resolves", 
   assert.equal(Object.hasOwn(result, "provider"), true);
   assert.equal(Object.hasOwn(result, "pathRecords"), true);
   assert.equal(result.pathRecords.length, 1);
+});
+
+test("232. single-path isGit true recomputes and resolves unique", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source, { revision: linkedRevision({ isGit: true }) });
+  assert.equal(parts.revision.isGit, true);
+  assert.equal(parts.snapshot.revision.isGit, true);
+  let threw = false;
+  let result;
+  try {
+    result = resolveWithBinding(source, parts);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "resolved_unique");
+  assert.equal(result.census, 1);
+});
+
+test("233. multi-path isGit true recomputes and resolves unique", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered, { revision: linkedRevision({ isGit: true }) });
+  assert.equal(parts.revision.isGit, true);
+  assert.equal(parts.snapshot.revision.isGit, true);
+  let threw = false;
+  let result;
+  try {
+    result = resolveAcrossPaths(ordered, parts);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "resolved_unique");
+  assert.equal(result.census, 1);
+});
+
+test("234. single-path isGit false recomputes and resolves unique", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source, { revision: linkedRevision({ isGit: false }) });
+  assert.equal(parts.revision.isGit, false);
+  let threw = false;
+  let result;
+  try {
+    result = resolveWithBinding(source, parts);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "resolved_unique");
+});
+
+test("235. multi-path isGit false recomputes and resolves unique", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered, { revision: linkedRevision({ isGit: false }) });
+  assert.equal(parts.revision.isGit, false);
+  let threw = false;
+  let result;
+  try {
+    result = resolveAcrossPaths(ordered, parts);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "resolved_unique");
+});
+
+test("236. absent and null isGit produce the same token and both resolve", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const absentParts = fullBindingParts(source, { revision: linkedRevision() });
+  const nullParts = fullBindingParts(source, { revision: linkedRevision({ isGit: null }) });
+  assert.equal(Object.hasOwn(absentParts.revision, "isGit"), false);
+  assert.equal(Object.hasOwn(nullParts.revision, "isGit"), true);
+  assert.equal(nullParts.revision.isGit, null);
+  assert.equal(absentParts.snapshot.token, nullParts.snapshot.token);
+  let threwAbsent = false;
+  let threwNull = false;
+  let absentResult;
+  let nullResult;
+  try {
+    absentResult = resolveWithBinding(source, absentParts);
+  } catch (_error) {
+    threwAbsent = true;
+  }
+  try {
+    nullResult = resolveWithBinding(source, nullParts);
+  } catch (_error) {
+    threwNull = true;
+  }
+  assert.equal(threwAbsent, false);
+  assert.equal(threwNull, false);
+  assert.equal(absentResult.status, "resolved_unique");
+  assert.equal(nullResult.status, "resolved_unique");
+});
+
+test("237. single-path token built with isGit true but revision false is mismatch", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source, { revision: linkedRevision({ isGit: true }) });
+  const forged = {
+    ...parts.snapshot,
+    revision: { ...parts.snapshot.revision, isGit: false }
+  };
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: forged,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_TOKEN_MISMATCH_NOTE]);
+});
+
+test("238. multi-path token built with isGit true but revision false is mismatch", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered, { revision: linkedRevision({ isGit: true }) });
+  const forged = {
+    ...parts.snapshot,
+    revision: { ...parts.snapshot.revision, isGit: false }
+  };
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files: parts.files,
+      binding: { sourceSha256: parts.combinedSha },
+      snapshot: forged,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_TOKEN_MISMATCH_NOTE]);
+});
+
+test("239. present non-boolean isGit is not_evaluated with snapshot was rejected", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const forged = {
+    ...parts.snapshot,
+    revision: { ...parts.snapshot.revision, isGit: 1 }
+  };
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: forged,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+});
+
+test("240. present non-boolean string isGit is not_evaluated with snapshot was rejected", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const forged = {
+    ...parts.snapshot,
+    revision: { ...parts.snapshot.revision, isGit: "true" }
+  };
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: forged,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+});
+
+test("241. accessor isGit is not_evaluated with accessor input was rejected", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const revision = { ...parts.snapshot.revision };
+  Object.defineProperty(revision, "isGit", {
+    enumerable: true,
+    configurable: true,
+    get() {
+      return true;
+    }
+  });
+  const forged = { ...parts.snapshot, revision };
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes: Buffer.from(source, "utf8"),
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: forged,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [ACCESSOR_INPUT_NOTE]);
 });
