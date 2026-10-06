@@ -91,6 +91,8 @@ const SYMBOL_ID_SNAPSHOT_NOTE =
 
 const SINGLE_PATH_ONLY_NOTE =
   "only a single explicit path is implemented";
+const TASK_PATH_COUNT_EXCEEDS_32_NOTE = "task path count exceeds 32";
+const FILES_WERE_REJECTED_NOTE = "files were rejected";
 
 const OUTPUT_COVERAGE_INCOMPLETE_NOTE =
   "output coverage is not complete, so this is neither not_found nor resolved_unique";
@@ -1058,7 +1060,7 @@ function resolveMulti(input, paths) {
   if (!collected || collected.kind === "invalid") {
     return notEvaluated(
       withCompleteness(
-        { notes: [SINGLE_PATH_ONLY_NOTE] },
+        { notes: [FILES_WERE_REJECTED_NOTE] },
         buildCompleteness()
       ),
       providerNode
@@ -1072,7 +1074,7 @@ function resolveMulti(input, paths) {
   if (!ordered) {
     return notEvaluated(
       withCompleteness(
-        { notes: [SINGLE_PATH_ONLY_NOTE] },
+        { notes: [FILES_WERE_REJECTED_NOTE] },
         buildCompleteness()
       ),
       providerNode
@@ -1420,7 +1422,7 @@ function resolveTrackA1Body(input = {}) {
   if (pathScope.kind === "unsupported_count") {
     return notEvaluated(
       withCompleteness(
-        { notes: [SINGLE_PATH_ONLY_NOTE] },
+        { notes: [TASK_PATH_COUNT_EXCEEDS_32_NOTE] },
         buildCompleteness()
       ),
       providerNode

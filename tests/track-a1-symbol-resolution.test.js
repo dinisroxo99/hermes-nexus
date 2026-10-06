@@ -744,13 +744,8 @@ test("20. paths length 2 => not_evaluated without parse claim of resolved_unique
   assert.equal(Object.hasOwn(result, "pathRecords"), false);
   assertNoIdentityFields(result);
   assertNoOccurrencesKey(result);
-  assert.ok(Array.isArray(result.notes));
-  assert.ok(
-    result.notes.some((note) =>
-      note.includes("only a single explicit path") && note.includes("implemented")
-    ),
-    "note must say only a single explicit path is implemented"
-  );
+  assert.deepEqual(result.notes, [FILES_WERE_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
 });
 
 test("21. inputs that omit task.paths keep status and do not gain completeness", () => {
@@ -1927,9 +1922,11 @@ test("55. thirty-three task paths stay not_evaluated and do not parse", () => {
   });
 
   assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [TASK_PATH_COUNT_EXCEEDS_32_NOTE]);
   assert.equal(JSON.stringify(result).includes("resolved_unique"), false);
   assert.notEqual(result.status, "not_found");
   assert.equal(Object.hasOwn(result, "census"), false);
+  assert.equal(Object.hasOwn(result, "provider"), false);
   assert.equal(Object.hasOwn(result, "pathRecords"), false);
 });
 
@@ -4066,6 +4063,8 @@ const SOURCE_HASH_BINDING_WAS_REJECTED_NOTE = "source hash binding was rejected"
 const TASK_PATHS_WERE_REJECTED_NOTE = "task paths were rejected";
 const SNAPSHOT_WAS_REJECTED_NOTE = "snapshot was rejected";
 const SOURCE_DID_NOT_ROUND_TRIP_NOTE = "source did not round-trip through the parser";
+const TASK_PATH_COUNT_EXCEEDS_32_NOTE = "task path count exceeds 32";
+const FILES_WERE_REJECTED_NOTE = "files were rejected";
 
 function assertNonPlainRejection(result, decoded, threw) {
   assert.equal(threw, false);
@@ -6325,4 +6324,145 @@ test("213. multi-path missing binding is not_evaluated with source hash binding 
   assert.deepEqual(result.notes, [SOURCE_HASH_BINDING_WAS_REJECTED_NOTE]);
   assert.equal(Object.hasOwn(result, "provider"), false);
   assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("214. exactly 32 task paths do not emit the path-count note", () => {
+  const paths = Array.from({ length: 32 }, (_value, index) => "src/p" + index + ".js");
+  const files = paths.map((path, index) => ({
+    path,
+    sourceBytes: Buffer.from(
+      index === 0 ? "export function foo() { return 1; }\n" : ("export const x" + index + " = 1;\n"),
+      "utf8"
+    )
+  }));
+  const combinedSha = createHash("sha256").update(Buffer.concat(files.map((file) => file.sourceBytes))).digest("hex");
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files,
+      binding: { sourceSha256: combinedSha },
+      task: { id: SYNTHETIC_TASK_ID, paths },
+      project: {
+        projectId: SYNTHETIC_PROJECT_ID,
+        rootId: SYNTHETIC_ROOT_ID,
+        relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+      },
+      query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(Array.isArray(result.notes) && result.notes.includes(TASK_PATH_COUNT_EXCEEDS_32_NOTE), false);
+  assert.equal(Object.hasOwn(result, "provider"), true);
+  assert.equal(Object.hasOwn(result, "pathRecords"), true);
+});
+
+test("215. thirty-three task paths are not_evaluated with task path count exceeds 32", () => {
+  const text = FILE_B_OTHER;
+  const paths = Array.from({ length: 33 }, (_value, index) => "src/p" + index + ".js");
+  const sourceBytes = Buffer.from(text, "utf8");
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes,
+      binding: { sourceSha256: sha256Text(text) },
+      task: { id: SYNTHETIC_TASK_ID, paths },
+      files: paths.map((path) => ({ path, sourceBytes })),
+      project: {
+        projectId: SYNTHETIC_PROJECT_ID,
+        rootId: SYNTHETIC_ROOT_ID,
+        relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+      },
+      query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [TASK_PATH_COUNT_EXCEEDS_32_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+function multiFilesRejected(files) {
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files,
+      binding: { sourceSha256: "a".repeat(64) },
+      task: { id: SYNTHETIC_TASK_ID, paths: [PATH_A, PATH_B] },
+      project: {
+        projectId: SYNTHETIC_PROJECT_ID,
+        rootId: SYNTHETIC_ROOT_ID,
+        relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+      },
+      query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [FILES_WERE_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+}
+
+test("216. multi files null is not_evaluated with files were rejected", () => {
+  multiFilesRejected(null);
+});
+
+test("217. multi files length mismatch is not_evaluated with files were rejected", () => {
+  multiFilesRejected([{ path: PATH_A, sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8") }]);
+});
+
+test("218. multi files entry not plain object is not_evaluated with files were rejected", () => {
+  multiFilesRejected([
+    null,
+    { path: PATH_B, sourceBytes: Buffer.from(FILE_B_OTHER, "utf8") }
+  ]);
+});
+
+test("219. multi files non-string path is not_evaluated with files were rejected", () => {
+  multiFilesRejected([
+    { path: 1, sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8") },
+    { path: PATH_B, sourceBytes: Buffer.from(FILE_B_OTHER, "utf8") }
+  ]);
+});
+
+test("220. multi files duplicate path is not_evaluated with files were rejected", () => {
+  multiFilesRejected([
+    { path: PATH_A, sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8") },
+    { path: PATH_A, sourceBytes: Buffer.from(FILE_B_OTHER, "utf8") }
+  ]);
+});
+
+test("221. multi files bad sourceBytes type is not_evaluated with files were rejected", () => {
+  multiFilesRejected([
+    { path: PATH_A, sourceBytes: 123 },
+    { path: PATH_B, sourceBytes: Buffer.from(FILE_B_OTHER, "utf8") }
+  ]);
+});
+
+test("222. multi files missing task path is not_evaluated with files were rejected", () => {
+  multiFilesRejected([
+    { path: PATH_A, sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8") },
+    { path: "src/other.js", sourceBytes: Buffer.from(FILE_B_OTHER, "utf8") }
+  ]);
+});
+
+test("223. multi files non-utf8 round-trip is not_evaluated with files were rejected", () => {
+  multiFilesRejected([
+    { path: PATH_A, sourceBytes: Buffer.from([0xff, 0xfe, 0x00]) },
+    { path: PATH_B, sourceBytes: Buffer.from(FILE_B_OTHER, "utf8") }
+  ]);
 });
