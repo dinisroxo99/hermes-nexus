@@ -10140,3 +10140,36 @@ test("417. nesting-32 rejection still reached through a shared deep path", () =>
   });
   assert.deepEqual(result.notes, [NESTING_NOTE]);
 });
+
+test("418. thirty-three paths with rejected sourceBytes still get path count note before bytes work", () => {
+  const paths = Array.from({ length: 33 }, (_, i) => `f${i}.ts`);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: null,
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    task: { paths }
+  });
+  assert.deepEqual(result.notes, [TASK_PATH_COUNT_EXCEEDS_32_NOTE]);
+});
+
+test("419. thirty-three paths with bad binding still get path count note before hash work", () => {
+  const paths = Array.from({ length: 33 }, (_, i) => `f${i}.ts`);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: "0".repeat(64) },
+    task: { paths }
+  });
+  assert.deepEqual(result.notes, [TASK_PATH_COUNT_EXCEEDS_32_NOTE]);
+});
+
+test("420. thirty-three valid-binding paths still get path count note", () => {
+  const paths = Array.from({ length: 33 }, (_, i) => `f${i}.ts`);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    task: { paths }
+  });
+  assert.deepEqual(result.notes, [TASK_PATH_COUNT_EXCEEDS_32_NOTE]);
+});

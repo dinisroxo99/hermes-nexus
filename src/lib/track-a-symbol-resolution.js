@@ -1638,6 +1638,15 @@ function resolveTrackA1Body(input = {}, internal) {
   }
 
   const earlyScope = resolveTaskPathScope(task);
+  if (earlyScope.kind === "unsupported_count") {
+    return notEvaluated(
+      withCompleteness(
+        { notes: [TASK_PATH_COUNT_EXCEEDS_32_NOTE] },
+        buildCompleteness()
+      ),
+      providerNode
+    );
+  }
   if (earlyScope.kind === "multi") {
     return resolveMulti(input, earlyScope.paths, internal);
   }
@@ -1670,16 +1679,6 @@ function resolveTrackA1Body(input = {}, internal) {
 
   const pathScope = resolveTaskPathScope(task);
   const pathScoped = pathScope.kind === "single";
-
-  if (pathScope.kind === "unsupported_count") {
-    return notEvaluated(
-      withCompleteness(
-        { notes: [TASK_PATH_COUNT_EXCEEDS_32_NOTE] },
-        buildCompleteness()
-      ),
-      providerNode
-    );
-  }
 
   if (pathScope.kind === "invalid") {
     return notEvaluated(
