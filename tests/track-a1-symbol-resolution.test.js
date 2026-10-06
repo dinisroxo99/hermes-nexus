@@ -10038,3 +10038,64 @@ test("410. exact-limit padding derived from COMPACT_INPUT_BYTE_LIMIT constant", 
   const result = resolveTrackA1(base);
   assert.notDeepEqual(result.notes, [COMPACT_INPUT_EXCEEDED_NOTE]);
 });
+
+test("411. shared Buffer 14MiB referenced twice counts once and proceeds", () => {
+  const shared = Buffer.alloc(14 * 1048576, 0x61);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    providerNode: { a: shared, b: shared }
+  });
+  assert.notDeepEqual(result.notes, [COMPACT_INPUT_EXCEEDED_NOTE]);
+});
+
+test("412. flat compact rejection carries contract identity", () => {
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    providerNode: "x".repeat(COMPACT_INPUT_BYTE_LIMIT + 1)
+  });
+  assert.deepEqual(result.notes, [COMPACT_INPUT_EXCEEDED_NOTE]);
+  assert.equal(result.schemaVersion, 1);
+  assert.equal(result.analysisVersion, "symbol-resolution-evidence-v1");
+  assert.equal(result.policyVersion, "tsjs-direct-declarations-1");
+  assert.equal(result.generatedAt, null);
+});
+
+test("413. adapter compact rejection carries contract identity", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.padding = "x".repeat(COMPACT_INPUT_BYTE_LIMIT + 1);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [COMPACT_INPUT_EXCEEDED_NOTE]);
+  assert.equal(result.schemaVersion, 1);
+  assert.equal(result.analysisVersion, "symbol-resolution-evidence-v1");
+  assert.equal(result.policyVersion, "tsjs-direct-declarations-1");
+  assert.equal(result.generatedAt, null);
+});
+
+test("414. adapter compactBytes accessor plus over 26MiB gives accessor note", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.padding = "x".repeat(COMPACT_INPUT_BYTE_LIMIT + 1);
+  Object.defineProperty(request, "limits", {
+    enumerable: true,
+    configurable: true,
+    get() {
+      return { compactBytes: 65536 };
+    }
+  });
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [ACCESSOR_INPUT_NOTE]);
+});
+
+test("415. adapter invalid compactBytes plus over 26MiB gives compactBytes override note", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.padding = "x".repeat(COMPACT_INPUT_BYTE_LIMIT + 1);
+  request.limits = { compactBytes: 0 };
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, ["compactBytes override was rejected"]);
+});
