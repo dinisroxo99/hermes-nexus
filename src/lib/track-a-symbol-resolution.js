@@ -81,6 +81,7 @@ const SOURCE_BYTES_WERE_REJECTED_NOTE = "source bytes were rejected";
 const SOURCE_HASH_BINDING_WAS_REJECTED_NOTE = "source hash binding was rejected";
 const TASK_PATHS_WERE_REJECTED_NOTE = "task paths were rejected";
 const SNAPSHOT_WAS_REJECTED_NOTE = "snapshot was rejected";
+const SOURCE_DID_NOT_ROUND_TRIP_NOTE = "source did not round-trip through the parser";
 
 const SNAPSHOT_TOKEN_MATCHED_NOTE =
   "snapshot token matched the supplied bytes but this is not accepted A1 evidence (declaration identity and completeness are not produced here)";
@@ -1112,7 +1113,13 @@ function resolveMulti(input, paths) {
   for (const file of ordered) {
     const parsed = parseTrackSource(file.text);
     if (!parsed.ok) {
-      return withParsedProvider(notEvaluated(withCompleteness({}, buildCompleteness()), providerNode));
+      return notEvaluated(
+        withCompleteness(
+          { notes: [SOURCE_DID_NOT_ROUND_TRIP_NOTE] },
+          buildCompleteness()
+        ),
+        providerNode
+      );
     }
     parsedFiles.push({ ...file, ...parsed });
   }
@@ -1457,9 +1464,15 @@ function resolveTrackA1Body(input = {}) {
   const sourceFile = morphProject.createSourceFile("synthetic-fixture.ts", text);
   if (sourceFile.getFullText() !== text) {
     if (pathScoped) {
-      return withParsedProvider(notEvaluated(withCompleteness({}, buildCompleteness()), providerNode));
+      return notEvaluated(
+        withCompleteness(
+          { notes: [SOURCE_DID_NOT_ROUND_TRIP_NOTE] },
+          buildCompleteness()
+        ),
+        providerNode
+      );
     }
-    return withParsedProvider(notEvaluated({}, providerNode));
+    return notEvaluated({ notes: [SOURCE_DID_NOT_ROUND_TRIP_NOTE] }, providerNode);
   }
 
   const program = morphProject.getProgram().compilerObject;

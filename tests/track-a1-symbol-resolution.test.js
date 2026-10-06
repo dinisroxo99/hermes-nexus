@@ -4065,6 +4065,7 @@ const SOURCE_BYTES_WERE_REJECTED_NOTE = "source bytes were rejected";
 const SOURCE_HASH_BINDING_WAS_REJECTED_NOTE = "source hash binding was rejected";
 const TASK_PATHS_WERE_REJECTED_NOTE = "task paths were rejected";
 const SNAPSHOT_WAS_REJECTED_NOTE = "snapshot was rejected";
+const SOURCE_DID_NOT_ROUND_TRIP_NOTE = "source did not round-trip through the parser";
 
 function assertNonPlainRejection(result, decoded, threw) {
   assert.equal(threw, false);
@@ -6133,6 +6134,65 @@ test("206. snapshot shape failure is not_evaluated with snapshot was rejected", 
   assert.equal(threw, false);
   assert.equal(result.status, "not_evaluated");
   assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("207. single-path BOM source is not_evaluated with parser round-trip note", () => {
+  // ts-morph strips a leading UTF-8 BOM from getFullText, so decoded text
+  // that still contains U+FEFF fails the round-trip check.
+  const text = "\uFEFFexport function foo() { return 1; }\n";
+  const sourceBytes = Buffer.from(text, "utf8");
+  const sourceSha256 = sha256Text(text);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes,
+      binding: { sourceSha256 },
+      task: { id: SYNTHETIC_TASK_ID, paths: [SYNTHETIC_PATH] }
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SOURCE_DID_NOT_ROUND_TRIP_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("208. multi-path BOM source is not_evaluated with parser round-trip note", () => {
+  const bomText = "\uFEFFexport function foo() { return 1; }\n";
+  const otherText = FILE_B_OTHER;
+  const fileA = Buffer.from(bomText, "utf8");
+  const fileB = Buffer.from(otherText, "utf8");
+  const combinedSha = sha256Text(bomText + otherText);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files: [
+        { path: PATH_A, sourceBytes: fileA },
+        { path: PATH_B, sourceBytes: fileB }
+      ],
+      binding: { sourceSha256: combinedSha },
+      task: { id: SYNTHETIC_TASK_ID, paths: [PATH_A, PATH_B] },
+      project: {
+        projectId: SYNTHETIC_PROJECT_ID,
+        rootId: SYNTHETIC_ROOT_ID,
+        relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+      },
+      query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SOURCE_DID_NOT_ROUND_TRIP_NOTE]);
   assert.equal(Object.hasOwn(result, "provider"), false);
   assert.equal(Object.hasOwn(result, "pathRecords"), false);
 });
