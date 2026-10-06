@@ -11278,3 +11278,36 @@ test("504. flat multi query undefined proceeds past name rejection", () => {
   });
   assert.notDeepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
 });
+
+test("505. flat single-path non-plain query keeps name was rejected with completeness", () => {
+  const parts = fullBindingParts(FIXTURE_SINGLE_FOO);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: 7
+  });
+  assert.deepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "completeness"), true);
+  assert.ok(result.completeness);
+});
+
+test("506. flat catch with providerNode.id keeps sole input inspection threw note", () => {
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    providerNode: { id: "pn1", child: trackA1ThrowingProxy("ownKeys") }
+  });
+  assert.deepEqual(result.notes, [INPUT_INSPECTION_THREW_NOTE]);
+  assert.equal(
+    result.notes.includes(
+      "provider node id was not validated against the symbol, file, and snapshot and was not copied"
+    ),
+    false
+  );
+  assert.equal(Object.hasOwn(result, "provider"), false);
+});
