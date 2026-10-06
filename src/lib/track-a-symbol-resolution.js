@@ -1703,6 +1703,16 @@ const CYCLIC_INPUT_NOTE = "cyclic input was rejected";
 const ACCESSOR_INPUT_NOTE = "accessor input was rejected";
 const NON_PLAIN_INPUT_NOTE = "non-plain input was rejected";
 
+function isExactArray(value) {
+  return Array.isArray(value) && Object.getPrototypeOf(value) === Array.prototype;
+}
+
+function isAllowedByteLeaf(value) {
+  if (!ArrayBuffer.isView(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Buffer.prototype || proto === Uint8Array.prototype;
+}
+
 function isAllowedTrackA1Value(value) {
   const type = typeof value;
   if (value === null || type === "string" || type === "number" || type === "boolean" || type === "undefined") {
@@ -1712,16 +1722,18 @@ function isAllowedTrackA1Value(value) {
     return false;
   }
   if (type !== "object") return false;
-  if (Array.isArray(value)) return true;
-  if (Buffer.isBuffer(value) || ArrayBuffer.isView(value)) return true;
+  if (Array.isArray(value)) {
+    return Object.getPrototypeOf(value) === Array.prototype;
+  }
+  if (isAllowedByteLeaf(value)) return true;
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
 }
 
 function isNestingContainer(value) {
+  if (isExactArray(value)) return true;
   if (value === null || typeof value !== "object") return false;
-  if (Array.isArray(value)) return true;
-  if (Buffer.isBuffer(value) || ArrayBuffer.isView(value)) return false;
+  if (ArrayBuffer.isView(value)) return false;
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
 }
@@ -1753,8 +1765,15 @@ function nestingChildContainers(node) {
   return { note: null, children };
 }
 
+function isPlainObjectRoot(value) {
+  if (value === null || typeof value !== "object") return false;
+  if (Array.isArray(value) || ArrayBuffer.isView(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
 function inspectNesting(root) {
-  if (!isAllowedTrackA1Value(root)) return NON_PLAIN_INPUT_NOTE;
+  if (!isPlainObjectRoot(root)) return NON_PLAIN_INPUT_NOTE;
   if (!isNestingContainer(root)) return null;
   const path = [];
   const stack = [{ node: root, depth: 1, children: null, index: 0 }];
@@ -1785,10 +1804,7 @@ const VISITED_JSON_VALUE_LIMIT = 20000;
 const VISITED_JSON_VALUES_EXCEEDED_NOTE = "visited JSON values exceed 20000";
 
 function isVisitedJsonContainer(value) {
-  if (value === null || typeof value !== "object") return false;
-  if (Array.isArray(value)) return true;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
+  return isNestingContainer(value);
 }
 
 function visitedJsonValuesExceedLimit(root) {
@@ -1823,7 +1839,7 @@ function providerNodeArg(input) {
   return undefined;
 }
 
-export function resolveTrackA1(input = {}) {
+export function resolveTrackA1(input) {
   const compact = readCompactBytesCeiling(input);
   if (compact.kind === "accessor") {
     return stampContractIdentity(notEvaluated({ notes: [ACCESSOR_INPUT_NOTE] }));

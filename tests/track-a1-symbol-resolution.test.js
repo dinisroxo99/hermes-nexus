@@ -4297,30 +4297,13 @@ test("148. a Buffer under files remains accepted and evaluates as before", () =>
   assertContractIdentity(result);
 });
 
-test("149. an accessor on the parent wins over a non-plain sibling value", () => {
+test("149. the first offending own key wins between accessor and non-plain", () => {
   const source = FIXTURE_SINGLE_FOO;
   const parts = fullBindingParts(source);
   const sourceBytes = Buffer.from(source, "utf8");
-  let getterCalled = false;
-  const input = {
-    name: "foo",
-    sourceBytes,
-    binding: { sourceSha256: parts.sourceSha256 },
-    snapshot: parts.snapshot,
-    task: parts.task,
-    project: parts.project,
-    query: parts.query,
-    later: new Date(0)
-  };
-  Object.defineProperty(input, "earlier", {
-    enumerable: true,
-    get() {
-      getterCalled = true;
-      return 1;
-    }
-  });
-  // Force descriptor order: recreate with accessor key before later by defining on a fresh object in order.
-  const ordered = {
+
+  let accessorFirstCalled = false;
+  const accessorFirst = {
     name: "foo",
     sourceBytes,
     binding: { sourceSha256: parts.sourceSha256 },
@@ -4329,28 +4312,353 @@ test("149. an accessor on the parent wins over a non-plain sibling value", () =>
     project: parts.project,
     query: parts.query
   };
-  Object.defineProperty(ordered, "trap", {
+  Object.defineProperty(accessorFirst, "trap", {
     enumerable: true,
     get() {
-      getterCalled = true;
+      accessorFirstCalled = true;
       return 1;
     }
   });
-  ordered.later = new Date(0);
+  accessorFirst.later = new Date(0);
   let threw = false;
   let decoded = true;
   let result;
   try {
-    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(ordered)));
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(accessorFirst)));
   } catch (_error) {
     threw = true;
   }
   assert.equal(threw, false);
   assert.equal(decoded, false);
-  assert.equal(getterCalled, false);
+  assert.equal(accessorFirstCalled, false);
   assert.equal(result.status, "not_evaluated");
   assert.deepEqual(result.notes, [ACCESSOR_INPUT_NOTE]);
   assert.equal(Object.hasOwn(result, "pathRecords"), false);
+
+  let nonPlainFirstCalled = false;
+  const nonPlainFirst = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    a: new Date(0)
+  };
+  Object.defineProperty(nonPlainFirst, "b", {
+    enumerable: true,
+    get() {
+      nonPlainFirstCalled = true;
+      return 1;
+    }
+  });
+  threw = false;
+  decoded = true;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(nonPlainFirst)));
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(decoded, false);
+  assert.equal(nonPlainFirstCalled, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [NON_PLAIN_INPUT_NOTE]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("150. Object.create(Buffer.prototype) under sourceBytes is not_evaluated without invoking byteLength", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const realBytes = Buffer.from(source, "utf8");
+  let byteLengthCalled = false;
+  const fake = Object.create(Buffer.prototype);
+  Object.defineProperty(fake, "byteLength", {
+    enumerable: true,
+    get() {
+      byteLengthCalled = true;
+      return realBytes.byteLength;
+    }
+  });
+  const input = {
+    name: "foo",
+    sourceBytes: fake,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([realBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(byteLengthCalled, false);
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("151. a Buffer subclass instance is not_evaluated before decode", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const realBytes = Buffer.from(source, "utf8");
+  class SubBuffer extends Uint8Array {}
+  const subclass = Object.setPrototypeOf(Buffer.from(source, "utf8"), SubBuffer.prototype);
+  const input = {
+    name: "foo",
+    sourceBytes: subclass,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([realBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("152. class X extends Array under task.paths is not_evaluated before decode", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  class PathList extends Array {}
+  const paths = new PathList();
+  paths.push(parts.task.paths[0]);
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: { id: parts.task.id, paths },
+    project: parts.project,
+    query: parts.query
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("153. an array with a changed prototype is not_evaluated before decode", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const paths = parts.task.paths.slice();
+  Object.setPrototypeOf(paths, Object.prototype);
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: { id: parts.task.id, paths },
+    project: parts.project,
+    query: parts.query
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("154. a Float64Array is not_evaluated before decode", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    samples: new Float64Array([1, 2])
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("155. a DataView is not_evaluated before decode", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    view: new DataView(new ArrayBuffer(8))
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("156. a null root is not_evaluated without throwing", () => {
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1(null);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [NON_PLAIN_INPUT_NOTE]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("157. an undefined root is not_evaluated without throwing", () => {
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1(undefined);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [NON_PLAIN_INPUT_NOTE]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("158. a null-prototype nested object is accepted without the non-plain note", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const query = Object.assign(Object.create(null), {
+    name: "foo",
+    domain: parts.query.domain
+  });
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(source, "utf8"),
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query
+  });
+  assert.equal(result.status, "resolved_unique");
+  const notes = Array.isArray(result.notes) ? result.notes : [];
+  assert.equal(notes.includes(NON_PLAIN_INPUT_NOTE), false);
+  assert.equal(Object.hasOwn(result, "limits"), false);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assertContractIdentity(result);
+});
+
+test("159. a symbol value is not_evaluated before decode", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    tag: Symbol("x")
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("160. a boxed primitive is not_evaluated before decode", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    boxed: new String("x")
+  };
+  let threw = false;
+  let decoded = true;
+  let result;
+  try {
+    ({ result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1(input)));
+  } catch (_error) {
+    threw = true;
+  }
+  assertNonPlainRejection(result, decoded, threw);
+});
+
+test("161. a Uint8Array sourceBytes is accepted when the body already accepts it", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Uint8Array.from(Buffer.from(source, "utf8"));
+  assert.equal(Object.getPrototypeOf(sourceBytes), Uint8Array.prototype);
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  });
+  assert.equal(result.status, "resolved_unique");
+  const notes = Array.isArray(result.notes) ? result.notes : [];
+  assert.equal(notes.includes(NON_PLAIN_INPUT_NOTE), false);
   assert.equal(Object.hasOwn(result, "limits"), false);
   assert.equal(Object.hasOwn(result, "reasons"), false);
   assertContractIdentity(result);
