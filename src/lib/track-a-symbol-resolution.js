@@ -2070,6 +2070,7 @@ function stampContractIdentity(result) {
 
 const COMPACT_BYTES_DEFAULT = 65536;
 const COMPACT_BYTES_MAX = 131072;
+const INPUT_INSPECTION_THREW_NOTE = "input inspection threw and was rejected";
 const COMPACT_BYTES_REJECTED_NOTE = "compactBytes override was rejected";
 
 function descriptorHasAccessor(desc) {
@@ -2352,48 +2353,41 @@ function providerNodeArg(input) {
 }
 
 export function resolveTrackA1(input) {
-  const compact = readCompactBytesCeiling(input);
-  if (compact.kind === "accessor") {
-    return throwIfCompactBytesExceeded(
-      stampContractIdentity(notEvaluated({ notes: [ACCESSOR_INPUT_NOTE] })),
-      COMPACT_BYTES_DEFAULT
-    );
-  }
-  if (compact.kind === "rejected") {
-    const providerOwn = ownDataProperty(input, "providerNode");
-    if (providerOwn.kind === "accessor") {
-      return throwIfCompactBytesExceeded(
-        stampContractIdentity(notEvaluated({ notes: [ACCESSOR_INPUT_NOTE] })),
-        COMPACT_BYTES_DEFAULT
-      );
+  let ceiling = COMPACT_BYTES_DEFAULT;
+  let result;
+  try {
+    const compact = readCompactBytesCeiling(input);
+    if (compact.kind === "accessor") {
+      result = stampContractIdentity(notEvaluated({ notes: [ACCESSOR_INPUT_NOTE] }));
+    } else if (compact.kind === "rejected") {
+      const providerOwn = ownDataProperty(input, "providerNode");
+      if (providerOwn.kind === "accessor") {
+        result = stampContractIdentity(notEvaluated({ notes: [ACCESSOR_INPUT_NOTE] }));
+      } else {
+        const providerNode = providerOwn.kind === "data" ? providerOwn.value : undefined;
+        result = stampContractIdentity(rejectCompactBytesOverride(providerNode));
+      }
+    } else {
+      ceiling = compact.ceiling;
+      const nestingNote = inspectNesting(input);
+      if (nestingNote !== null) {
+        result = stampContractIdentity(notEvaluated({ notes: [nestingNote] }, providerNodeArg(input)));
+      } else if (visitedJsonValuesExceedLimit(input)) {
+        result = stampContractIdentity(
+          notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] }, providerNodeArg(input))
+        );
+      } else if (compactInputExceedsLimit(input)) {
+        result = stampContractIdentity(
+          notEvaluated({ notes: [COMPACT_INPUT_EXCEEDED_NOTE] }, providerNodeArg(input))
+        );
+      } else {
+        result = stampContractIdentity(resolveTrackA1Body(input));
+      }
     }
-    const providerNode = providerOwn.kind === "data" ? providerOwn.value : undefined;
-    return throwIfCompactBytesExceeded(
-      stampContractIdentity(rejectCompactBytesOverride(providerNode)),
-      COMPACT_BYTES_DEFAULT
-    );
+  } catch {
+    // Option B: hides internal bugs; Proxy trap throws become this note.
+    result = stampContractIdentity(notEvaluated({ notes: [INPUT_INSPECTION_THREW_NOTE] }));
   }
-  const ceiling = compact.ceiling;
-  const nestingNote = inspectNesting(input);
-  if (nestingNote !== null) {
-    return throwIfCompactBytesExceeded(
-      stampContractIdentity(notEvaluated({ notes: [nestingNote] }, providerNodeArg(input))),
-      ceiling
-    );
-  }
-  if (visitedJsonValuesExceedLimit(input)) {
-    return throwIfCompactBytesExceeded(
-      stampContractIdentity(notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] }, providerNodeArg(input))),
-      ceiling
-    );
-  }
-  if (compactInputExceedsLimit(input)) {
-    return throwIfCompactBytesExceeded(
-      stampContractIdentity(notEvaluated({ notes: [COMPACT_INPUT_EXCEEDED_NOTE] }, providerNodeArg(input))),
-      ceiling
-    );
-  }
-  const result = stampContractIdentity(resolveTrackA1Body(input));
   return throwIfCompactBytesExceeded(result, ceiling);
 }
 
@@ -2844,57 +2838,48 @@ function verifyContractSnapshotToken(snapshot, verifiedFiles) {
 }
 
 export function resolveTypeScriptDeclarationEvidence(request, observation) {
+  let ceiling = COMPACT_BYTES_DEFAULT;
+  let result;
+  try {
+    trackA1Adapter: {
   const compact = readCompactBytesCeiling(request);
   if (compact.kind === "accessor") {
-    return throwIfCompactBytesExceeded(
-      stampContractIdentity(notEvaluated({ notes: [ACCESSOR_INPUT_NOTE] })),
-      COMPACT_BYTES_DEFAULT
-    );
+    result = stampContractIdentity(notEvaluated({ notes: [ACCESSOR_INPUT_NOTE] }));
+    break trackA1Adapter;
   }
   if (compact.kind === "rejected") {
-    return throwIfCompactBytesExceeded(
-      stampContractIdentity(rejectCompactBytesOverride()),
-      COMPACT_BYTES_DEFAULT
-    );
+    result = stampContractIdentity(rejectCompactBytesOverride());
+    break trackA1Adapter;
   }
-  const ceiling = compact.ceiling;
+  ceiling = compact.ceiling;
 
   const requestNesting = inspectNesting(request);
   if (requestNesting !== null) {
-    return throwIfCompactBytesExceeded(
-      stampContractIdentity(notEvaluated({ notes: [requestNesting] })),
-      ceiling
-    );
+    result = stampContractIdentity(notEvaluated({ notes: [requestNesting] }));
+    break trackA1Adapter;
   }
   if (visitedJsonValuesExceedLimit(request)) {
-    return throwIfCompactBytesExceeded(
-      stampContractIdentity(notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] })),
-      ceiling
-    );
+    result = stampContractIdentity(notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] }));
+    break trackA1Adapter;
   }
   const observationNesting = inspectNesting(observation);
   if (observationNesting !== null) {
-    return throwIfCompactBytesExceeded(
-      stampContractIdentity(notEvaluated({ notes: [observationNesting] })),
-      ceiling
-    );
+    result = stampContractIdentity(notEvaluated({ notes: [observationNesting] }));
+    break trackA1Adapter;
   }
   if (visitedJsonValuesExceedLimit(observation)) {
-    return throwIfCompactBytesExceeded(
-      stampContractIdentity(notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] })),
-      ceiling
-    );
+    result = stampContractIdentity(notEvaluated({ notes: [VISITED_JSON_VALUES_EXCEEDED_NOTE] }));
+    break trackA1Adapter;
   }
   if (compactInputExceedsLimit([request, observation])) {
-    return throwIfCompactBytesExceeded(
-      stampContractIdentity(notEvaluated({ notes: [COMPACT_INPUT_EXCEEDED_NOTE] })),
-      ceiling
-    );
+    result = stampContractIdentity(notEvaluated({ notes: [COMPACT_INPUT_EXCEEDED_NOTE] }));
+    break trackA1Adapter;
   }
 
   const closedNote = contractClosedKeysNote(request, observation);
   if (closedNote !== null) {
-    return adapterNotEvaluated(closedNote);
+    result = adapterNotEvaluated(closedNote);
+    break trackA1Adapter;
   }
 
   // Collection is required (C3.2 / S7). Key set checked here; C7 digest/limits/shape
@@ -2902,63 +2887,75 @@ export function resolveTypeScriptDeclarationEvidence(request, observation) {
   // Operator decision: missing/non-plain collection uses snapshot was rejected.
   const collectionOwn = ownDataProperty(observation, "collection");
   if (collectionOwn.kind !== "data" || !isClosedKeyObject(collectionOwn.value)) {
-    return adapterNotEvaluated(SNAPSHOT_WAS_REJECTED_NOTE);
+    result = adapterNotEvaluated(SNAPSHOT_WAS_REJECTED_NOTE);
+    break trackA1Adapter;
   }
   const collectionNote = collectionKeysNote(collectionOwn.value);
   if (collectionNote !== null) {
-    return adapterNotEvaluated(collectionNote);
+    result = adapterNotEvaluated(collectionNote);
+    break trackA1Adapter;
   }
   const collection = collectionOwn.value;
 
   if (!locatorMatches(request, observation)) {
-    return adapterNotEvaluated(PROJECT_LOCATOR_MISMATCH_NOTE);
+    result = adapterNotEvaluated(PROJECT_LOCATOR_MISMATCH_NOTE);
+    break trackA1Adapter;
   }
 
   const snapshot = observation.snapshot;
   if (!isPlainObject(snapshot)) {
-    return adapterNotEvaluated(SNAPSHOT_WAS_REJECTED_NOTE);
+    result = adapterNotEvaluated(SNAPSHOT_WAS_REJECTED_NOTE);
+    break trackA1Adapter;
   }
   if (!expectedRevisionMatches(request.expectedRevision, snapshot.revision)) {
-    return adapterNotEvaluated(EXPECTED_REVISION_MISMATCH_NOTE);
+    result = adapterNotEvaluated(EXPECTED_REVISION_MISMATCH_NOTE);
+    break trackA1Adapter;
   }
 
   const filesCheck = verifyContractSnapshotFiles(snapshot.files);
   if (!filesCheck.ok) {
-    return adapterNotEvaluated(filesCheck.note);
+    result = adapterNotEvaluated(filesCheck.note);
+    break trackA1Adapter;
   }
   const verifiedFiles = filesCheck.files;
 
   const tokenCheck = verifyContractSnapshotToken(snapshot, verifiedFiles);
   if (!tokenCheck.ok) {
-    return adapterNotEvaluated(tokenCheck.note);
+    result = adapterNotEvaluated(tokenCheck.note);
+    break trackA1Adapter;
   }
 
   const task = request.task;
   const scope = resolveTaskPathScope(task);
   if (scope.kind === "absent" || scope.kind === "invalid") {
-    return adapterNotEvaluated(TASK_PATHS_WERE_REJECTED_NOTE);
+    result = adapterNotEvaluated(TASK_PATHS_WERE_REJECTED_NOTE);
+    break trackA1Adapter;
   }
   if (scope.kind === "unsupported_count") {
-    return adapterNotEvaluated(TASK_PATH_COUNT_EXCEEDS_32_NOTE);
+    result = adapterNotEvaluated(TASK_PATH_COUNT_EXCEEDS_32_NOTE);
+    break trackA1Adapter;
   }
 
   const filesByPath = new Map(verifiedFiles.map((file) => [file.path, file]));
   const taskPaths = scope.kind === "single" ? [scope.path] : scope.paths;
   for (let i = 0; i < taskPaths.length; i += 1) {
     if (!filesByPath.has(taskPaths[i])) {
-      return adapterNotEvaluated(TASK_PATH_NOT_IN_SNAPSHOT_NOTE);
+      result = adapterNotEvaluated(TASK_PATH_NOT_IN_SNAPSHOT_NOTE);
+    break trackA1Adapter;
     }
   }
 
   const query = request.query;
   if (!isPlainObject(query) || typeof query.name !== "string") {
-    return adapterNotEvaluated(NAME_WAS_REJECTED_NOTE);
+    result = adapterNotEvaluated(NAME_WAS_REJECTED_NOTE);
+    break trackA1Adapter;
   }
 
   // C7 / S8 collection duty: shape, digest, then limits — last before parse.
   const collectionDutyNote = collectionDutyBeforeParseNote(collection, verifiedFiles);
   if (collectionDutyNote !== null) {
-    return adapterNotEvaluated(collectionDutyNote);
+    result = adapterNotEvaluated(collectionDutyNote);
+    break trackA1Adapter;
   }
 
   const verificationFiles = verifiedFiles.map((file) => ({ path: file.path, text: file.text }));
@@ -3003,11 +3000,17 @@ export function resolveTypeScriptDeclarationEvidence(request, observation) {
     };
   }
 
-  const result = stampContractIdentity(
+  result = stampContractIdentity(
     resolveTrackA1Body(flatInput, Object.assign(Object.create(null), {
       snapshotVerificationFiles: verificationFiles
     }))
   );
   applyCollectionTruncationOverride(result, collection);
+    break trackA1Adapter;
+    }
+  } catch {
+    // Option B: hides internal bugs; Proxy trap throws become this note.
+    result = stampContractIdentity(notEvaluated({ notes: [INPUT_INSPECTION_THREW_NOTE] }));
+  }
   return throwIfCompactBytesExceeded(result, ceiling);
 }

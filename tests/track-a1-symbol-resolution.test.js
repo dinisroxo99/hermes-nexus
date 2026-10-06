@@ -10437,3 +10437,181 @@ test("439. adapter limits 20_000_000-byte Buffer finishes under 2000ms with unkn
   assert.deepEqual(result.notes, [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]);
   assert.ok(ms < 2000, "adapter large limits leaf took " + ms);
 });
+
+const INPUT_INSPECTION_THREW_NOTE = "input inspection threw and was rejected";
+
+function trackA1ThrowingProxy(trapName) {
+  const target = {};
+  const handler = {
+    getPrototypeOf() {
+      if (trapName === "getPrototypeOf") throw new Error("proxy:getPrototypeOf");
+      return Object.prototype;
+    },
+    ownKeys() {
+      if (trapName === "ownKeys") throw new Error("proxy:ownKeys");
+      return ["x"];
+    },
+    getOwnPropertyDescriptor() {
+      if (trapName === "getOwnPropertyDescriptor") throw new Error("proxy:getOwnPropertyDescriptor");
+      return { configurable: true, enumerable: true, value: 1 };
+    },
+    get() {
+      if (trapName === "get") throw new Error("proxy:get");
+      return 1;
+    },
+    has() {
+      if (trapName === "has") throw new Error("proxy:has");
+      return true;
+    }
+  };
+  return new Proxy(target, handler);
+}
+
+function trackA1ThrowingRootProxy(trapName, real) {
+  return new Proxy(real, {
+    getPrototypeOf() {
+      if (trapName === "getPrototypeOf") throw new Error("proxy:getPrototypeOf");
+      return Object.prototype;
+    },
+    ownKeys() {
+      if (trapName === "ownKeys") throw new Error("proxy:ownKeys");
+      return Reflect.ownKeys(real);
+    },
+    getOwnPropertyDescriptor(_t, key) {
+      if (trapName === "getOwnPropertyDescriptor") throw new Error("proxy:getOwnPropertyDescriptor");
+      return Object.getOwnPropertyDescriptor(real, key);
+    },
+    get(_t, key) {
+      if (trapName === "get") throw new Error("proxy:get");
+      return real[key];
+    },
+    has(_t, key) {
+      if (trapName === "has") throw new Error("proxy:has");
+      return key in real;
+    }
+  });
+}
+
+function assertInspectionThrew(result) {
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [INPUT_INSPECTION_THREW_NOTE]);
+  assert.equal(result.notes[0], INPUT_INSPECTION_THREW_NOTE);
+  assert.equal(result.schemaVersion, 1);
+  assert.equal(result.analysisVersion, "symbol-resolution-evidence-v1");
+  assert.equal(result.policyVersion, "tsjs-direct-declarations-1");
+  assert.equal(result.generatedAt, null);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "completeness"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+  assert.equal(Object.hasOwn(result, "occurrences"), false);
+  assert.equal(Object.hasOwn(result, "counts"), false);
+}
+
+test("441. flat providerNode child Proxy getOwnPropertyDescriptor trap is input inspection threw", () => {
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    providerNode: { child: trackA1ThrowingProxy("getOwnPropertyDescriptor") }
+  });
+  assertInspectionThrew(result);
+});
+
+test("442. adapter request padding Proxy getOwnPropertyDescriptor trap is input inspection threw", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.padding = { child: trackA1ThrowingProxy("getOwnPropertyDescriptor") };
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assertInspectionThrew(result);
+});
+
+test("443. flat providerNode child Proxy ownKeys trap is input inspection threw", () => {
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    providerNode: { child: trackA1ThrowingProxy("ownKeys") }
+  });
+  assertInspectionThrew(result);
+});
+
+test("444. adapter request padding Proxy ownKeys trap is input inspection threw", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.padding = { child: trackA1ThrowingProxy("ownKeys") };
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assertInspectionThrew(result);
+});
+
+test("445. flat providerNode child Proxy getPrototypeOf trap is input inspection threw", () => {
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    providerNode: { child: trackA1ThrowingProxy("getPrototypeOf") }
+  });
+  assertInspectionThrew(result);
+});
+
+test("446. adapter request padding Proxy getPrototypeOf trap is input inspection threw", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.padding = { child: trackA1ThrowingProxy("getPrototypeOf") };
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assertInspectionThrew(result);
+});
+
+test("447. flat root Proxy get trap is input inspection threw", () => {
+  const real = {
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) }
+  };
+  const result = resolveTrackA1(trackA1ThrowingRootProxy("get", real));
+  assertInspectionThrew(result);
+});
+
+test("448. adapter request root Proxy get trap is input inspection threw", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  const proxied = trackA1ThrowingRootProxy("get", request);
+  const { threw, result } = runAdapter(proxied, observation);
+  assert.equal(threw, false);
+  assertInspectionThrew(result);
+});
+
+test("449. flat budget throw still propagates outside inspection catch", () => {
+  const input = {
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    limits: { compactBytes: 50 }
+  };
+  let cur = input;
+  for (let i = 0; i < 40; i += 1) {
+    cur.child = {};
+    cur = cur.child;
+  }
+  assert.throws(
+    () => resolveTrackA1(input),
+    (error) => error && error.code === "symbol_resolution_budget_exceeded"
+  );
+});
+
+test("450. adapter budget throw still propagates outside inspection catch", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.padding = "x".repeat(COMPACT_INPUT_BYTE_LIMIT + 1);
+  request.limits = { compactBytes: 50 };
+  let threw = false;
+  let code = null;
+  try {
+    resolveTypeScriptDeclarationEvidence(request, observation);
+  } catch (error) {
+    threw = true;
+    code = error && error.code;
+  }
+  assert.equal(threw, true);
+  assert.equal(code, "symbol_resolution_budget_exceeded");
+});
+
+// Option B catch hides internal bugs; budget throws stay outside try.
+// Probe: Proxy [[Has]] is never invoked by Track A1 walks (0 calls); has-trap RED omitted.
