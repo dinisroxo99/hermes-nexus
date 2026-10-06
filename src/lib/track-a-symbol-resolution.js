@@ -186,9 +186,29 @@ function sha256Bytes(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+const typedArrayLengthGet = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Uint8Array.prototype),
+  "length"
+).get;
+const typedArraySet = Object.getPrototypeOf(Uint8Array.prototype).set;
+
+function uint8ArrayLengthWithoutOwnGet(value) {
+  return Reflect.apply(typedArrayLengthGet, value, []);
+}
+
+function copyByteLeafToBuffer(leaf) {
+  const len = uint8ArrayLengthWithoutOwnGet(leaf);
+  const copy = Buffer.alloc(len);
+  Reflect.apply(typedArraySet, copy, [leaf]);
+  return copy;
+}
+
 function toBuffer(sourceBytes) {
-  if (Buffer.isBuffer(sourceBytes)) return sourceBytes;
-  if (sourceBytes instanceof Uint8Array) return Buffer.from(sourceBytes);
+  // Byte leaves are copied through intrinsics. Callers must enforce the
+  // per-file ceiling on the raw leaf before calling this for isAllowedByteLeaf.
+  if (isAllowedByteLeaf(sourceBytes)) {
+    return copyByteLeafToBuffer(sourceBytes);
+  }
   if (typeof sourceBytes === "string") return Buffer.from(sourceBytes, "utf8");
   return null;
 }
@@ -868,23 +888,38 @@ function notFoundResult({
 
 
 function collectRawOrderedFiles(paths, files) {
-  if (!Array.isArray(files) || files.length !== paths.length) return null;
+  if (!Array.isArray(files) || files.length !== paths.length) return { kind: "invalid" };
   const byPath = new Map();
+  const lengths = [];
   for (const entry of files) {
-    if (!isPlainObject(entry) || typeof entry.path !== "string") return null;
-    if (byPath.has(entry.path)) return null;
-    const bytes = toBuffer(entry.sourceBytes);
-    if (!bytes) return null;
-    byPath.set(entry.path, bytes);
+    if (!isPlainObject(entry) || typeof entry.path !== "string") return { kind: "invalid" };
+    if (byPath.has(entry.path)) return { kind: "invalid" };
+    const source = entry.sourceBytes;
+    if (isAllowedByteLeaf(source)) {
+      lengths.push(uint8ArrayLengthWithoutOwnGet(source));
+      byPath.set(entry.path, { kind: "leaf", source });
+    } else if (typeof source === "string") {
+      lengths.push(Buffer.byteLength(source, "utf8"));
+      byPath.set(entry.path, { kind: "string", source });
+    } else {
+      return { kind: "invalid" };
+    }
   }
-  if (byPath.size !== paths.length) return null;
+  if (byPath.size !== paths.length) return { kind: "invalid" };
+  for (const path of paths) {
+    if (!byPath.has(path)) return { kind: "invalid" };
+  }
+  // Ceiling against raw intrinsic lengths before any Buffer.from / copy.
+  if (exceedsSourceByteCeiling(lengths)) return { kind: "oversized" };
   const ordered = [];
   for (const path of paths) {
-    const bytes = byPath.get(path);
-    if (!bytes) return null;
+    const item = byPath.get(path);
+    const bytes = item.kind === "leaf"
+      ? copyByteLeafToBuffer(item.source)
+      : Buffer.from(item.source, "utf8");
     ordered.push({ path, bytes });
   }
-  return ordered;
+  return { kind: "ok", files: ordered };
 }
 
 function decodeOrderedFiles(rawFiles) {
@@ -1012,8 +1047,8 @@ function multiUniqueBindingReady(args) {
 
 function resolveMulti(input, paths) {
   const { name, files, binding, providerNode, snapshot, task, query, project } = input;
-  const rawFiles = collectRawOrderedFiles(paths, files);
-  if (!rawFiles) {
+  const collected = collectRawOrderedFiles(paths, files);
+  if (!collected || collected.kind === "invalid") {
     return notEvaluated(
       withCompleteness(
         { notes: [SINGLE_PATH_ONLY_NOTE] },
@@ -1022,9 +1057,10 @@ function resolveMulti(input, paths) {
       providerNode
     );
   }
-  if (exceedsSourceByteCeiling(rawFiles.map((file) => uint8ArrayLengthWithoutOwnGet(file.bytes)))) {
+  if (collected.kind === "oversized") {
     return sourceByteCeilingResult(providerNode);
   }
+  const rawFiles = collected.files;
   const ordered = decodeOrderedFiles(rawFiles);
   if (!ordered) {
     return notEvaluated(
@@ -1327,12 +1363,21 @@ function resolveTrackA1Body(input = {}) {
     return resolveMulti(input, earlyScope.paths);
   }
 
-  const bytes = toBuffer(sourceBytes);
-  if (!bytes) {
-    return notEvaluated({}, providerNode);
-  }
-  if (exceedsSourceByteCeiling([uint8ArrayLengthWithoutOwnGet(bytes)])) {
-    return sourceByteCeilingResult(providerNode);
+  let bytes;
+  if (isAllowedByteLeaf(sourceBytes)) {
+    // Ceiling on the raw leaf before any copy or Buffer.from.
+    if (exceedsSourceByteCeiling([uint8ArrayLengthWithoutOwnGet(sourceBytes)])) {
+      return sourceByteCeilingResult(providerNode);
+    }
+    bytes = copyByteLeafToBuffer(sourceBytes);
+  } else {
+    bytes = toBuffer(sourceBytes);
+    if (!bytes) {
+      return notEvaluated({}, providerNode);
+    }
+    if (exceedsSourceByteCeiling([bytes.byteLength])) {
+      return sourceByteCeilingResult(providerNode);
+    }
   }
 
   if (!isPlainObject(binding) || typeof binding.sourceSha256 !== "string" || binding.sourceSha256.length === 0) {
@@ -1714,33 +1759,18 @@ function isAllowedByteLeaf(value) {
   return proto === Buffer.prototype || proto === Uint8Array.prototype;
 }
 
-const uint8ArrayLengthGet = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "length").get;
-
-function uint8ArrayLengthWithoutOwnGet(value) {
-  return Reflect.apply(uint8ArrayLengthGet, value, []);
-}
-
-function isCanonicalTypedArrayIndexKey(key, length) {
-  if (typeof key !== "string") return false;
-  if (key === "0") return length > 0;
-  if (!/^[1-9][0-9]*$/.test(key)) return false;
-  const index = Number(key);
-  return Number.isSafeInteger(index) && index < length;
-}
-
 function inspectByteLeafOwnAccessors(value) {
   // Length is read via the %TypedArray% intrinsic getter (Reflect.apply),
   // never via a normal Get of value.length / value.byteLength.
   // Own-key scan runs only when intrinsic length <= MAX_TRACK_A1_FILE_UTF8_BYTES.
   // Oversized leaves are not scanned here and are rejected later by the body's
   // source-byte ceiling without invoking accessors.
+  // Index keys come first in getOwnPropertyNames order; start at `length`.
   const length = uint8ArrayLengthWithoutOwnGet(value);
   if (length > MAX_TRACK_A1_FILE_UTF8_BYTES) return null;
   const names = Object.getOwnPropertyNames(value);
-  for (let i = 0; i < names.length; i += 1) {
-    const key = names[i];
-    if (isCanonicalTypedArrayIndexKey(key, length)) continue;
-    const desc = Object.getOwnPropertyDescriptor(value, key);
+  for (let i = length; i < names.length; i += 1) {
+    const desc = Object.getOwnPropertyDescriptor(value, names[i]);
     if (!desc) continue;
     if (Object.hasOwn(desc, "get") || Object.hasOwn(desc, "set")) {
       return ACCESSOR_INPUT_NOTE;
@@ -1776,7 +1806,7 @@ function isNestingContainer(value) {
   return proto === Object.prototype || proto === null;
 }
 
-function nestingChildContainers(node) {
+function nestingChildContainers(node, scannedLeaves) {
   const children = [];
   const names = Object.getOwnPropertyNames(node);
   for (let i = 0; i < names.length; i += 1) {
@@ -1790,8 +1820,11 @@ function nestingChildContainers(node) {
       return { note: NON_PLAIN_INPUT_NOTE, children: null };
     }
     if (isAllowedByteLeaf(desc.value)) {
-      const leafNote = inspectByteLeafOwnAccessors(desc.value);
-      if (leafNote !== null) return { note: leafNote, children: null };
+      if (!scannedLeaves.has(desc.value)) {
+        scannedLeaves.add(desc.value);
+        const leafNote = inspectByteLeafOwnAccessors(desc.value);
+        if (leafNote !== null) return { note: leafNote, children: null };
+      }
       continue;
     }
     if (isNestingContainer(desc.value)) children.push(desc.value);
@@ -1804,8 +1837,11 @@ function nestingChildContainers(node) {
       return { note: NON_PLAIN_INPUT_NOTE, children: null };
     }
     if (isAllowedByteLeaf(desc.value)) {
-      const leafNote = inspectByteLeafOwnAccessors(desc.value);
-      if (leafNote !== null) return { note: leafNote, children: null };
+      if (!scannedLeaves.has(desc.value)) {
+        scannedLeaves.add(desc.value);
+        const leafNote = inspectByteLeafOwnAccessors(desc.value);
+        if (leafNote !== null) return { note: leafNote, children: null };
+      }
       continue;
     }
     if (isNestingContainer(desc.value)) children.push(desc.value);
@@ -1824,12 +1860,13 @@ function inspectNesting(root) {
   if (!isPlainObjectRoot(root)) return NON_PLAIN_INPUT_NOTE;
   if (!isNestingContainer(root)) return null;
   const path = [];
+  const scannedLeaves = new Set();
   const stack = [{ node: root, depth: 1, children: null, index: 0 }];
   while (stack.length > 0) {
     const frame = stack[stack.length - 1];
     if (frame.children === null) {
       path.push(frame.node);
-      const scanned = nestingChildContainers(frame.node);
+      const scanned = nestingChildContainers(frame.node, scannedLeaves);
       if (scanned.note !== null) return scanned.note;
       frame.children = scanned.children;
     }

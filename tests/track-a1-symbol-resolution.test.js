@@ -5166,3 +5166,320 @@ test("177. Object.getOwnPropertyNames is not called on an 8 MiB Buffer leaf duri
   assert.equal(result.notes.some((note) => note.includes("byte ceiling")), true);
   assert.equal(Object.hasOwn(result, "pathRecords"), false);
 });
+
+function oversizedUint8Array(size, fill = 0x61) {
+  const leaf = new Uint8Array(size);
+  leaf.fill(fill);
+  return leaf;
+}
+
+function runSingleOversized(sourceBytes, size, sourceSha256) {
+  const base = fullBindingParts(FIXTURE_SINGLE_FOO);
+  return resolveTrackA1({
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256 },
+    snapshot: {
+      projectId: base.snapshot.projectId,
+      path: base.snapshot.path,
+      sourceSha256,
+      byteSize: size,
+      revision: base.snapshot.revision,
+      token: base.snapshot.token
+    },
+    task: base.task,
+    project: base.project,
+    query: base.query
+  });
+}
+
+test("178. oversized Uint8Array with own length getter on the single path matches clean ceiling", () => {
+  const size = PER_FILE_BYTE_CEILING + 1;
+  const plain = oversizedUint8Array(size);
+  const withGetter = oversizedUint8Array(size);
+  let getterCalled = 0;
+  Object.defineProperty(withGetter, "length", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      getterCalled += 1;
+      return size;
+    }
+  });
+  const sourceSha256 = sha256Text(Buffer.from(plain).toString("utf8"));
+  let threw = false;
+  let plainResult;
+  let guardedResult;
+  try {
+    plainResult = runSingleOversized(plain, size, sourceSha256);
+    guardedResult = runSingleOversized(withGetter, size, sourceSha256);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(getterCalled, 0);
+  assert.deepEqual(guardedResult, plainResult);
+  assert.equal(plainResult.status, "not_evaluated");
+  assert.equal(plainResult.notes.some((note) => note.includes("byte ceiling")), true);
+  assert.equal(Object.hasOwn(plainResult, "pathRecords"), false);
+});
+
+test("179. oversized Uint8Array with own length getter on the multi path matches clean ceiling", () => {
+  const size = PER_FILE_BYTE_CEILING + 1;
+  const plain = oversizedUint8Array(size, 0x20);
+  const withGetter = oversizedUint8Array(size, 0x20);
+  let getterCalled = 0;
+  Object.defineProperty(withGetter, "length", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      getterCalled += 1;
+      return size;
+    }
+  });
+  const small = Buffer.from(FIXTURE_SINGLE_FOO, "utf8");
+  function run(oversize) {
+    return resolveTrackA1({
+      name: "foo",
+      files: [
+        { path: PATH_A, sourceBytes: small },
+        { path: PATH_B, sourceBytes: oversize }
+      ],
+      binding: { sourceSha256: "a".repeat(64) },
+      task: { id: SYNTHETIC_TASK_ID, paths: [PATH_A, PATH_B] },
+      project: {
+        projectId: SYNTHETIC_PROJECT_ID,
+        rootId: SYNTHETIC_ROOT_ID,
+        relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+      },
+      query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+    });
+  }
+  let threw = false;
+  let plainResult;
+  let guardedResult;
+  try {
+    plainResult = run(plain);
+    guardedResult = run(withGetter);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(getterCalled, 0);
+  assert.deepEqual(guardedResult, plainResult);
+  assert.equal(plainResult.status, "not_evaluated");
+  assert.equal(plainResult.notes.some((note) => note.includes("byte ceiling")), true);
+  assert.equal(Object.hasOwn(plainResult, "pathRecords"), false);
+});
+
+test("180. oversized Uint8Array with own valueOf getter matches clean ceiling without invoking", () => {
+  const size = PER_FILE_BYTE_CEILING + 1;
+  const plain = oversizedUint8Array(size);
+  const withGetter = oversizedUint8Array(size);
+  let getterCalled = 0;
+  Object.defineProperty(withGetter, "valueOf", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      getterCalled += 1;
+      return () => size;
+    }
+  });
+  const sourceSha256 = sha256Text(Buffer.from(plain).toString("utf8"));
+  let threw = false;
+  let plainResult;
+  let guardedResult;
+  try {
+    plainResult = runSingleOversized(plain, size, sourceSha256);
+    guardedResult = runSingleOversized(withGetter, size, sourceSha256);
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(getterCalled, 0);
+  assert.deepEqual(guardedResult, plainResult);
+  assert.equal(plainResult.notes.some((note) => note.includes("byte ceiling")), true);
+});
+
+test("181. a leaf at or under the ceiling with own data toString equals clean and is never called", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const clean = Buffer.from(source, "utf8");
+  const shadowed = Buffer.from(source, "utf8");
+  let toStringCalled = 0;
+  Object.defineProperty(shadowed, "toString", {
+    configurable: true,
+    enumerable: true,
+    writable: true,
+    value() {
+      toStringCalled += 1;
+      return "export function evil() { return 0; }\n";
+    }
+  });
+  const cleanResult = resolveTrackA1({
+    name: "foo",
+    sourceBytes: clean,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  });
+  const shadowedResult = resolveTrackA1({
+    name: "foo",
+    sourceBytes: shadowed,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  });
+  assert.equal(toStringCalled, 0);
+  assert.deepEqual(shadowedResult, cleanResult);
+  assert.equal(cleanResult.status, "resolved_unique");
+});
+
+test("182. a Uint8Array with own data length equals clean without throwing", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const clean = Uint8Array.from(Buffer.from(source, "utf8"));
+  const shadowed = Uint8Array.from(Buffer.from(source, "utf8"));
+  Object.defineProperty(shadowed, "length", {
+    configurable: true,
+    enumerable: true,
+    writable: true,
+    value: 1
+  });
+  let threw = false;
+  let cleanResult;
+  let shadowedResult;
+  try {
+    cleanResult = resolveTrackA1({
+      name: "foo",
+      sourceBytes: clean,
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+    shadowedResult = resolveTrackA1({
+      name: "foo",
+      sourceBytes: shadowed,
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.deepEqual(shadowedResult, cleanResult);
+  assert.equal(cleanResult.status, "resolved_unique");
+});
+
+test("183. a setter-only accessor on a byte leaf is not_evaluated", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  let setterCalled = false;
+  Object.defineProperty(sourceBytes, "trap", {
+    configurable: true,
+    enumerable: true,
+    set() {
+      setterCalled = true;
+    }
+  });
+  const { result, decoded } = resolveWithoutDecode([sourceBytes], () => resolveTrackA1({
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  }));
+  assert.equal(decoded, false);
+  assert.equal(setterCalled, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [ACCESSOR_INPUT_NOTE]);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("184. a symbol-key accessor on a byte leaf is skipped and equals clean", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const clean = Buffer.from(source, "utf8");
+  const withSym = Buffer.from(source, "utf8");
+  let getterCalled = false;
+  Object.defineProperty(withSym, Symbol("trap"), {
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return 1;
+    }
+  });
+  const cleanResult = resolveTrackA1({
+    name: "foo",
+    sourceBytes: clean,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  });
+  const symResult = resolveTrackA1({
+    name: "foo",
+    sourceBytes: withSym,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query
+  });
+  assert.equal(getterCalled, false);
+  assert.deepEqual(symResult, cleanResult);
+  assert.equal(cleanResult.status, "resolved_unique");
+});
+
+test("185. one thousand references to one leaf scan Object.getOwnPropertyNames once", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const leaf = Buffer.from(source, "utf8");
+  Object.defineProperty(leaf, "meta", {
+    configurable: true,
+    enumerable: true,
+    writable: true,
+    value: "x"
+  });
+  const refs = [];
+  for (let i = 0; i < 1000; i += 1) refs.push(leaf);
+  const input = {
+    name: "foo",
+    sourceBytes: leaf,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    nested: refs
+  };
+  const original = Object.getOwnPropertyNames;
+  let leafCalls = 0;
+  Object.getOwnPropertyNames = function spyGetOwnPropertyNames(value) {
+    if (value === leaf) leafCalls += 1;
+    return original(value);
+  };
+  let result;
+  try {
+    result = resolveTrackA1(input);
+  } finally {
+    Object.getOwnPropertyNames = original;
+  }
+  assert.equal(leafCalls, 1);
+  assert.equal(result.status, "resolved_unique");
+  const notes = Array.isArray(result.notes) ? result.notes : [];
+  assert.equal(notes.includes(ACCESSOR_INPUT_NOTE), false);
+});
