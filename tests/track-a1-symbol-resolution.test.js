@@ -8958,3 +8958,105 @@ test("338. adapter deep-equal preserves identical declarationId and requestToken
   assert.equal(result.occurrences[0].declarationId, flat.occurrences[0].declarationId);
   assert.equal(result.occurrences[0].symbolId, flat.occurrences[0].symbolId);
 });
+
+
+test("339. locator rootId missing on both sides is project locator does not match", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  delete request.worktree.rootId;
+  delete observation.project.rootId;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [PROJECT_LOCATOR_MISMATCH_NOTE]);
+});
+
+test("340. locator relativePath missing on both sides is project locator does not match", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  delete request.worktree.relativePath;
+  delete observation.project.relativePath;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [PROJECT_LOCATOR_MISMATCH_NOTE]);
+});
+
+test("341. required revision key missing on both sides is expected revision does not match", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  delete request.expectedRevision.dirty;
+  delete observation.snapshot.revision.dirty;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [EXPECTED_REVISION_MISMATCH_NOTE]);
+});
+
+test("342. non-string locator field is project locator does not match", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.projectId = 123;
+  observation.project.projectId = 123;
+  observation.snapshot.projectId = 123;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [PROJECT_LOCATOR_MISMATCH_NOTE]);
+});
+
+test("343. per-file ceiling on last file rejects before any sha256 or digest", () => {
+  // Proof method: earlier files carry forged sha256. One-pass hash-then-ceiling
+  // would reject them with "snapshot was rejected" before the last file. Ceiling
+  // pass over ALL files first yields the ceiling note and never digests.
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  const files = [];
+  for (let i = 0; i < 8; i += 1) {
+    const n = String(i).padStart(2, "0");
+    const body = `export const v${n} = 1;\n`;
+    files.push({
+      path: `src/c${n}.js`,
+      text: body,
+      byteSize: Buffer.byteLength(body),
+      sha256: "0".repeat(64)
+    });
+  }
+  const over = "a".repeat(131073);
+  files.push({
+    path: SYNTHETIC_PATH,
+    text: over,
+    byteSize: 131073,
+    sha256: "0".repeat(64)
+  });
+  observation.snapshot.files = files;
+  request.task.paths = [SYNTHETIC_PATH];
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SOURCE_BYTE_CEILING_NOTE]);
+});
+
+test("344. total ceiling rejects before any sha256 or digest", () => {
+  // Same forged-early-sha256 proof as 343 for the total-byte ceiling.
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  const files = [];
+  for (let i = 0; i < 32; i += 1) {
+    const n = String(i).padStart(2, "0");
+    const body = "b".repeat(131072);
+    files.push({
+      path: `src/t${n}.js`,
+      text: body,
+      byteSize: 131072,
+      sha256: "0".repeat(64)
+    });
+  }
+  files.push({
+    path: "src/t32.js",
+    text: "x",
+    byteSize: 1,
+    sha256: "0".repeat(64)
+  });
+  assert.equal(files.reduce((n, f) => n + f.byteSize, 0), 4194305);
+  observation.snapshot.files = files;
+  request.task.paths = ["src/t00.js"];
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SOURCE_BYTE_CEILING_NOTE]);
+});

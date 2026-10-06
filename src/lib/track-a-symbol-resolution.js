@@ -2385,15 +2385,42 @@ function collectionKeysNote(collection) {
   return null;
 }
 
+function ownStringDataProperty(object, key) {
+  const own = ownDataProperty(object, key);
+  if (own.kind !== "data" || typeof own.value !== "string") return null;
+  return own.value;
+}
+
 function locatorMatches(request, observation) {
   const project = observation.project;
   const snapshot = observation.snapshot;
   if (!isPlainObject(project) || !isPlainObject(snapshot)) return false;
-  if (request.projectId !== project.projectId) return false;
-  if (project.projectId !== snapshot.projectId) return false;
   if (!isPlainObject(request.worktree)) return false;
-  if (request.worktree.rootId !== project.rootId) return false;
-  if (request.worktree.relativePath !== project.relativePath) return false;
+  // C5 L101-103: five pairing roles — request.projectId, request.worktree.rootId,
+  // request.worktree.relativePath, observation.project.{projectId,rootId,relativePath},
+  // and snapshot.projectId — each must be an own string data property before ===.
+  const requestProjectId = ownStringDataProperty(request, "projectId");
+  const requestRootId = ownStringDataProperty(request.worktree, "rootId");
+  const requestRelativePath = ownStringDataProperty(request.worktree, "relativePath");
+  const projectProjectId = ownStringDataProperty(project, "projectId");
+  const projectRootId = ownStringDataProperty(project, "rootId");
+  const projectRelativePath = ownStringDataProperty(project, "relativePath");
+  const snapshotProjectId = ownStringDataProperty(snapshot, "projectId");
+  if (
+    requestProjectId === null ||
+    requestRootId === null ||
+    requestRelativePath === null ||
+    projectProjectId === null ||
+    projectRootId === null ||
+    projectRelativePath === null ||
+    snapshotProjectId === null
+  ) {
+    return false;
+  }
+  if (requestProjectId !== projectProjectId) return false;
+  if (projectProjectId !== snapshotProjectId) return false;
+  if (requestRootId !== projectRootId) return false;
+  if (requestRelativePath !== projectRelativePath) return false;
   return true;
 }
 
@@ -2401,6 +2428,7 @@ function expectedRevisionMatches(expectedRevision, revision) {
   if (!isPlainObject(expectedRevision) || !isPlainObject(revision)) return false;
   for (let i = 0; i < CLOSED_EXPECTED_REVISION_REQUIRED_KEYS.length; i += 1) {
     const key = CLOSED_EXPECTED_REVISION_REQUIRED_KEYS[i];
+    if (!Object.hasOwn(expectedRevision, key)) return false;
     if (expectedRevision[key] !== revision[key]) return false;
   }
   if (Object.hasOwn(expectedRevision, "isGit")) {
@@ -2421,7 +2449,7 @@ function verifyContractSnapshotFiles(files) {
   }
   const seen = new Set();
   let total = 0;
-  const verified = [];
+  const pending = [];
   for (let i = 0; i < files.length; i += 1) {
     const file = files[i];
     if (!isPlainObject(file)) {
@@ -2448,6 +2476,12 @@ function verifyContractSnapshotFiles(files) {
     if (total > MAX_TRACK_A1_TOTAL_SOURCE_BYTES) {
       return { ok: false, note: SOURCE_BYTE_CEILING_NOTE };
     }
+    pending.push(file);
+  }
+  const verified = [];
+  for (let i = 0; i < pending.length; i += 1) {
+    const file = pending[i];
+    const byteSize = Buffer.byteLength(file.text);
     if (file.byteSize !== byteSize || file.sha256 !== contextDigest(file.text)) {
       return { ok: false, note: SNAPSHOT_WAS_REJECTED_NOTE };
     }
@@ -2523,7 +2557,7 @@ export function resolveTypeScriptDeclarationEvidence(request, observation) {
   }
 
   // Collection is required (C3.2 / S7). Values are not read until S8; key set only.
-  // NOTE AMBIGUITY: r2 names no note for a missing collection. See STOP report.
+  // Operator decision: missing/non-plain collection uses snapshot was rejected; revisit in S8.
   const collectionOwn = ownDataProperty(observation, "collection");
   if (collectionOwn.kind !== "data" || !isClosedKeyObject(collectionOwn.value)) {
     return adapterNotEvaluated(SNAPSHOT_WAS_REJECTED_NOTE);
