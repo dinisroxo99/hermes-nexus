@@ -1022,7 +1022,7 @@ function resolveMulti(input, paths) {
       providerNode
     );
   }
-  if (exceedsSourceByteCeiling(rawFiles.map((file) => file.bytes.byteLength))) {
+  if (exceedsSourceByteCeiling(rawFiles.map((file) => uint8ArrayLengthWithoutOwnGet(file.bytes)))) {
     return sourceByteCeilingResult(providerNode);
   }
   const ordered = decodeOrderedFiles(rawFiles);
@@ -1331,7 +1331,7 @@ function resolveTrackA1Body(input = {}) {
   if (!bytes) {
     return notEvaluated({}, providerNode);
   }
-  if (exceedsSourceByteCeiling([bytes.byteLength])) {
+  if (exceedsSourceByteCeiling([uint8ArrayLengthWithoutOwnGet(bytes)])) {
     return sourceByteCeilingResult(providerNode);
   }
 
@@ -1729,11 +1729,13 @@ function isCanonicalTypedArrayIndexKey(key, length) {
 }
 
 function inspectByteLeafOwnAccessors(value) {
-  // Cost: Object.getOwnPropertyNames is O(length). Length is bounded by the
-  // existing per-file UTF-8 ceiling (131072), so the walk stays bounded.
-  // Length is read via the Uint8Array.prototype intrinsic getter (Reflect.apply),
+  // Length is read via the %TypedArray% intrinsic getter (Reflect.apply),
   // never via a normal Get of value.length / value.byteLength.
+  // Own-key scan runs only when intrinsic length <= MAX_TRACK_A1_FILE_UTF8_BYTES.
+  // Oversized leaves are not scanned here and are rejected later by the body's
+  // source-byte ceiling without invoking accessors.
   const length = uint8ArrayLengthWithoutOwnGet(value);
+  if (length > MAX_TRACK_A1_FILE_UTF8_BYTES) return null;
   const names = Object.getOwnPropertyNames(value);
   for (let i = 0; i < names.length; i += 1) {
     const key = names[i];

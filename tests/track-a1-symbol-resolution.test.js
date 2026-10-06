@@ -5079,3 +5079,90 @@ test("175. a Buffer with an own data property still evaluates without the access
   assert.equal(Object.hasOwn(result, "reasons"), false);
   assertContractIdentity(result);
 });
+
+test("176. an oversized Buffer with an own byteLength getter matches plain oversized without invoking the getter", () => {
+  const size = PER_FILE_BYTE_CEILING + 1;
+  const plain = Buffer.alloc(size, 0x61);
+  const withGetter = Buffer.alloc(size, 0x61);
+  let getterCalled = false;
+  Object.defineProperty(withGetter, "byteLength", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return size;
+    }
+  });
+  const sourceSha256 = sha256Text(plain.toString("utf8"));
+  const base = fullBindingParts(FIXTURE_SINGLE_FOO);
+  function run(sourceBytes) {
+    return resolveTrackA1({
+      name: "foo",
+      sourceBytes,
+      binding: { sourceSha256 },
+      snapshot: {
+        projectId: base.snapshot.projectId,
+        path: base.snapshot.path,
+        sourceSha256,
+        byteSize: size,
+        revision: base.snapshot.revision,
+        token: base.snapshot.token
+      },
+      task: base.task,
+      project: base.project,
+      query: base.query
+    });
+  }
+  const plainResult = run(plain);
+  const guardedResult = run(withGetter);
+
+  assert.equal(getterCalled, false);
+  assert.deepEqual(guardedResult, plainResult);
+  assert.equal(plainResult.status, "not_evaluated");
+  assert.equal(Object.hasOwn(plainResult, "pathRecords"), false);
+  assert.equal(Array.isArray(plainResult.notes), true);
+  assert.equal(plainResult.notes.some((note) => note.includes("byte ceiling")), true);
+  assert.equal(Object.hasOwn(plainResult, "limits"), false);
+  assert.equal(Object.hasOwn(plainResult, "reasons"), false);
+  assertContractIdentity(plainResult);
+});
+
+test("177. Object.getOwnPropertyNames is not called on an 8 MiB Buffer leaf during resolveTrackA1", () => {
+  const size = 8 * 1024 * 1024;
+  const leaf = Buffer.alloc(size, 0x20);
+  const sourceSha256 = sha256Text(leaf.toString("utf8"));
+  const base = fullBindingParts(FIXTURE_SINGLE_FOO);
+  const input = {
+    name: "foo",
+    sourceBytes: leaf,
+    binding: { sourceSha256 },
+    snapshot: {
+      projectId: base.snapshot.projectId,
+      path: base.snapshot.path,
+      sourceSha256,
+      byteSize: size,
+      revision: base.snapshot.revision,
+      token: base.snapshot.token
+    },
+    task: base.task,
+    project: base.project,
+    query: base.query
+  };
+  const original = Object.getOwnPropertyNames;
+  const seen = [];
+  Object.getOwnPropertyNames = function spyGetOwnPropertyNames(value) {
+    seen.push(value);
+    return original(value);
+  };
+  let result;
+  try {
+    result = resolveTrackA1(input);
+  } finally {
+    Object.getOwnPropertyNames = original;
+  }
+
+  assert.equal(seen.includes(leaf), false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(result.notes.some((note) => note.includes("byte ceiling")), true);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
