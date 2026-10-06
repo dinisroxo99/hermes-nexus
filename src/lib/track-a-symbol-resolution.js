@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { Project, SyntaxKind } from "ts-morph";
 import { createProviderSnapshot } from "../analyzers/common/analyzer-provider-contract.js";
-import { contextDigest } from "./project-context-files.js";
+import { contextDigest, CONTEXT_SOURCE_LIMITS } from "./project-context-files.js";
 
 const moduleRequire = createRequire(import.meta.url);
 const CONTRACT_TYPESCRIPT_PARSER_VERSION = "6.0.3";
@@ -2274,6 +2274,9 @@ export function resolveTrackA1(input) {
 
 const PROJECT_LOCATOR_MISMATCH_NOTE = "project locator does not match the observation";
 const EXPECTED_REVISION_MISMATCH_NOTE = "expected revision does not match the snapshot revision";
+const COLLECTION_DIGEST_DID_NOT_RECOMPUTE_NOTE = "collection digest did not recompute";
+const COLLECTION_LIMITS_WERE_REJECTED_NOTE = "collection limits were rejected";
+const SOURCE_COLLECTION_WAS_TRUNCATED_NOTE = "source collection was truncated";
 const TASK_PATH_NOT_IN_SNAPSHOT_NOTE = "task path is not in the snapshot";
 const MAX_CONTRACT_SNAPSHOT_FILES = 500;
 
@@ -2316,6 +2319,9 @@ const CLOSED_CONTRACT_SNAPSHOT_KEYS = new Set([
 ]);
 const CLOSED_CONTRACT_FILE_KEYS = new Set(["path", "text", "byteSize", "sha256"]);
 const CLOSED_COLLECTION_KEYS = new Set(["limits", "truncated", "diagnostics", "digest"]);
+const COLLECTION_LIMIT_KEYS = ["maxDepth", "maxEntries", "maxFiles", "maxFileBytes", "maxTotalBytes"];
+const CLOSED_COLLECTION_LIMIT_KEYS = new Set(COLLECTION_LIMIT_KEYS);
+const CLOSED_DIAGNOSTIC_RECORD_KEYS = new Set(["code", "path"]);
 
 function isValidRelativePath(path) {
   return typeof path === "string" && path.length > 0 && !isAbsolutePath(path) && !path.includes("..");
@@ -2383,6 +2389,112 @@ function collectionKeysNote(collection) {
     return UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE;
   }
   return null;
+}
+
+function collectionTruncationOrDiagnosticsShapeNote(collection) {
+  const truncatedOwn = ownDataProperty(collection, "truncated");
+  if (truncatedOwn.kind !== "data" || typeof truncatedOwn.value !== "boolean") {
+    return SNAPSHOT_WAS_REJECTED_NOTE;
+  }
+  const diagnosticsOwn = ownDataProperty(collection, "diagnostics");
+  if (diagnosticsOwn.kind !== "data" || !Array.isArray(diagnosticsOwn.value)) {
+    return SNAPSHOT_WAS_REJECTED_NOTE;
+  }
+  const diagnostics = diagnosticsOwn.value;
+  if (diagnostics.length > 40) return SNAPSHOT_WAS_REJECTED_NOTE;
+  for (let i = 0; i < diagnostics.length; i += 1) {
+    const record = diagnostics[i];
+    if (!isClosedKeyObject(record)) return SNAPSHOT_WAS_REJECTED_NOTE;
+    if (firstUnknownOwnStringKey(record, CLOSED_DIAGNOSTIC_RECORD_KEYS) !== null) {
+      return SNAPSHOT_WAS_REJECTED_NOTE;
+    }
+    const codeOwn = ownDataProperty(record, "code");
+    if (codeOwn.kind !== "data" || typeof codeOwn.value !== "string") {
+      return SNAPSHOT_WAS_REJECTED_NOTE;
+    }
+    if (Object.hasOwn(record, "path")) {
+      const pathOwn = ownDataProperty(record, "path");
+      if (pathOwn.kind !== "data" || typeof pathOwn.value !== "string") {
+        return SNAPSHOT_WAS_REJECTED_NOTE;
+      }
+    }
+  }
+  return null;
+}
+
+function collectionDigestNote(collection, files) {
+  const expected = contextDigest(JSON.stringify(files.map((f) => [f.path, f.sha256])));
+  const digestOwn = ownDataProperty(collection, "digest");
+  if (digestOwn.kind !== "data" || digestOwn.value !== expected) {
+    return COLLECTION_DIGEST_DID_NOT_RECOMPUTE_NOTE;
+  }
+  return null;
+}
+
+function collectionLimitsNote(collection) {
+  const limitsOwn = ownDataProperty(collection, "limits");
+  if (limitsOwn.kind !== "data" || !isClosedKeyObject(limitsOwn.value)) {
+    return COLLECTION_LIMITS_WERE_REJECTED_NOTE;
+  }
+  const limits = limitsOwn.value;
+  if (firstUnknownOwnStringKey(limits, CLOSED_COLLECTION_LIMIT_KEYS) !== null) {
+    return COLLECTION_LIMITS_WERE_REJECTED_NOTE;
+  }
+  for (let i = 0; i < COLLECTION_LIMIT_KEYS.length; i += 1) {
+    const key = COLLECTION_LIMIT_KEYS[i];
+    const valueOwn = ownDataProperty(limits, key);
+    if (valueOwn.kind !== "data") return COLLECTION_LIMITS_WERE_REJECTED_NOTE;
+    const floor = key === "maxDepth" ? 0 : 1;
+    const value = valueOwn.value;
+    if (!Number.isSafeInteger(value) || value < floor || value > CONTEXT_SOURCE_LIMITS[key]) {
+      return COLLECTION_LIMITS_WERE_REJECTED_NOTE;
+    }
+  }
+  return null;
+}
+
+function collectionDutyBeforeParseNote(collection, files) {
+  const shapeNote = collectionTruncationOrDiagnosticsShapeNote(collection);
+  if (shapeNote !== null) return shapeNote;
+  const digestNote = collectionDigestNote(collection, files);
+  if (digestNote !== null) return digestNote;
+  return collectionLimitsNote(collection);
+}
+
+function applyCollectionTruncationOverride(result, collection) {
+  const truncatedOwn = ownDataProperty(collection, "truncated");
+  const diagnosticsOwn = ownDataProperty(collection, "diagnostics");
+  const truncated = truncatedOwn.kind === "data" && truncatedOwn.value === true;
+  const hasDiagnostics =
+    diagnosticsOwn.kind === "data" &&
+    Array.isArray(diagnosticsOwn.value) &&
+    diagnosticsOwn.value.length > 0;
+  if (!truncated && !hasDiagnostics) return result;
+
+  if (isPlainObject(result.completeness)) {
+    result.completeness = {
+      source: "partial",
+      parse: result.completeness.parse,
+      enumeration: result.completeness.enumeration,
+      output: result.completeness.output
+    };
+  } else {
+    result.completeness = {
+      source: "partial",
+      parse: "not_evaluated",
+      enumeration: "not_evaluated",
+      output: "not_evaluated"
+    };
+  }
+
+  const notes = Array.isArray(result.notes) ? result.notes.slice() : [];
+  notes.push(SOURCE_COLLECTION_WAS_TRUNCATED_NOTE);
+  result.notes = notes;
+
+  if (result.status === "resolved_unique" || result.status === "not_found") {
+    result.status = "partial";
+  }
+  return result;
 }
 
 function ownStringDataProperty(object, key) {
@@ -2558,8 +2670,9 @@ export function resolveTypeScriptDeclarationEvidence(request, observation) {
     return adapterNotEvaluated(closedNote);
   }
 
-  // Collection is required (C3.2 / S7). Values are not read until S8; key set only.
-  // Operator decision: missing/non-plain collection uses snapshot was rejected; revisit in S8.
+  // Collection is required (C3.2 / S7). Key set checked here; C7 digest/limits/shape
+  // and post-parse truncation override are enforced later (S8).
+  // Operator decision: missing/non-plain collection uses snapshot was rejected.
   const collectionOwn = ownDataProperty(observation, "collection");
   if (collectionOwn.kind !== "data" || !isClosedKeyObject(collectionOwn.value)) {
     return adapterNotEvaluated(SNAPSHOT_WAS_REJECTED_NOTE);
@@ -2568,6 +2681,7 @@ export function resolveTypeScriptDeclarationEvidence(request, observation) {
   if (collectionNote !== null) {
     return adapterNotEvaluated(collectionNote);
   }
+  const collection = collectionOwn.value;
 
   if (!locatorMatches(request, observation)) {
     return adapterNotEvaluated(PROJECT_LOCATOR_MISMATCH_NOTE);
@@ -2612,6 +2726,12 @@ export function resolveTypeScriptDeclarationEvidence(request, observation) {
   const query = request.query;
   if (!isPlainObject(query) || typeof query.name !== "string") {
     return adapterNotEvaluated(NAME_WAS_REJECTED_NOTE);
+  }
+
+  // C7 / S8 collection duty: shape, digest, then limits — last before parse.
+  const collectionDutyNote = collectionDutyBeforeParseNote(collection, verifiedFiles);
+  if (collectionDutyNote !== null) {
+    return adapterNotEvaluated(collectionDutyNote);
   }
 
   const verificationFiles = verifiedFiles.map((file) => ({ path: file.path, text: file.text }));
@@ -2661,5 +2781,6 @@ export function resolveTypeScriptDeclarationEvidence(request, observation) {
       snapshotVerificationFiles: verificationFiles
     }))
   );
+  applyCollectionTruncationOverride(result, collection);
   return throwIfCompactBytesExceeded(result, ceiling);
 }

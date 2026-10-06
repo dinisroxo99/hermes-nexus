@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { resolveTrackA1, resolveTypeScriptDeclarationEvidence } from "../src/lib/track-a-symbol-resolution.js";
 import { createProviderSnapshot } from "../src/analyzers/common/analyzer-provider-contract.js";
-import { contextDigest } from "../src/lib/project-context-files.js";
+import { contextDigest, CONTEXT_SOURCE_LIMITS } from "../src/lib/project-context-files.js";
 
 function sha256Text(text) {
   return createHash("sha256").update(text, "utf8").digest("hex");
@@ -8167,6 +8167,12 @@ const PROJECT_LOCATOR_MISMATCH_NOTE = "project locator does not match the observ
 const EXPECTED_REVISION_MISMATCH_NOTE = "expected revision does not match the snapshot revision";
 const TASK_PATH_NOT_IN_SNAPSHOT_NOTE = "task path is not in the snapshot";
 const SOURCE_BYTE_CEILING_NOTE = "source byte ceiling was exceeded";
+const COLLECTION_DIGEST_DID_NOT_RECOMPUTE_NOTE = "collection digest did not recompute";
+const COLLECTION_LIMITS_WERE_REJECTED_NOTE = "collection limits were rejected";
+const SOURCE_COLLECTION_WAS_TRUNCATED_NOTE = "source collection was truncated";
+const OUTPUT_COVERAGE_INCOMPLETE_NOTE_ADAPTER =
+  "output coverage is not complete, so this is neither not_found nor resolved_unique";
+const SNAPSHOT_WAS_REJECTED_NOTE_ADAPTER = "snapshot was rejected";
 
 function sevenRevisionKeys(revision) {
   return {
@@ -8180,18 +8186,20 @@ function sevenRevisionKeys(revision) {
   };
 }
 
-function adapterCollection() {
+function adapterCollection(files = [], overrides = {}) {
+  const list = Array.isArray(files) ? files : [];
   return {
     limits: {
-      maxDepth: 8,
-      maxEntries: 10000,
-      maxFiles: 500,
-      maxFileBytes: 131072,
-      maxTotalBytes: 4194304
+      maxDepth: CONTEXT_SOURCE_LIMITS.maxDepth,
+      maxEntries: CONTEXT_SOURCE_LIMITS.maxEntries,
+      maxFiles: CONTEXT_SOURCE_LIMITS.maxFiles,
+      maxFileBytes: CONTEXT_SOURCE_LIMITS.maxFileBytes,
+      maxTotalBytes: CONTEXT_SOURCE_LIMITS.maxTotalBytes
     },
     truncated: false,
     diagnostics: [],
-    digest: "0".repeat(64)
+    digest: contextDigest(JSON.stringify(list.map((f) => [f.path, f.sha256]))),
+    ...overrides
   };
 }
 
@@ -8260,7 +8268,14 @@ function buildAdapterFixture(orderedFiles, { revision, query, taskPaths, limits 
         sha256: file.sha256
       }))
     },
-    collection: adapterCollection()
+    collection: adapterCollection(
+      produced.files.map((file) => ({
+        path: file.path,
+        text: file.text,
+        byteSize: file.byteSize,
+        sha256: file.sha256
+      }))
+    )
   };
   return { request, observation, produced, revision: produced.revision };
 }
@@ -9166,4 +9181,207 @@ test("348. inherited revision key on snapshot.revision is expected revision does
   assert.equal(threw, false);
   assert.equal(result.status, "not_evaluated");
   assert.deepEqual(result.notes, [EXPECTED_REVISION_MISMATCH_NOTE]);
+});
+
+
+test("349. collection digest mismatch gives collection digest did not recompute", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.digest = "0".repeat(64);
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [COLLECTION_DIGEST_DID_NOT_RECOMPUTE_NOTE]);
+});
+
+test("350. unknown collection limit key gives collection limits were rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.limits = { ...observation.collection.limits, extraLimit: 1 };
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [COLLECTION_LIMITS_WERE_REJECTED_NOTE]);
+});
+
+test("351. missing collection limit key gives collection limits were rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  delete observation.collection.limits.maxFiles;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [COLLECTION_LIMITS_WERE_REJECTED_NOTE]);
+});
+
+test("352. over-max collection limit gives collection limits were rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.limits.maxDepth = CONTEXT_SOURCE_LIMITS.maxDepth + 1;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [COLLECTION_LIMITS_WERE_REJECTED_NOTE]);
+});
+
+test("353. below-floor collection limit gives collection limits were rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.limits.maxFiles = 0;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [COLLECTION_LIMITS_WERE_REJECTED_NOTE]);
+});
+
+test("354. non-integer collection limit gives collection limits were rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.limits.maxEntries = 1.5;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [COLLECTION_LIMITS_WERE_REJECTED_NOTE]);
+});
+
+test("355. truncated true singleton gives partial plus truncation note, no reasons, diagnostics not echoed", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.truncated = true;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "partial");
+  assert.notEqual(result.status, "resolved_unique");
+  assert.equal(result.completeness.source, "partial");
+  assert.ok(Array.isArray(result.notes));
+  assert.equal(result.notes[result.notes.length - 1], SOURCE_COLLECTION_WAS_TRUNCATED_NOTE);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assert.equal(JSON.stringify(result).includes("source_scan_limit"), false);
+  assert.equal(JSON.stringify(result).includes('"diagnostics"'), false);
+});
+
+test("356. diagnostics length 1 on singleton gives partial plus truncation note", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.diagnostics = [{ code: "source_scan_limit" }];
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "partial");
+  assert.equal(result.completeness.source, "partial");
+  assert.equal(result.notes[result.notes.length - 1], SOURCE_COLLECTION_WAS_TRUNCATED_NOTE);
+  assert.equal(Object.hasOwn(result, "reasons"), false);
+  assert.equal(JSON.stringify(result).includes("source_scan_limit"), false);
+});
+
+test("357. census 2 with truncated stays ambiguous with source partial and truncation note appended", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_TWO_TOP_LEVEL_FOO]]);
+  observation.collection.truncated = true;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "ambiguous");
+  assert.ok(result.census >= 2);
+  assert.equal(result.completeness.source, "partial");
+  assert.equal(result.notes[result.notes.length - 1], SOURCE_COLLECTION_WAS_TRUNCATED_NOTE);
+});
+
+test("358. not_found with truncated gives partial", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_NO_FOO]]);
+  observation.collection.truncated = true;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "partial");
+  assert.notEqual(result.status, "not_found");
+  assert.equal(result.census, 0);
+  assert.equal(result.completeness.source, "partial");
+  assert.equal(result.notes[result.notes.length - 1], SOURCE_COLLECTION_WAS_TRUNCATED_NOTE);
+});
+
+test("359. malformed truncated gives snapshot was rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.truncated = "yes";
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE_ADAPTER]);
+});
+
+test("360. malformed diagnostics not array gives snapshot was rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.diagnostics = { code: "x" };
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE_ADAPTER]);
+});
+
+test("361. more than 40 diagnostics gives snapshot was rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.diagnostics = Array.from({ length: 41 }, (_, i) => ({ code: "c" + i }));
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE_ADAPTER]);
+});
+
+test("362. diagnostic record with unknown key gives snapshot was rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.diagnostics = [{ code: "source_scan_limit", extra: 1 }];
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE_ADAPTER]);
+});
+
+test("363. diagnostic record without code gives snapshot was rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.diagnostics = [{ path: "a.ts" }];
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE_ADAPTER]);
+});
+
+test("364. precedence digest beats limits", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.digest = "0".repeat(64);
+  observation.collection.limits.maxDepth = CONTEXT_SOURCE_LIMITS.maxDepth + 1;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [COLLECTION_DIGEST_DID_NOT_RECOMPUTE_NOTE]);
+});
+
+test("365. dirty revision plus truncated stays not_evaluated with coverage note then truncation note and source partial", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]], {
+    revision: linkedRevision({ dirty: true })
+  });
+  observation.collection.truncated = true;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.equal(result.completeness.source, "partial");
+  assert.ok(result.notes.includes(OUTPUT_COVERAGE_INCOMPLETE_NOTE_ADAPTER));
+  assert.equal(result.notes[result.notes.length - 1], SOURCE_COLLECTION_WAS_TRUNCATED_NOTE);
+  const covIdx = result.notes.indexOf(OUTPUT_COVERAGE_INCOMPLETE_NOTE_ADAPTER);
+  assert.ok(covIdx >= 0 && covIdx < result.notes.length - 1);
+});
+
+test("366. parse diagnostics plus truncated stays partial with truncation note appended and source partial", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_TRUNCATED]]);
+  observation.collection.truncated = true;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.equal(result.status, "partial");
+  assert.equal(result.completeness.parse, "partial");
+  assert.equal(result.completeness.source, "partial");
+  assert.equal(result.notes[result.notes.length - 1], SOURCE_COLLECTION_WAS_TRUNCATED_NOTE);
+});
+
+test("367. digest rejection plus truncated emits only digest note", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.digest = "0".repeat(64);
+  observation.collection.truncated = true;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [COLLECTION_DIGEST_DID_NOT_RECOMPUTE_NOTE]);
+});
+
+test("368. limits rejection plus truncated emits only limits note", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  observation.collection.limits.maxFiles = 0;
+  observation.collection.truncated = true;
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [COLLECTION_LIMITS_WERE_REJECTED_NOTE]);
 });
