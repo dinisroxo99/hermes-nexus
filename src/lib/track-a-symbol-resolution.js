@@ -2429,9 +2429,11 @@ function expectedRevisionMatches(expectedRevision, revision) {
   for (let i = 0; i < CLOSED_EXPECTED_REVISION_REQUIRED_KEYS.length; i += 1) {
     const key = CLOSED_EXPECTED_REVISION_REQUIRED_KEYS[i];
     if (!Object.hasOwn(expectedRevision, key)) return false;
+    if (!Object.hasOwn(revision, key)) return false;
     if (expectedRevision[key] !== revision[key]) return false;
   }
   if (Object.hasOwn(expectedRevision, "isGit")) {
+    if (!Object.hasOwn(revision, "isGit")) return false;
     if (expectedRevision.isGit !== revision.isGit) return false;
   }
   return true;

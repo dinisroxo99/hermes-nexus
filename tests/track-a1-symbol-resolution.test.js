@@ -1177,7 +1177,7 @@ test("34. one path + for-of destructuring nested in the body of foo does not mak
 });
 
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 
 const trackA1Require = createRequire(import.meta.url);
 const INSTALLED_TYPESCRIPT_VERSION = JSON.parse(
@@ -8195,6 +8195,27 @@ function adapterCollection() {
   };
 }
 
+
+function withCreateHashCounter(run) {
+  const require = createRequire(import.meta.url);
+  const cryptoCjs = require("node:crypto");
+  const original = cryptoCjs.createHash;
+  let count = 0;
+  cryptoCjs.createHash = function patchedCreateHash(...args) {
+    count += 1;
+    return original.apply(this, args);
+  };
+  syncBuiltinESMExports();
+  try {
+    const result = run();
+    return { count, result };
+  } finally {
+    cryptoCjs.createHash = original;
+    syncBuiltinESMExports();
+  }
+}
+
+
 function buildAdapterFixture(orderedFiles, { revision, query, taskPaths, limits } = {}) {
   const rev = revision ?? linkedRevision();
   const produced = createProviderSnapshot(
@@ -9005,6 +9026,7 @@ test("343. per-file ceiling on last file rejects before any sha256 or digest", (
   // Proof method: earlier files carry forged sha256. One-pass hash-then-ceiling
   // would reject them with "snapshot was rejected" before the last file. Ceiling
   // pass over ALL files first yields the ceiling note and never digests.
+  // createHash counter must stay 0 (no contextDigest / token recompute).
   const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
   const files = [];
   for (let i = 0; i < 8; i += 1) {
@@ -9026,10 +9048,11 @@ test("343. per-file ceiling on last file rejects before any sha256 or digest", (
   });
   observation.snapshot.files = files;
   request.task.paths = [SYNTHETIC_PATH];
-  const { threw, result } = runAdapter(request, observation);
-  assert.equal(threw, false);
-  assert.equal(result.status, "not_evaluated");
-  assert.deepEqual(result.notes, [SOURCE_BYTE_CEILING_NOTE]);
+  const { count, result: ran } = withCreateHashCounter(() => runAdapter(request, observation));
+  assert.equal(ran.threw, false);
+  assert.equal(ran.result.status, "not_evaluated");
+  assert.deepEqual(ran.result.notes, [SOURCE_BYTE_CEILING_NOTE]);
+  assert.equal(count, 0);
 });
 
 test("344. total ceiling rejects before any sha256 or digest", () => {
@@ -9055,8 +9078,92 @@ test("344. total ceiling rejects before any sha256 or digest", () => {
   assert.equal(files.reduce((n, f) => n + f.byteSize, 0), 4194305);
   observation.snapshot.files = files;
   request.task.paths = ["src/t00.js"];
-  const { threw, result } = runAdapter(request, observation);
+  const { count, result: ran } = withCreateHashCounter(() => runAdapter(request, observation));
+  assert.equal(ran.threw, false);
+  assert.equal(ran.result.status, "not_evaluated");
+  assert.deepEqual(ran.result.notes, [SOURCE_BYTE_CEILING_NOTE]);
+  assert.equal(count, 0);
+});
+
+
+test("345. createHash counter is non-zero on a passing adapter call", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  const { count, result: ran } = withCreateHashCounter(() => runAdapter(request, observation));
+  assert.equal(ran.threw, false);
+  assert.equal(ran.result.status, "resolved_unique");
+  assert.ok(count > 0, "positive control: passing adapter must call createHash");
+});
+
+test("346. over-total ceiling with genuine shas creates zero hashes", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  const files = [];
+  for (let i = 0; i < 32; i += 1) {
+    const n = String(i).padStart(2, "0");
+    const body = "b".repeat(131072);
+    files.push({
+      path: `src/g${n}.js`,
+      text: body,
+      byteSize: 131072,
+      sha256: contextDigest(body)
+    });
+  }
+  const tiny = "x";
+  files.push({
+    path: "src/g32.js",
+    text: tiny,
+    byteSize: 1,
+    sha256: contextDigest(tiny)
+  });
+  assert.equal(files.reduce((n, f) => n + f.byteSize, 0), 4194305);
+  observation.snapshot.files = files;
+  request.task.paths = ["src/g00.js"];
+  const { count, result: ran } = withCreateHashCounter(() => runAdapter(request, observation));
+  assert.equal(ran.threw, false);
+  assert.equal(ran.result.status, "not_evaluated");
+  assert.deepEqual(ran.result.notes, [SOURCE_BYTE_CEILING_NOTE]);
+  assert.equal(count, 0);
+});
+
+test("347. locator field supplied only via Object.prototype is project locator does not match", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  const proto = Object.prototype;
+  const had = Object.hasOwn(proto, "projectId");
+  const prev = proto.projectId;
+  delete request.projectId;
+  let threw = false;
+  let result;
+  try {
+    proto.projectId = observation.project.projectId;
+    const ran = runAdapter(request, observation);
+    threw = ran.threw;
+    result = ran.result;
+  } finally {
+    if (had) proto.projectId = prev;
+    else delete proto.projectId;
+  }
   assert.equal(threw, false);
   assert.equal(result.status, "not_evaluated");
-  assert.deepEqual(result.notes, [SOURCE_BYTE_CEILING_NOTE]);
+  assert.deepEqual(result.notes, [PROJECT_LOCATOR_MISMATCH_NOTE]);
+});
+
+test("348. inherited revision key on snapshot.revision is expected revision does not match", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  const proto = Object.prototype;
+  const had = Object.hasOwn(proto, "dirty");
+  const prev = proto.dirty;
+  delete observation.snapshot.revision.dirty;
+  let threw = false;
+  let result;
+  try {
+    proto.dirty = request.expectedRevision.dirty;
+    const ran = runAdapter(request, observation);
+    threw = ran.threw;
+    result = ran.result;
+  } finally {
+    if (had) proto.dirty = prev;
+    else delete proto.dirty;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [EXPECTED_REVISION_MISMATCH_NOTE]);
 });
