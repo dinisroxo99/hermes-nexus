@@ -1807,7 +1807,7 @@ function isNestingContainer(value) {
   return proto === Object.prototype || proto === null;
 }
 
-function nestingChildContainers(node, scannedLeaves) {
+function nestingChildContainers(node) {
   const children = [];
   const names = Object.getOwnPropertyNames(node);
   for (let i = 0; i < names.length; i += 1) {
@@ -1820,12 +1820,11 @@ function nestingChildContainers(node, scannedLeaves) {
     if (!isAllowedTrackA1Value(desc.value)) {
       return { note: NON_PLAIN_INPUT_NOTE, children: null };
     }
+    // Byte leaves join the child-visit list; own accessors are scanned when
+    // visited, in the same order as object/array children. They are not
+    // nesting containers for depth.
     if (isAllowedByteLeaf(desc.value)) {
-      if (!scannedLeaves.has(desc.value)) {
-        scannedLeaves.add(desc.value);
-        const leafNote = inspectByteLeafOwnAccessors(desc.value);
-        if (leafNote !== null) return { note: leafNote, children: null };
-      }
+      children.push(desc.value);
       continue;
     }
     if (isNestingContainer(desc.value)) children.push(desc.value);
@@ -1838,11 +1837,7 @@ function nestingChildContainers(node, scannedLeaves) {
       return { note: NON_PLAIN_INPUT_NOTE, children: null };
     }
     if (isAllowedByteLeaf(desc.value)) {
-      if (!scannedLeaves.has(desc.value)) {
-        scannedLeaves.add(desc.value);
-        const leafNote = inspectByteLeafOwnAccessors(desc.value);
-        if (leafNote !== null) return { note: leafNote, children: null };
-      }
+      children.push(desc.value);
       continue;
     }
     if (isNestingContainer(desc.value)) children.push(desc.value);
@@ -1867,7 +1862,7 @@ function inspectNesting(root) {
     const frame = stack[stack.length - 1];
     if (frame.children === null) {
       path.push(frame.node);
-      const scanned = nestingChildContainers(frame.node, scannedLeaves);
+      const scanned = nestingChildContainers(frame.node);
       if (scanned.note !== null) return scanned.note;
       frame.children = scanned.children;
     }
@@ -1878,6 +1873,14 @@ function inspectNesting(root) {
     }
     const child = frame.children[frame.index];
     frame.index += 1;
+    if (isAllowedByteLeaf(child)) {
+      if (!scannedLeaves.has(child)) {
+        scannedLeaves.add(child);
+        const leafNote = inspectByteLeafOwnAccessors(child);
+        if (leafNote !== null) return leafNote;
+      }
+      continue;
+    }
     if (path.includes(child)) return CYCLIC_INPUT_NOTE;
     const depth = frame.depth + 1;
     if (depth > NESTING_DEPTH_LIMIT) return NESTING_EXCEEDED_NOTE;

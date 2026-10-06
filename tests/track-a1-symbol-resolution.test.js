@@ -5774,3 +5774,216 @@ test("192. multi-path own data toString shadow is never called and equals clean"
   assert.deepEqual(shadowedResult, cleanResult);
   assert.equal(cleanResult.status, "resolved_unique");
 });
+
+test("193. object parent leaf-with-accessor then Date yields non-plain note", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const leaf = Buffer.from(source, "utf8");
+  let getterCalled = 0;
+  Object.defineProperty(leaf, "trap", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      getterCalled += 1;
+      return 1;
+    }
+  });
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    nest: { a: leaf, b: new Date(0) }
+  };
+  const result = resolveTrackA1(input);
+  assert.equal(getterCalled, 0);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [NON_PLAIN_INPUT_NOTE]);
+});
+
+test("194. object parent Date then leaf-with-accessor yields non-plain note", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const leaf = Buffer.from(source, "utf8");
+  let getterCalled = 0;
+  Object.defineProperty(leaf, "trap", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      getterCalled += 1;
+      return 1;
+    }
+  });
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    nest: { a: new Date(0), b: leaf }
+  };
+  const result = resolveTrackA1(input);
+  assert.equal(getterCalled, 0);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [NON_PLAIN_INPUT_NOTE]);
+});
+
+test("195. object parent leaf-with-accessor then accessor-object matches two-object-child control", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  function run(nest) {
+    return resolveTrackA1({
+      name: "foo",
+      sourceBytes,
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query,
+      nest
+    });
+  }
+  const controlTwoAccessors = run({
+    a: { get yy() { return 1; } },
+    b: { get zz() { return 1; } }
+  });
+  const controlAccessorThenDateChild = run({
+    a: { get yy() { return 1; } },
+    b: { x: new Date(0) }
+  });
+  // First-key child is visited first: both controls report accessor.
+  assert.deepEqual(controlTwoAccessors.notes, [ACCESSOR_INPUT_NOTE]);
+  assert.deepEqual(controlAccessorThenDateChild.notes, [ACCESSOR_INPUT_NOTE]);
+
+  const leaf = Buffer.from(source, "utf8");
+  let getterCalled = 0;
+  Object.defineProperty(leaf, "trap", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      getterCalled += 1;
+      return 1;
+    }
+  });
+  const leafCase = run({
+    a: leaf,
+    b: { get zz() { return 1; } }
+  });
+  assert.equal(getterCalled, 0);
+  assert.deepEqual(leafCase.notes, controlTwoAccessors.notes);
+  assert.deepEqual(leafCase.notes, [ACCESSOR_INPUT_NOTE]);
+});
+
+test("196. array parent leaf-with-accessor then Date yields non-plain note", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const leaf = Buffer.from(source, "utf8");
+  let getterCalled = 0;
+  Object.defineProperty(leaf, "trap", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      getterCalled += 1;
+      return 1;
+    }
+  });
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    nest: [leaf, new Date(0)]
+  };
+  const result = resolveTrackA1(input);
+  assert.equal(getterCalled, 0);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [NON_PLAIN_INPUT_NOTE]);
+});
+
+test("197. array parent Date then leaf-with-accessor yields non-plain note", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  const leaf = Buffer.from(source, "utf8");
+  let getterCalled = 0;
+  Object.defineProperty(leaf, "trap", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      getterCalled += 1;
+      return 1;
+    }
+  });
+  const input = {
+    name: "foo",
+    sourceBytes,
+    binding: { sourceSha256: parts.sourceSha256 },
+    snapshot: parts.snapshot,
+    task: parts.task,
+    project: parts.project,
+    query: parts.query,
+    nest: [new Date(0), leaf]
+  };
+  const result = resolveTrackA1(input);
+  assert.equal(getterCalled, 0);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [NON_PLAIN_INPUT_NOTE]);
+});
+
+test("198. array parent leaf-with-accessor then accessor-object matches two-object-child control", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const parts = fullBindingParts(source);
+  const sourceBytes = Buffer.from(source, "utf8");
+  function run(nest) {
+    return resolveTrackA1({
+      name: "foo",
+      sourceBytes,
+      binding: { sourceSha256: parts.sourceSha256 },
+      snapshot: parts.snapshot,
+      task: parts.task,
+      project: parts.project,
+      query: parts.query,
+      nest
+    });
+  }
+  const controlTwoAccessors = run([
+    { get yy() { return 1; } },
+    { get zz() { return 1; } }
+  ]);
+  const controlAccessorThenDateChild = run([
+    { get yy() { return 1; } },
+    { x: new Date(0) }
+  ]);
+  assert.deepEqual(controlTwoAccessors.notes, [ACCESSOR_INPUT_NOTE]);
+  assert.deepEqual(controlAccessorThenDateChild.notes, [ACCESSOR_INPUT_NOTE]);
+
+  const leaf = Buffer.from(source, "utf8");
+  let getterCalled = 0;
+  Object.defineProperty(leaf, "trap", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      getterCalled += 1;
+      return 1;
+    }
+  });
+  const leafCase = run([
+    leaf,
+    { get zz() { return 1; } }
+  ]);
+  assert.equal(getterCalled, 0);
+  assert.deepEqual(leafCase.notes, controlTwoAccessors.notes);
+  assert.deepEqual(leafCase.notes, [ACCESSOR_INPUT_NOTE]);
+});
