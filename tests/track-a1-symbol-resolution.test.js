@@ -6159,7 +6159,8 @@ test("207. single-path BOM source is not_evaluated with parser round-trip note",
   assert.equal(threw, false);
   assert.equal(result.status, "not_evaluated");
   assert.deepEqual(result.notes, [SOURCE_DID_NOT_ROUND_TRIP_NOTE]);
-  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "provider"), true);
+  assertNativeTypescriptProvider(result);
   assert.equal(Object.hasOwn(result, "pathRecords"), false);
 });
 
@@ -6193,6 +6194,135 @@ test("208. multi-path BOM source is not_evaluated with parser round-trip note", 
   assert.equal(threw, false);
   assert.equal(result.status, "not_evaluated");
   assert.deepEqual(result.notes, [SOURCE_DID_NOT_ROUND_TRIP_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), true);
+  assertNativeTypescriptProvider(result);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("209. BOM source without task is not_evaluated with round-trip note and provider", () => {
+  const text = "\uFEFFexport function foo() { return 1; }\n";
+  const sourceBytes = Buffer.from(text, "utf8");
+  const sourceSha256 = sha256Text(text);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes,
+      binding: { sourceSha256 }
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SOURCE_DID_NOT_ROUND_TRIP_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), true);
+  assertNativeTypescriptProvider(result);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("210. non-string name is not_evaluated with name was rejected", () => {
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: 42,
+      sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+      binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) }
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [NAME_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("211. snapshot shape failure without task is not_evaluated with snapshot was rejected", () => {
+  const source = FIXTURE_SINGLE_FOO;
+  const sourceBytes = Buffer.from(source, "utf8");
+  const sourceSha256 = sha256Text(source);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      sourceBytes,
+      binding: { sourceSha256 },
+      snapshot: {
+        projectId: "",
+        path: SYNTHETIC_PATH,
+        sourceSha256,
+        byteSize: sourceBytes.length,
+        token: "token",
+        revision: linkedRevision()
+      }
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("212. multi-path snapshot shape failure is not_evaluated with snapshot was rejected", () => {
+  const ordered = [
+    [PATH_A, FIXTURE_SINGLE_FOO],
+    [PATH_B, FILE_B_OTHER]
+  ];
+  const parts = multiPathBinding(ordered);
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files: parts.files,
+      binding: { sourceSha256: parts.combinedSha },
+      snapshot: { ...parts.snapshot, projectId: "" },
+      task: parts.task,
+      project: parts.project,
+      query: parts.query
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SNAPSHOT_WAS_REJECTED_NOTE]);
+  assert.equal(Object.hasOwn(result, "provider"), false);
+  assert.equal(Object.hasOwn(result, "pathRecords"), false);
+});
+
+test("213. multi-path missing binding is not_evaluated with source hash binding was rejected", () => {
+  let threw = false;
+  let result;
+  try {
+    result = resolveTrackA1({
+      name: "foo",
+      files: [
+        { path: PATH_A, sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8") },
+        { path: PATH_B, sourceBytes: Buffer.from(FILE_B_OTHER, "utf8") }
+      ],
+      task: { id: SYNTHETIC_TASK_ID, paths: [PATH_A, PATH_B] },
+      project: {
+        projectId: SYNTHETIC_PROJECT_ID,
+        rootId: SYNTHETIC_ROOT_ID,
+        relativePath: SYNTHETIC_PROJECT_RELATIVE_PATH
+      },
+      query: { name: "foo", domain: SYMBOL_QUERY_DOMAIN }
+    });
+  } catch (_error) {
+    threw = true;
+  }
+  assert.equal(threw, false);
+  assert.equal(result.status, "not_evaluated");
+  assert.deepEqual(result.notes, [SOURCE_HASH_BINDING_WAS_REJECTED_NOTE]);
   assert.equal(Object.hasOwn(result, "provider"), false);
   assert.equal(Object.hasOwn(result, "pathRecords"), false);
 });

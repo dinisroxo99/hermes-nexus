@@ -1113,13 +1113,13 @@ function resolveMulti(input, paths) {
   for (const file of ordered) {
     const parsed = parseTrackSource(file.text);
     if (!parsed.ok) {
-      return notEvaluated(
+      return withParsedProvider(notEvaluated(
         withCompleteness(
           { notes: [SOURCE_DID_NOT_ROUND_TRIP_NOTE] },
           buildCompleteness()
         ),
         providerNode
-      );
+      ));
     }
     parsedFiles.push({ ...file, ...parsed });
   }
@@ -1464,15 +1464,15 @@ function resolveTrackA1Body(input = {}) {
   const sourceFile = morphProject.createSourceFile("synthetic-fixture.ts", text);
   if (sourceFile.getFullText() !== text) {
     if (pathScoped) {
-      return notEvaluated(
+      return withParsedProvider(notEvaluated(
         withCompleteness(
           { notes: [SOURCE_DID_NOT_ROUND_TRIP_NOTE] },
           buildCompleteness()
         ),
         providerNode
-      );
+      ));
     }
-    return notEvaluated({ notes: [SOURCE_DID_NOT_ROUND_TRIP_NOTE] }, providerNode);
+    return withParsedProvider(notEvaluated({ notes: [SOURCE_DID_NOT_ROUND_TRIP_NOTE] }, providerNode));
   }
 
   const program = morphProject.getProgram().compilerObject;
