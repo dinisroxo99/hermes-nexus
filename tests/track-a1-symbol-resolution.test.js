@@ -11166,3 +11166,41 @@ test("496. adapter collection key-set rejection respects compactBytes exact size
     [UNKNOWN_INPUT_KEY_WAS_REJECTED_NOTE]
   );
 });
+
+test("497. flat invalid path scope plus null bytes is task paths were rejected", () => {
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: null,
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    task: { id: "t", paths: ["../x.js"] }
+  });
+  assert.deepEqual(result.notes, [TASK_PATHS_WERE_REJECTED_NOTE]);
+});
+
+test("498. flat invalid path scope plus binding mismatch is task paths were rejected", () => {
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: Buffer.from(FIXTURE_SINGLE_FOO, "utf8"),
+    binding: { sourceSha256: "0".repeat(64) },
+    task: { id: "t", paths: ["../x.js"] }
+  });
+  assert.deepEqual(result.notes, [TASK_PATHS_WERE_REJECTED_NOTE]);
+});
+
+test("499. flat absolute path scope plus null bytes is task paths were rejected", () => {
+  const result = resolveTrackA1({
+    name: "foo",
+    sourceBytes: null,
+    binding: { sourceSha256: sha256Text(FIXTURE_SINGLE_FOO) },
+    task: { id: "t", paths: ["/tmp/x.js"] }
+  });
+  assert.deepEqual(result.notes, [TASK_PATHS_WERE_REJECTED_NOTE]);
+});
+
+test("500. adapter invalid path scope plus binding-irrelevant still task paths were rejected", () => {
+  const { request, observation } = buildAdapterFixture([[SYNTHETIC_PATH, FIXTURE_SINGLE_FOO]]);
+  request.task.paths = ["../x.js"];
+  const { threw, result } = runAdapter(request, observation);
+  assert.equal(threw, false);
+  assert.deepEqual(result.notes, [TASK_PATHS_WERE_REJECTED_NOTE]);
+});

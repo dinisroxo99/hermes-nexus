@@ -1691,9 +1691,20 @@ function resolveTrackA1Body(input = {}, internal) {
       providerNode
     );
   }
+  if (earlyScope.kind === "invalid") {
+    return notEvaluated(
+      withCompleteness(
+        { notes: [TASK_PATHS_WERE_REJECTED_NOTE] },
+        buildCompleteness()
+      ),
+      providerNode
+    );
+  }
   if (earlyScope.kind === "multi") {
     return resolveMulti(input, earlyScope.paths, internal);
   }
+  const pathScope = earlyScope;
+  const pathScoped = pathScope.kind === "single";
 
   let bytes;
   if (isAllowedByteLeaf(sourceBytes)) {
@@ -1719,19 +1730,6 @@ function resolveTrackA1Body(input = {}, internal) {
   const actualSha = sha256Bytes(bytes);
   if (actualSha !== binding.sourceSha256) {
     return notEvaluated({ notes: [SOURCE_HASH_BINDING_WAS_REJECTED_NOTE] }, providerNode);
-  }
-
-  const pathScope = resolveTaskPathScope(task);
-  const pathScoped = pathScope.kind === "single";
-
-  if (pathScope.kind === "invalid") {
-    return notEvaluated(
-      withCompleteness(
-        { notes: [TASK_PATHS_WERE_REJECTED_NOTE] },
-        buildCompleteness()
-      ),
-      providerNode
-    );
   }
 
   let snapshotTokenMatched = false;
