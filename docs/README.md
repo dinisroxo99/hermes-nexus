@@ -50,6 +50,9 @@ unchanged. This acceptance is not full technical validation or Step 4 authorizat
 - [Hermes plugin setup guide](hermes-plugin-installation.md) — DEV-ADOPTION-1,
   revision-pinned configuration/rollback, legacy deferral and INFRA-1 status.
 - [Project ICM](project-icm.md) — canonical manifest and index contracts.
+- [Effective task scope HTTP route](effective-task-scope-http-route.md) — `POST .../effective-task-scope` feature record.
+- [Step 4 first RESERVED item (Track B)](step4-reserved-track-b-item.md) — first nonempty `RESERVED` item from the Track B witness.
+- [Track A1 symbol resolution](track-a1-symbol-resolution.md) — Track A1 declaration-evidence producer/adapter feature record.
 
 The tracked plugin is delivered in source, not automatically installed into the
 approved fleet. Legacy examples are archived, not the current procedure. For Hermes

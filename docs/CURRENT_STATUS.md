@@ -233,7 +233,7 @@ START_CONFINEMENT_EPIC_NOW=NO
 STEP4_BLOCKED_BY_HERMES_CONFINEMENT=YES
 CONFINEMENT_EPIC_FEASIBLE=UNKNOWN
 CONFINEMENT_EPIC_REQUIRED_FOR_CURRENT_THREAT_MODEL=UNKNOWN
-TRACK_A_STATUS=DEFERRED
+TRACK_A_STATUS=A1_MERGED_PR54
 SLICE4=NOT_STARTED
 STEP4=INCOMPLETE
 IMPLEMENTATION_AUTHORIZED=NO
@@ -257,9 +257,10 @@ not establish end-to-end confinement across integrations and lifecycle;
 feasibility and necessity of this specific epic remain UNKNOWN. The
 hostile-agent requirement remains intact and unsatisfied. This operational
 hold does not prove that pure classification intrinsically needs an OS
-sandbox and does not replace the separate missing producer-backed symbol
-resolution/direct-coupling evidence. Track A is deferred, not implemented;
-Slice 4 remains unselected and NOT STARTED. No previous finding or hold is
+sandbox. Track A1 symbol-resolution producer/adapter is **merged** via PR #54
+at `5ab214c5a1901a32ffaf4f754edf0ac98e47b470`; feature record:
+[track-a1-symbol-resolution.md](track-a1-symbol-resolution.md). A0/A2 remain
+out of this flag. Slice 4 remains unselected and NOT STARTED. No previous finding or hold is
 closed, including `t_b563da81`, `t_89d07972` and `t_09a34d2b`. Steps 5/6
 remain NOT STARTED, RESERVED remains `not_evaluated`, and v2 runtime
 exposure remains NO. This documentation authorization is not implementation,

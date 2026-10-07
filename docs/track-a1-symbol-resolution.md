@@ -38,7 +38,7 @@ Contract parser pin: `typescript/6.0.3`. The installed TypeScript version is rea
 - `src/lib/track-a-symbol-resolution.js`
 - `tests/track-a1-symbol-resolution.test.js`
 
-No `composeEffectiveTaskScope`, analyzer, provider-contract, or identity redesign in this docs slice. `CURRENT_STATUS` / `IMPLEMENTATION_AUTHORIZED` are **not** flipped by this documentation commit.
+No `composeEffectiveTaskScope`, analyzer, provider-contract, or identity redesign in this docs slice. `CURRENT_STATUS` / `IMPLEMENTATION_AUTHORIZED` are **not** flipped by this documentation commit. Pre-existing dirty docs (`README.md` / other `docs/*` already modified outside this slice) stay out of the feature-record commit unless separately updated as discovery/status docs.
 
 ## Operator contracts (observation pointers)
 
@@ -52,7 +52,11 @@ Do not treat those files as in-repo sources of truth for this commit; cite them 
 
 ## Verification
 
-Merged implementation at HEAD `5ab214c5a1901a32ffaf4f754edf0ac98e47b470`. Verification is the merged suite in `tests/track-a1-symbol-resolution.test.js` (and the adapter acceptance evidence cited above). This documentation commit adds **only** this feature doc.
+Branch: `docs/track-a1-symbol-resolution` at docs feature-record commit `4dc452759b61db74580fe675c2dca35530ecfb67` (implementation merged on `main` at `5ab214c5a1901a32ffaf4f754edf0ac98e47b470`, PR 54).
+
+Merged suite pointer: `tests/track-a1-symbol-resolution.test.js` (no invented per-run pass counts here). Adapter acceptance evidence: observation pointer `2026-10-06T145843Z-adapter-on-real-bytes.json` (`a1Approved`: true).
+
+**Reviewer: PASS** on docs commit `4dc4527` (feature record). Follow-up discovery/status doc edits on this branch are separate commits for Reviewer.
 
 ## Explicit non-claims
 
