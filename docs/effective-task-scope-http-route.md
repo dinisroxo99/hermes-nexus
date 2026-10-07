@@ -37,7 +37,7 @@ Success response: HTTP `200` envelope with `policyVersion` `step4-foundation-2` 
 
 ## Operation intent pass-through (later slices)
 
-Observed by code reading on branch `feat/ets-create-intent-classification` at the PR #60 fix commit `1c382eb56b554e390e99ce5757b5df8e99166b14` (PR #60, **open, not merged**). `src/routes/effective-task-scope.routes.js` is unchanged since base `95ea609`; the behavior below comes from the shared request normalizer.
+Observed by code reading on `main` at merge `6d570ab7ebdada851e85131271e15b0ceb6dfff6` (PR #60 merged, including fix commit `1c382eb56b554e390e99ce5757b5df8e99166b14`; parents `95ea609` + `1709d53`). `src/routes/effective-task-scope.routes.js` is unchanged since base `95ea609`; the behavior below comes from the shared request normalizer.
 
 - The route calls `normalizeEffectiveTaskScopeRequest({ ...body, projectId })` (`projectId` taken from the path) with **no options**, then passes the normalized request through `composeEffectiveTaskScopeFromEnvelopes` into `composeEffectiveTaskScope`. The adapter does not inspect or rewrite `operationIntent`; intent binding happens in the composer.
 - Over HTTP only `operationIntent.kind: "delete"` (Slice 3, PR #46; exact keys `kind` and `targets`, targets `{ oldPath, newPath: null }` matching the explicit `task.paths`) reaches compose. The shared normalizer is default-deny for create: only a caller passing `{ allowCreateIntent: true }` (strictly `=== true`; today only `composeEffectiveTaskScope`) gets create normalization.
@@ -45,7 +45,7 @@ Observed by code reading on branch `feat/ets-create-intent-classification` at th
 - Delete-intent binding failures in the composer are returned as composer results (`status: "rejected"` or `status: "not_evaluated"`), not thrown.
 - This is **classification, not authorization**: WRITE items carrying `explicit_delete_intent` are not permission to delete, write or publish, and nothing is deleted on disk. Create, rename and directory expansion are not available over HTTP.
 - The route still passes only the `pack` and `impact` envelopes; it does not supply the optional `symbolTargetCompletenessWitness` envelope that PR #59 (C1, merged) made acceptable at the adapter seam.
-- `policyVersion`: `EFFECTIVE_TASK_SCOPE_POLICY_VERSION` on this branch is `step4-foundation-4`, bumped from `step4-foundation-3` (introduced with PR #57) by the PR #60 fix because the create rules changed. The route has no version constant of its own, so route responses now report `step4-foundation-4`; the DTO shape is unchanged. Hard flags (`IMPLEMENTATION_AUTHORIZED`, `SLICE4`, `STEP4_SLICE4_READY_TO_IMPLEMENT`, confinement) are unchanged.
+- `policyVersion`: `EFFECTIVE_TASK_SCOPE_POLICY_VERSION` on main is `step4-foundation-4`, bumped from `step4-foundation-3` (introduced with PR #57) by the PR #60 fix (merged at `6d570ab`) because the create rules changed. The route has no version constant of its own, so route responses now report `step4-foundation-4`; the DTO shape is unchanged. Hard flags (`IMPLEMENTATION_AUTHORIZED`, `SLICE4`, `STEP4_SLICE4_READY_TO_IMPLEMENT`, confinement) are unchanged.
 
 ## Files in this slice
 
