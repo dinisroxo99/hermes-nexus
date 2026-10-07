@@ -26,6 +26,9 @@ const SCHEMA_VERSION = 1;
 const ANALYSIS_VERSION = "symbol-resolution-evidence-v1";
 const POLICY_VERSION = "tsjs-direct-declarations-1";
 
+const EFFECTIVE_OUTCOMES = new Set(["unique", "not_found", "ambiguous"]);
+const EFFECTIVE_A1_STATUSES = new Set(["resolved_unique", "not_found", "ambiguous"]);
+
 const TSJS_EXTENSIONS = new Set([
   ".js",
   ".jsx",
@@ -101,7 +104,7 @@ function pathCoverageStatusFor(relPath, overrides) {
   return TSJS_EXTENSIONS.has(extensionOf(relPath)) ? "covered" : "uncovered_language";
 }
 
-function adapterCollection(files) {
+function adapterCollection(files, { truncated = false } = {}) {
   const list = Array.isArray(files) ? files : [];
   return {
     limits: {
@@ -111,7 +114,7 @@ function adapterCollection(files) {
       maxFileBytes: CONTEXT_SOURCE_LIMITS.maxFileBytes,
       maxTotalBytes: CONTEXT_SOURCE_LIMITS.maxTotalBytes
     },
-    truncated: false,
+    truncated: truncated === true,
     diagnostics: [],
     digest: contextDigest(JSON.stringify(list.map((f) => [f.path, f.sha256])))
   };
@@ -134,6 +137,36 @@ function mapAdapterStatusToOutcome(status) {
   if (status === "not_found") return "not_found";
   if (status === "ambiguous") return "ambiguous";
   return "unevaluated";
+}
+
+function a1EvidenceComplete(result, collectionTruncated) {
+  if (collectionTruncated === true) return false;
+  if (!isPlainObject(result)) return false;
+  if (!EFFECTIVE_A1_STATUSES.has(result.status)) return false;
+  const completeness = result.completeness;
+  if (isPlainObject(completeness)) {
+    if (
+      completeness.source !== "complete"
+      || completeness.parse !== "complete"
+      || completeness.enumeration !== "complete"
+    ) {
+      return false;
+    }
+  }
+  const notes = Array.isArray(result.notes) ? result.notes : [];
+  for (const note of notes) {
+    if (typeof note !== "string") continue;
+    if (note.includes("source collection was truncated")) return false;
+    if (note.includes("did not round-trip")) return false;
+    if (note.includes("incomplete because")) return false;
+  }
+  return true;
+}
+
+function effectivelyEvaluated(evaluation) {
+  if (!isPlainObject(evaluation)) return false;
+  if (!EFFECTIVE_OUTCOMES.has(evaluation.outcome)) return false;
+  return evaluation.a1Citation?.evidenceComplete === true;
 }
 
 function stampCitation(extra = {}) {
@@ -184,7 +217,33 @@ function sourceHashesMatch(expected, files) {
   return true;
 }
 
-function buildLiveObservation(request, orderedFiles, revision) {
+function revisionHasRequiredFields(revision) {
+  return (
+    isPlainObject(revision)
+    && isNonEmptyString(revision.status)
+    && isNonEmptyString(revision.commitSha)
+    && isNonEmptyString(revision.repositoryId)
+    && isNonEmptyString(revision.worktreeId)
+    && typeof revision.dirty === "boolean"
+    && typeof revision.isLinkedWorktree === "boolean"
+  );
+}
+
+function worktreeHasRequiredFields(worktree) {
+  return (
+    isPlainObject(worktree)
+    && isNonEmptyString(worktree.rootId)
+    && isNonEmptyString(worktree.relativePath)
+  );
+}
+
+function buildLiveObservation(request, orderedFiles, revision, worktree, collectionOptions = {}) {
+  if (!worktreeHasRequiredFields(worktree)) {
+    throw new Error("worktree_unavailable");
+  }
+  if (!revisionHasRequiredFields(revision)) {
+    throw new Error("revision_unavailable");
+  }
   const produced = createProviderSnapshot(
     { projectId: request.projectId },
     orderedFiles,
@@ -196,9 +255,6 @@ function buildLiveObservation(request, orderedFiles, revision) {
     byteSize: file.byteSize,
     sha256: file.sha256
   }));
-  const worktree = isPlainObject(request.worktree)
-    ? request.worktree
-    : { rootId: "root_synthetic", relativePath: "apps/synthetic" };
   const observation = {
     project: {
       projectId: request.projectId,
@@ -215,7 +271,7 @@ function buildLiveObservation(request, orderedFiles, revision) {
         : produced.languages,
       files
     },
-    collection: adapterCollection(files)
+    collection: adapterCollection(files, collectionOptions)
   };
   return { produced, observation, worktree };
 }
@@ -236,7 +292,7 @@ function buildAdapterRequest(request, name, taskPaths, revision, worktree) {
   };
 }
 
-function evaluateName(name, adapterRequest, observation, taskPaths) {
+function evaluateName(name, adapterRequest, observation, taskPaths, collectionTruncated) {
   let result;
   try {
     result = resolveTypeScriptDeclarationEvidence(adapterRequest, observation);
@@ -249,17 +305,29 @@ function evaluateName(name, adapterRequest, observation, taskPaths) {
       a1Citation: stampCitation({
         name,
         runStatus: "threw",
+        evidenceComplete: false,
         errorName: error?.name ?? "Error"
       })
     };
   }
 
+  const evidenceComplete = a1EvidenceComplete(result, collectionTruncated);
   const outcome = mapAdapterStatusToOutcome(result?.status);
   const citation = stampCitation({
     name,
     runStatus: result?.status ?? "unknown",
-    path: taskPaths[0] ?? null
+    path: taskPaths[0] ?? null,
+    evidenceComplete
   });
+
+  if (isPlainObject(result?.completeness)) {
+    citation.completeness = {
+      source: result.completeness.source,
+      parse: result.completeness.parse,
+      enumeration: result.completeness.enumeration,
+      output: result.completeness.output
+    };
+  }
 
   if (result?.status === "resolved_unique" && Array.isArray(result.occurrences) && result.occurrences[0]) {
     const occ = result.occurrences[0];
@@ -287,9 +355,19 @@ function evaluateName(name, adapterRequest, observation, taskPaths) {
     pathScope: taskPaths.slice(),
     a1Citation: citation
   };
-  if (outcome === "unevaluated") {
+  if (outcome === "unevaluated" || !evidenceComplete) {
     const notes = Array.isArray(result?.notes) ? result.notes : [];
-    evaluation.reason = notes[0] ?? `adapter_status_${result?.status ?? "unknown"}`;
+    if (outcome === "unevaluated") {
+      evaluation.reason = notes[0] ?? `adapter_status_${result?.status ?? "unknown"}`;
+    } else if (collectionTruncated) {
+      evaluation.reason = "collection_truncated";
+    } else if (isPlainObject(result?.completeness) && result.completeness.parse !== "complete") {
+      evaluation.reason = "incomplete_parsing";
+    } else if (isPlainObject(result?.completeness) && result.completeness.source !== "complete") {
+      evaluation.reason = "incomplete_evidence";
+    } else {
+      evaluation.reason = notes[0] ?? "incomplete_evidence";
+    }
   }
   return evaluation;
 }
@@ -341,7 +419,7 @@ export function produceSymbolTargetCompletenessWitness(request) {
       outcome: "unevaluated",
       pathScope: taskPaths.slice(),
       reason: "binding_incomplete",
-      a1Citation: stampCitation({ name, runStatus: "not_evaluated" })
+      a1Citation: stampCitation({ name, runStatus: "not_evaluated", evidenceComplete: false })
     }));
     const pathCoverage = taskPaths.map((path) => ({
       path,
@@ -396,6 +474,7 @@ export function produceSymbolTargetCompletenessWitness(request) {
   let liveHashes = null;
   let revision = null;
   let worktree = null;
+  let collectionTruncated = false;
 
   const coveredPaths = pathCoverage
     .filter((entry) => entry.status === "covered")
@@ -410,20 +489,79 @@ export function produceSymbolTargetCompletenessWitness(request) {
         liveHashes[file.path] = file.sha256;
       }
     }
-    revision = isPlainObject(request.revision)
-      ? request.revision
-      : observation?.snapshot?.revision;
-    worktree = isPlainObject(request.worktree)
-      ? request.worktree
-      : {
-          rootId: observation?.project?.rootId,
-          relativePath: observation?.project?.relativePath
-        };
-    if (liveToken !== request.snapshotToken) {
+    collectionTruncated = observation?.collection?.truncated === true;
+
+    const snapRevision = isPlainObject(observation?.snapshot?.revision)
+      ? observation.snapshot.revision
+      : null;
+    const obsProjectId =
+      observation?.project?.projectId ?? observation?.snapshot?.projectId ?? null;
+
+    if (obsProjectId !== request.projectId) {
+      bindingMismatch = true;
+      bindingMismatchReason = "project_mismatch";
+    } else if (
+      snapRevision
+      && (
+        (isNonEmptyString(snapRevision.repositoryId)
+          && snapRevision.repositoryId !== request.repositoryId)
+        || (isNonEmptyString(snapRevision.worktreeId)
+          && snapRevision.worktreeId !== request.worktreeId)
+      )
+    ) {
+      bindingMismatch = true;
+      bindingMismatchReason = "repository_or_worktree_mismatch";
+    }
+
+    if (isPlainObject(request.revision)) {
+      revision = request.revision;
+      if (
+        revision.repositoryId !== request.repositoryId
+        || revision.worktreeId !== request.worktreeId
+      ) {
+        bindingMismatch = true;
+        bindingMismatchReason = bindingMismatchReason ?? "repository_or_worktree_mismatch";
+      } else if (
+        snapRevision
+        && (
+          (isNonEmptyString(revision.commitSha)
+            && isNonEmptyString(snapRevision.commitSha)
+            && revision.commitSha !== snapRevision.commitSha)
+          || (isNonEmptyString(revision.repositoryId)
+            && isNonEmptyString(snapRevision.repositoryId)
+            && revision.repositoryId !== snapRevision.repositoryId)
+          || (isNonEmptyString(revision.worktreeId)
+            && isNonEmptyString(snapRevision.worktreeId)
+            && revision.worktreeId !== snapRevision.worktreeId)
+        )
+      ) {
+        bindingMismatch = true;
+        bindingMismatchReason = bindingMismatchReason ?? "revision_incoherent_with_observation";
+      }
+    } else {
+      revision = snapRevision;
+    }
+
+    if (isPlainObject(request.worktree)) {
+      worktree = request.worktree;
+    } else {
+      worktree = {
+        rootId: observation?.project?.rootId,
+        relativePath: observation?.project?.relativePath
+      };
+    }
+
+    if (!revisionHasRequiredFields(revision) || !worktreeHasRequiredFields(worktree)) {
+      bindingMismatch = true;
+      bindingMismatchReason = bindingMismatchReason ?? "revision_or_location_unavailable";
+    }
+
+    if (!bindingMismatch && liveToken !== request.snapshotToken) {
       bindingMismatch = true;
       bindingMismatchReason = "snapshotToken_mismatch";
     } else if (
-      !sourceHashesMatch(
+      !bindingMismatch
+      && !sourceHashesMatch(
         request.sourceHashes,
         Object.entries(liveHashes).map(([path, sha256]) => ({ path, sha256 }))
       )
@@ -432,50 +570,57 @@ export function produceSymbolTargetCompletenessWitness(request) {
       bindingMismatchReason = "sourceHashes_mismatch";
     }
   } else if (isPlainObject(request.fileContents)) {
-    revision = isPlainObject(request.revision)
-      ? request.revision
-      : {
-          repositoryId: request.repositoryId,
-          worktreeId: request.worktreeId,
-          status: "available",
-          commitSha: isNonEmptyString(request.commitSha)
-            ? request.commitSha
-            : "11".repeat(20),
-          branch: null,
-          dirty: false,
-          isLinkedWorktree: true
-        };
-    revision = {
-      ...revision,
-      repositoryId: request.repositoryId,
-      worktreeId: request.worktreeId
-    };
+    if (!isPlainObject(request.revision) || !worktreeHasRequiredFields(request.worktree)) {
+      bindingMismatch = true;
+      bindingMismatchReason = "revision_or_location_unavailable";
+    } else {
+      revision = request.revision;
+      worktree = request.worktree;
+      if (
+        revision.repositoryId !== request.repositoryId
+        || revision.worktreeId !== request.worktreeId
+      ) {
+        bindingMismatch = true;
+        bindingMismatchReason = "repository_or_worktree_mismatch";
+      } else if (!revisionHasRequiredFields(revision)) {
+        bindingMismatch = true;
+        bindingMismatchReason = "revision_or_location_unavailable";
+      }
+    }
 
     const orderedFiles = [];
-    for (const path of taskPaths) {
-      if (!Object.hasOwn(request.fileContents, path)) {
-        bindingMismatch = true;
-        bindingMismatchReason = `fileContents_missing_${path}`;
-        break;
+    if (!bindingMismatch) {
+      for (const path of taskPaths) {
+        if (!Object.hasOwn(request.fileContents, path)) {
+          bindingMismatch = true;
+          bindingMismatchReason = `fileContents_missing_${path}`;
+          break;
+        }
+        const text = request.fileContents[path];
+        if (typeof text !== "string") {
+          bindingMismatch = true;
+          bindingMismatchReason = `fileContents_invalid_${path}`;
+          break;
+        }
+        orderedFiles.push({ path, text });
       }
-      const text = request.fileContents[path];
-      if (typeof text !== "string") {
-        bindingMismatch = true;
-        bindingMismatchReason = `fileContents_invalid_${path}`;
-        break;
-      }
-      orderedFiles.push({ path, text });
     }
 
     if (!bindingMismatch) {
       try {
-        const built = buildLiveObservation(request, orderedFiles, revision);
+        const built = buildLiveObservation(
+          request,
+          orderedFiles,
+          revision,
+          worktree
+        );
         observation = built.observation;
         worktree = built.worktree;
         liveToken = built.produced.token;
         liveHashes = Object.fromEntries(
           built.produced.files.map((f) => [f.path, f.sha256])
         );
+        collectionTruncated = observation.collection.truncated === true;
         if (liveToken !== request.snapshotToken) {
           bindingMismatch = true;
           bindingMismatchReason = "snapshotToken_mismatch";
@@ -508,6 +653,8 @@ export function produceSymbolTargetCompletenessWitness(request) {
   const a1Citations = [];
 
   // Fail-closed short-circuit: still emit explicit evaluations for every required name.
+  // Collection truncation is NOT short-circuited here so live A1 still runs and
+  // fail-closes via effectivelyEvaluated / collectionTruncated.
   const failClosedNow =
     bindingMismatch || hasUncoveredLanguage || hasUnevaluatedPath || nameListTruncated;
 
@@ -523,7 +670,7 @@ export function produceSymbolTargetCompletenessWitness(request) {
         outcome: "unevaluated",
         pathScope: taskPaths.slice(),
         reason,
-        a1Citation: stampCitation({ name, runStatus: "not_evaluated" })
+        a1Citation: stampCitation({ name, runStatus: "not_evaluated", evidenceComplete: false })
       };
       evaluations.push(evaluation);
       a1Citations.push(evaluation.a1Citation);
@@ -538,7 +685,13 @@ export function produceSymbolTargetCompletenessWitness(request) {
         revision,
         worktree
       );
-      const evaluation = evaluateName(name, adapterRequest, observation, evalPaths);
+      const evaluation = evaluateName(
+        name,
+        adapterRequest,
+        observation,
+        evalPaths,
+        collectionTruncated
+      );
       evaluations.push(evaluation);
       a1Citations.push({
         entryPoint: ENTRY_POINT,
@@ -548,6 +701,7 @@ export function produceSymbolTargetCompletenessWitness(request) {
         name: evaluation.name,
         path: evaluation.a1Citation.path ?? evalPaths[0] ?? null,
         runStatus: evaluation.a1Citation.runStatus,
+        evidenceComplete: evaluation.a1Citation.evidenceComplete === true,
         ...(evaluation.a1Citation.declarationId
           ? { declarationId: evaluation.a1Citation.declarationId }
           : {}),
@@ -559,9 +713,11 @@ export function produceSymbolTargetCompletenessWitness(request) {
   }
 
   const evaluatedNames = new Set(evaluations.map((e) => e.name));
-  const partial =
+  const coveragePartial =
     requiredNames.some((name) => !evaluatedNames.has(name))
     || evaluations.length !== requiredNames.length;
+  const hasNonEffectiveEvaluation = evaluations.some((e) => !effectivelyEvaluated(e));
+  const partial = coveragePartial || hasNonEffectiveEvaluation;
 
   const attemptedUpgrade =
     request.forceCompletenessHolds === true
@@ -572,11 +728,19 @@ export function produceSymbolTargetCompletenessWitness(request) {
     && !bindingMismatch
     && !hasUncoveredLanguage
     && !hasUnevaluatedPath
-    && !partial
+    && !collectionTruncated
+    && !coveragePartial
+    && !hasNonEffectiveEvaluation
     && !attemptedUpgrade
-    && requiredNames.every((name) => evaluatedNames.has(name));
+    && requiredNames.every((name) => {
+      const ev = evaluations.find((e) => e.name === name);
+      return ev && effectivelyEvaluated(ev);
+    });
 
   if (nameListTruncated && FAIL_CLOSED_MATRIX.truncatedImpliesCompletenessFalse) {
+    completenessHolds = false;
+  }
+  if (collectionTruncated && FAIL_CLOSED_MATRIX.truncatedImpliesCompletenessFalse) {
     completenessHolds = false;
   }
   if (bindingMismatch && FAIL_CLOSED_MATRIX.bindingMismatchImpliesCompletenessFalse) {
@@ -591,8 +755,9 @@ export function produceSymbolTargetCompletenessWitness(request) {
 
   const uniquenessHolds =
     !bindingMismatch
+    && !collectionTruncated
     && evaluations.length > 0
-    && evaluations.every((e) => e.outcome === "unique");
+    && evaluations.every((e) => e.outcome === "unique" && effectivelyEvaluated(e));
 
   const witness = baseWitnessSkeleton(request, {
     admittedCommit: request.admittedCommit,

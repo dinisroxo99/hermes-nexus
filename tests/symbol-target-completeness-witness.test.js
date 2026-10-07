@@ -20,6 +20,32 @@ const WORKTREE_ID = "cd".repeat(32);
 const ROOT_ID = "root_synthetic";
 const RELATIVE_PATH = "apps/synthetic";
 
+const FIXTURE_TWO_TOP_LEVEL_FOO = [
+  "// synthetic fixture: two top-level function declarations named foo",
+  "function foo() {",
+  "  return 1;",
+  "}",
+  "function foo() {",
+  "  return 2;",
+  "}",
+  ""
+].join("\n");
+
+const FIXTURE_NO_FOO = "export const other = 1;\n";
+
+const FIXTURE_TRUNCATED = [
+  "// synthetic fixture: truncated / invalid source",
+  "export function foo() {"
+].join("\n");
+
+const FIXTURE_SINGLE_FOO = [
+  "// synthetic fixture: exactly one declaration of foo",
+  "export function foo() {",
+  "  return 1;",
+  "}",
+  ""
+].join("\n");
+
 const REQUIRED_ARCHW_KEYS = [
   "kind",
   "producerIdentity",
@@ -54,7 +80,7 @@ function loadRealEtsBytes() {
   return readFileSync(join(ROOT, ETS_PATH), "utf8");
 }
 
-function adapterCollection(files) {
+function adapterCollection(files, { truncated = false } = {}) {
   const list = Array.isArray(files) ? files : [];
   return {
     limits: {
@@ -64,22 +90,27 @@ function adapterCollection(files) {
       maxFileBytes: CONTEXT_SOURCE_LIMITS.maxFileBytes,
       maxTotalBytes: CONTEXT_SOURCE_LIMITS.maxTotalBytes
     },
-    truncated: false,
+    truncated: truncated === true,
     diagnostics: [],
     digest: contextDigest(JSON.stringify(list.map((f) => [f.path, f.sha256])))
   };
 }
 
-function buildLiveGoldenBinding(fileContents, taskPaths) {
-  const revision = {
+function standardRevision(overrides = {}) {
+  return {
     repositoryId: REPOSITORY_ID,
     worktreeId: WORKTREE_ID,
     status: "available",
     commitSha: "11".repeat(20),
     branch: null,
     dirty: false,
-    isLinkedWorktree: true
+    isLinkedWorktree: true,
+    ...overrides
   };
+}
+
+function buildLiveGoldenBinding(fileContents, taskPaths, { truncated = false, revisionOverrides = {} } = {}) {
+  const revision = standardRevision(revisionOverrides);
   const ordered = taskPaths.map((path) => ({ path, text: fileContents[path] }));
   const produced = createProviderSnapshot({ projectId: PROJECT_ID }, ordered, revision);
   const files = produced.files.map((f) => ({
@@ -107,7 +138,7 @@ function buildLiveGoldenBinding(fileContents, taskPaths) {
         languages: produced.languages.slice(),
         files
       },
-      collection: adapterCollection(files)
+      collection: adapterCollection(files, { truncated })
     }
   };
 }
@@ -267,6 +298,13 @@ function assertArchWShape(witness) {
   ));
 }
 
+function assertHardFlagsUnchanged(witness) {
+  assert.equal(witness.hardFlags.IMPLEMENTATION_AUTHORIZED, "NO");
+  assert.equal(witness.hardFlags.SLICE4, "NOT_STARTED");
+  assert.equal(witness.hardFlags.STEP4_SLICE4_READY_TO_IMPLEMENT, "NO");
+  assert.equal(witness.hardFlags.confinementFlipped, false);
+}
+
 function goldenRequest(overrides = {}) {
   const etsText = loadRealEtsBytes();
   const fileContents = { [ETS_PATH]: etsText };
@@ -324,6 +362,7 @@ test("golden: real ETS bytes + live resolveTypeScriptDeclarationEvidence", () =>
     "tsjs-direct-declarations-1"
   );
   assert.equal(witness.evaluations[0].a1Citation.runStatus, "resolved_unique");
+  assert.equal(witness.evaluations[0].a1Citation.evidenceComplete, true);
   assert.ok(witness.a1Citations.length >= 1);
   assert.equal(witness.sourceHashes[ETS_PATH], ETS_SHA256);
   assert.equal(witness.snapshotToken, live.snapshotToken);
@@ -468,4 +507,201 @@ test("negative: observation-only fixture with forged token fails closed", () => 
   });
   assert.equal(witness.completenessHolds, false);
   assert.equal(witness.provenance?.bindingMismatchReason, "snapshotToken_mismatch");
+});
+
+test("arch matrix 1: collection.truncated=true fails closed via live A1", () => {
+  const path = "src/lib/matrix-trunc.js";
+  const fileContents = { [path]: FIXTURE_SINGLE_FOO };
+  const live = buildLiveGoldenBinding(fileContents, [path], { truncated: true });
+  assert.equal(live.observation.collection.truncated, true);
+  const witness = produceSymbolTargetCompletenessWitness({
+    taskPaths: [path],
+    requiredNames: ["foo"],
+    projectId: PROJECT_ID,
+    repositoryId: REPOSITORY_ID,
+    worktreeId: WORKTREE_ID,
+    snapshotToken: live.snapshotToken,
+    sourceHashes: live.sourceHashes,
+    admittedCommit: ADMITTED_COMMIT,
+    observation: live.observation,
+    revision: live.revision,
+    worktree: { rootId: ROOT_ID, relativePath: RELATIVE_PATH }
+  });
+  assert.equal(witness.completenessHolds, false);
+  assert.notEqual(witness.uniquenessHolds, true);
+  assert.equal(witness.failClosedMatrix.truncatedImpliesCompletenessFalse, true);
+  assert.ok(witness.evaluations.every((e) => e.a1Citation.evidenceComplete !== true));
+  assertHardFlagsUnchanged(witness);
+});
+
+test("arch matrix 2: incomplete parsing fails closed via live A1", () => {
+  const path = "src/lib/matrix-incomplete-parse.js";
+  const fileContents = { [path]: FIXTURE_TRUNCATED };
+  const live = buildLiveGoldenBinding(fileContents, [path]);
+  const witness = produceSymbolTargetCompletenessWitness({
+    taskPaths: [path],
+    requiredNames: ["foo"],
+    projectId: PROJECT_ID,
+    repositoryId: REPOSITORY_ID,
+    worktreeId: WORKTREE_ID,
+    snapshotToken: live.snapshotToken,
+    sourceHashes: live.sourceHashes,
+    admittedCommit: ADMITTED_COMMIT,
+    fileContents,
+    revision: live.revision,
+    worktree: { rootId: ROOT_ID, relativePath: RELATIVE_PATH }
+  });
+  assert.equal(witness.completenessHolds, false);
+  assert.notEqual(witness.uniquenessHolds, true);
+  assert.equal(witness.evaluations[0].outcome, "unevaluated");
+  assert.equal(witness.evaluations[0].a1Citation.evidenceComplete, false);
+  assert.equal(witness.evaluations[0].a1Citation.runStatus, "partial");
+  assertHardFlagsUnchanged(witness);
+});
+
+test("arch matrix 3: ambiguous with partial coverage fails closed via live A1", () => {
+  const path = "src/lib/matrix-ambiguous-partial.js";
+  const fileContents = { [path]: FIXTURE_TWO_TOP_LEVEL_FOO };
+  const live = buildLiveGoldenBinding(fileContents, [path], { truncated: true });
+  const witness = produceSymbolTargetCompletenessWitness({
+    taskPaths: [path],
+    requiredNames: ["foo"],
+    projectId: PROJECT_ID,
+    repositoryId: REPOSITORY_ID,
+    worktreeId: WORKTREE_ID,
+    snapshotToken: live.snapshotToken,
+    sourceHashes: live.sourceHashes,
+    admittedCommit: ADMITTED_COMMIT,
+    observation: live.observation,
+    revision: live.revision,
+    worktree: { rootId: ROOT_ID, relativePath: RELATIVE_PATH }
+  });
+  assert.equal(witness.completenessHolds, false);
+  assert.equal(witness.uniquenessHolds, false);
+  assert.equal(witness.evaluations[0].outcome, "ambiguous");
+  assert.equal(witness.evaluations[0].a1Citation.evidenceComplete, false);
+  assert.equal(witness.evaluations[0].a1Citation.runStatus, "ambiguous");
+  assert.equal(witness.evaluations[0].a1Citation.completeness?.source, "partial");
+  assertHardFlagsUnchanged(witness);
+});
+
+test("arch matrix 4: contradictory repositoryId/worktreeId on observation and fileContents paths", () => {
+  const path = "src/lib/matrix-binding.js";
+  const fileContents = { [path]: FIXTURE_SINGLE_FOO };
+  const live = buildLiveGoldenBinding(fileContents, [path]);
+
+  const badRepo = "ef".repeat(32);
+  const badWorktree = "01".repeat(32);
+
+  const obsWitness = produceSymbolTargetCompletenessWitness({
+    taskPaths: [path],
+    requiredNames: ["foo"],
+    projectId: PROJECT_ID,
+    repositoryId: badRepo,
+    worktreeId: badWorktree,
+    snapshotToken: live.snapshotToken,
+    sourceHashes: live.sourceHashes,
+    admittedCommit: ADMITTED_COMMIT,
+    observation: live.observation,
+    revision: {
+      ...live.revision,
+      repositoryId: badRepo,
+      worktreeId: badWorktree
+    },
+    worktree: { rootId: ROOT_ID, relativePath: RELATIVE_PATH }
+  });
+  assert.equal(obsWitness.completenessHolds, false);
+  assert.equal(obsWitness.uniquenessHolds, false);
+  assert.equal(
+    obsWitness.provenance?.bindingMismatchReason,
+    "repository_or_worktree_mismatch"
+  );
+  assertHardFlagsUnchanged(obsWitness);
+
+  const fcRevision = {
+    ...live.revision,
+    repositoryId: badRepo,
+    worktreeId: badWorktree
+  };
+  const fcLive = buildLiveGoldenBinding(fileContents, [path], {
+    revisionOverrides: { repositoryId: badRepo, worktreeId: badWorktree }
+  });
+  const fcWitness = produceSymbolTargetCompletenessWitness({
+    taskPaths: [path],
+    requiredNames: ["foo"],
+    projectId: PROJECT_ID,
+    repositoryId: REPOSITORY_ID,
+    worktreeId: WORKTREE_ID,
+    snapshotToken: fcLive.snapshotToken,
+    sourceHashes: fcLive.sourceHashes,
+    admittedCommit: ADMITTED_COMMIT,
+    fileContents,
+    revision: fcRevision,
+    worktree: { rootId: ROOT_ID, relativePath: RELATIVE_PATH }
+  });
+  assert.equal(fcWitness.completenessHolds, false);
+  assert.equal(fcWitness.uniquenessHolds, false);
+  assert.equal(
+    fcWitness.provenance?.bindingMismatchReason,
+    "repository_or_worktree_mismatch"
+  );
+  assert.notEqual(fcRevision.repositoryId, REPOSITORY_ID);
+  assertHardFlagsUnchanged(fcWitness);
+});
+
+test("arch matrix 5: missing revision/location without observation is not established", () => {
+  const path = "src/lib/matrix-missing-rev.js";
+  const fileContents = { [path]: FIXTURE_SINGLE_FOO };
+  const live = buildLiveGoldenBinding(fileContents, [path]);
+  const witness = produceSymbolTargetCompletenessWitness({
+    taskPaths: [path],
+    requiredNames: ["foo"],
+    projectId: PROJECT_ID,
+    repositoryId: REPOSITORY_ID,
+    worktreeId: WORKTREE_ID,
+    snapshotToken: live.snapshotToken,
+    sourceHashes: live.sourceHashes,
+    admittedCommit: ADMITTED_COMMIT,
+    fileContents
+  });
+  assert.equal(witness.completenessHolds, false);
+  assert.equal(witness.uniquenessHolds, false);
+  assert.equal(
+    witness.provenance?.bindingMismatchReason,
+    "revision_or_location_unavailable"
+  );
+  const serialized = JSON.stringify(witness);
+  assert.equal(serialized.includes("root_synthetic"), false);
+  assert.equal(serialized.includes("apps/synthetic"), false);
+  assert.equal(serialized.includes("11".repeat(20)), false);
+  assertHardFlagsUnchanged(witness);
+});
+
+test("arch matrix 6: complete not_found and complete ambiguous hold completeness not uniqueness", () => {
+  const path = "src/lib/matrix-complete-mixed.js";
+  const fileContents = { [path]: FIXTURE_TWO_TOP_LEVEL_FOO };
+  const live = buildLiveGoldenBinding(fileContents, [path]);
+  const witness = produceSymbolTargetCompletenessWitness({
+    taskPaths: [path],
+    requiredNames: ["foo", "bar"],
+    projectId: PROJECT_ID,
+    repositoryId: REPOSITORY_ID,
+    worktreeId: WORKTREE_ID,
+    snapshotToken: live.snapshotToken,
+    sourceHashes: live.sourceHashes,
+    admittedCommit: ADMITTED_COMMIT,
+    fileContents,
+    revision: live.revision,
+    worktree: { rootId: ROOT_ID, relativePath: RELATIVE_PATH }
+  });
+  assert.equal(witness.completenessHolds, true);
+  assert.equal(witness.uniquenessHolds, false);
+  const byName = Object.fromEntries(witness.evaluations.map((e) => [e.name, e]));
+  assert.equal(byName.foo.outcome, "ambiguous");
+  assert.equal(byName.bar.outcome, "not_found");
+  assert.equal(byName.foo.a1Citation.evidenceComplete, true);
+  assert.equal(byName.bar.a1Citation.evidenceComplete, true);
+  assert.equal(byName.foo.a1Citation.runStatus, "ambiguous");
+  assert.equal(byName.bar.a1Citation.runStatus, "not_found");
+  assertHardFlagsUnchanged(witness);
 });
