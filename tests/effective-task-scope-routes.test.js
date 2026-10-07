@@ -150,7 +150,7 @@ test("effective task scope route returns the composer object for a bound request
   assert.deepEqual(result.payload.data, JSON.parse(JSON.stringify(expected)));
   assert.equal(result.payload.data.schemaVersion, 2);
   assert.equal(result.payload.data.analysisVersion, "effective-task-scope-v2");
-  assert.equal(result.payload.data.policyVersion, "step4-foundation-3");
+  assert.equal(result.payload.data.policyVersion, "step4-foundation-4");
   assert.equal(result.payload.data.reserved.status, "not_evaluated");
   assert.deepEqual(result.payload.data.reserved.items, []);
   assert.deepEqual(result.payload.data.reserved.reasons, ["coupling_evidence_not_supported"]);
@@ -320,6 +320,65 @@ test("intelligence router registers effective task scope beside task-context and
   const payload = JSON.parse(res.body);
   assert.equal(res.status, 200);
   assert.equal(payload.message, SUCCESS_MESSAGE);
-  assert.equal(payload.data.policyVersion, "step4-foundation-3");
+  assert.equal(payload.data.policyVersion, "step4-foundation-4");
   assert.equal(payload.data.reserved.reasons[0], "coupling_evidence_not_supported");
+});
+
+// PR #60 fix contract §4: the shared normalizer denies create by default, so the
+// route (no allowCreateIntent opt-in) refuses every create body exactly like base
+// 95ea609, before config, roots, producers or compose run.
+function countingDependencies() {
+  const calls = { config: 0, roots: 0, taskContext: 0, impact: 0, compose: 0 };
+  const { pack, impact } = evidence();
+  const extra = {
+    getProjectConfig: () => { calls.config += 1; return { dataDir: "/registry" }; },
+    getConfiguredProjectRoots: () => { calls.roots += 1; return [{ id: "fixture", path: "/projects" }]; },
+    buildProjectTaskContext: () => { calls.taskContext += 1; return pack; },
+    buildProjectImpact: () => { calls.impact += 1; return impact; },
+    composeEffectiveTaskScopeFromEnvelopes: (request, envelopes) => {
+      calls.compose += 1;
+      return composeEffectiveTaskScopeFromEnvelopes(request, envelopes);
+    }
+  };
+  return { calls, extra };
+}
+
+async function assertCreateRefused(operationIntent) {
+  const { calls, extra } = countingDependencies();
+  const result = await invoke({ ...validBody(), operationIntent }, extra);
+  assert.equal(result.res.status, 400, JSON.stringify(operationIntent));
+  assert.equal(result.payload.ok, false);
+  assert.equal(result.payload.error, "invalid_delete_intent");
+  assert.equal(result.payload.message, ERROR_MESSAGE);
+  assert.equal(JSON.stringify(result.payload).includes("invalid_create_intent"), false);
+  assert.deepEqual(calls, { config: 0, roots: 0, taskContext: 0, impact: 0, compose: 0 });
+}
+
+test("R1 effective task scope route refuses a well-formed create intent with zero producer, config and compose calls", async () => {
+  await assertCreateRefused({ kind: "create", targets: [{ oldPath: null, newPath: "src/a.js" }] });
+});
+
+test("R2 effective task scope route refuses malformed create intents as invalid_delete_intent, never invalid_create_intent", async () => {
+  for (const operationIntent of [
+    { kind: "create", targets: [] },
+    { kind: "create", targets: [{ oldPath: null, newPath: "src/a.js", exists: true }] },
+    { kind: "create", targets: [{ oldPath: "src/a.js", newPath: "src/a.js" }] },
+    { kind: "create", targets: Array.from({ length: 33 }, () => ({ oldPath: null, newPath: "src/a.js" })) }
+  ]) {
+    await assertCreateRefused(operationIntent);
+  }
+});
+
+test("R3 effective task scope route still lets a delete intent reach the producers", async () => {
+  const { calls, extra } = countingDependencies();
+  const result = await invoke({
+    ...validBody(),
+    operationIntent: { kind: "delete", targets: [{ oldPath: "src/a.js", newPath: null }] }
+  }, extra);
+  assert.equal(result.res.status, 200);
+  assert.equal(result.payload.ok, true);
+  assert.equal(calls.taskContext + calls.impact, 2);
+  assert.equal(calls.compose, 1);
+  assert.equal(calls.config, 1);
+  assert.equal(result.payload.data.policyVersion, "step4-foundation-4");
 });

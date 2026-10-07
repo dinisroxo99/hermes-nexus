@@ -9,7 +9,7 @@ import { TASK_CONTEXT_LIMITS } from "./task-context-policy.js";
 
 export const EFFECTIVE_TASK_SCOPE_SCHEMA_VERSION = 2;
 export const EFFECTIVE_TASK_SCOPE_ANALYSIS_VERSION = "effective-task-scope-v2";
-export const EFFECTIVE_TASK_SCOPE_POLICY_VERSION = "step4-foundation-3";
+export const EFFECTIVE_TASK_SCOPE_POLICY_VERSION = "step4-foundation-4";
 
 export const ETS_STATUSES = Object.freeze([
   "available",
@@ -73,7 +73,15 @@ function compareStrings(left, right) {
   return 0;
 }
 
-export function normalizeEffectiveTaskScopeRequest(input) {
+/**
+ * Shared request normalizer. Create intents are denied by default: only a caller that
+ * passes `{ allowCreateIntent: true }` (strictly `=== true`; today only the pure composer)
+ * gets create normalization. Every other caller (including the HTTP route) routes any
+ * operationIntent through the delete normalizer, which refuses kind "create" with
+ * `invalid_delete_intent` exactly like base 95ea609.
+ */
+export function normalizeEffectiveTaskScopeRequest(input, options) {
+  const allowCreateIntent = options?.allowCreateIntent === true;
   input = materializeBoundedJsonData(input);
   const invalid = () => effectiveTaskScopeError("invalid_effective_task_scope_request", "Invalid bounded effective task scope request.");
   assertRecord(input);
@@ -212,7 +220,8 @@ export function normalizeEffectiveTaskScopeRequest(input) {
     ...(Object.hasOwn(input, "operationIntent")
       ? {
           operationIntent:
-            input.operationIntent
+            allowCreateIntent
+            && input.operationIntent
             && typeof input.operationIntent === "object"
             && !Array.isArray(input.operationIntent)
             && input.operationIntent.kind === "create"
@@ -421,7 +430,15 @@ export function bindDeleteIntent(intent, paths, pack, impact) {
   }
 }
 
-/** Project materialized, retained path proof after existing gates (create-intent). */
+/**
+ * Validate create-intent proof and return a fail-closed verdict (policy step4-foundation-4).
+ * Per declared newPath: any positive byte observation (Context files item or non-null Impact
+ * targetSource) is EXISTS; otherwise UNKNOWN. PROVEN-ABSENT needs a positive absence witness
+ * that no current pure input supplies, so it is unreachable and create never yields WRITE or
+ * operationIntent. Whole-proof structural/budget validation runs before any verdict.
+ * Precedence: bind-stage rejection, then any EXISTS => create_destination_exists, then any
+ * UNKNOWN => create_destination_absence_not_proven.
+ */
 export function bindCreateIntent(intent, paths, pack, impact) {
   const mismatch = () => effectiveTaskScopeError("create_source_binding_mismatch");
   const record = value => value && typeof value === "object" && !Array.isArray(value);
@@ -431,8 +448,6 @@ export function bindCreateIntent(intent, paths, pack, impact) {
     try { return typeof value === "string" && value.length <= 1024 && normalizeImpactPaths([value])[0] === value; }
     catch { return false; }
   };
-  const reasons = new Set();
-  const add = code => reasons.add(code);
   const completeness = value => {
     if (!record(value) || IMPACT_COMPLETENESS_DIMENSIONS.some(key => !Array.isArray(value[key]))) throw mismatch();
     if (IMPACT_COMPLETENESS_DIMENSIONS.some(key => value[key].length > IMPACT_COMPLETENESS_REASONS.length)) {
@@ -442,22 +457,18 @@ export function bindCreateIntent(intent, paths, pack, impact) {
   };
   const observation = value => {
     if (!record(value) || typeof value.incomplete !== "boolean" || !text(value.digestCoverage)) throw mismatch();
-    return { incomplete: value.incomplete, digestCoverage: value.digestCoverage };
   };
   const provider = value => {
     if (!record(value) || !text(value.id) || !text(value.version)) throw mismatch();
-    return { id: value.id, version: value.version };
   };
   const coverage = value => {
     if (!record(value) || Object.keys(value).some(key => !["observed", "covered", "uncovered"].includes(key)) ||
         ["observed", "covered", "uncovered"].some(key => !Array.isArray(value[key]) || value[key].some(v => !text(v)))) throw mismatch();
-    return Object.fromEntries(["observed", "covered", "uncovered"].map(key => [key, [...value[key]]]));
   };
   try {
     if (JSON.stringify(intent.targets.map(target => target.newPath)) !== JSON.stringify(paths)) {
       throw effectiveTaskScopeError("create_intent_target_mismatch");
     }
-    const sections = {};
     const maxima = { ...Object.fromEntries(Object.entries(TASK_CONTEXT_LIMITS).filter(([key]) => key !== "maxBytes").map(([key, limits]) => [key, limits[1]])), task: 1, policy: 4 };
     const sectionStatuses = ["available", "empty", "partial", "omitted", "not_analyzed"];
     for (const name of Object.keys(pack.sections).sort(compareStrings)) {
@@ -477,9 +488,6 @@ export function bindCreateIntent(intent, paths, pack, impact) {
           !text(provenance.producer) || !["canonical_fact", "derived_analysis", "untrusted_repository_text", "untrusted_external_analysis", "untrusted_request_text", "trusted_policy"].includes(provenance.trust)) throw mismatch();
       if (name === "files" && (provenance.producer !== "context-source-observation" || provenance.trust !== "untrusted_repository_text")) throw mismatch();
       if (["empty", "omitted", "not_analyzed"].includes(section.status) && section.items.length > 0) throw mismatch();
-      sections[name] = { status: section.status, limit: section.limit, truncated: section.truncated };
-      if (section.truncated) add(`create_context_section_${name}_truncated`);
-      if (["partial", "omitted", "not_analyzed"].includes(section.status)) add(`create_context_section_${name}_${section.status}`);
     }
     const files = pack.sections.files;
     const sourcesByPath = new Map();
@@ -491,37 +499,32 @@ export function bindCreateIntent(intent, paths, pack, impact) {
     }
     if (impact.targets.length > MAX_RAW_PATHS_BEFORE_DEDUPE) throw effectiveTaskScopeError("scope_budget_exceeded");
     const targetsByPath = new Map();
-    const targets = [];
-    let unevaluated = false;
-    let missingSource = !files || ["empty", "omitted", "not_analyzed"].includes(files.status);
     for (const target of impact.targets) {
       if (!record(target) || !literal(target.originPath) || targetsByPath.has(target.originPath)) throw mismatch();
-      const status = normalizeImpactStatus(target.status);
-      const findingState = normalizeImpactFindingState(target.findingState);
-      const comp = completeness(target.completeness);
-      if (findingState === "not_evaluated") unevaluated = true;
-      if (target.targetSource == null) missingSource = true;
-      else if (!record(target.targetSource) || target.targetSource.path !== target.originPath || !hash(target.targetSource.hash)) throw mismatch();
+      normalizeImpactStatus(target.status);
+      normalizeImpactFindingState(target.findingState);
+      completeness(target.completeness);
+      if (target.targetSource != null &&
+          (!record(target.targetSource) || target.targetSource.path !== target.originPath || !hash(target.targetSource.hash))) throw mismatch();
       targetsByPath.set(target.originPath, target);
-      targets.push({ originPath: target.originPath, status, findingState, completeness: comp });
-      if (status !== "available") add(`create_impact_target_${status}`);
-      for (const dimension of IMPACT_COMPLETENESS_DIMENSIONS) for (const cause of comp[dimension]) add(`create_impact_${dimension}_${cause}`);
     }
-    const sources = [];
+    // Per-path destination state: EXISTS on any positive observation, else UNKNOWN.
+    let exists = false;
+    let unknown = false;
     for (const newPath of paths) {
       const file = sourcesByPath.get(newPath);
       const target = targetsByPath.get(newPath);
       if (!target) throw effectiveTaskScopeError("create_intent_target_mismatch");
-      if (!file) { missingSource = true; continue; }
-      const p = file.provenance;
-      if (!["canonical_fact", "untrusted_repository_text"].includes(p.trust) || p.reason !== "task_path") throw mismatch();
-      if (!target.targetSource) continue;
-      if (p.source.sha256 !== target.targetSource.hash) throw mismatch();
-      sources.push({ newPath, context: { source: { path: p.source.path, sha256: p.source.sha256 }, trust: p.trust, reason: p.reason },
-        impact: { path: target.targetSource.path, hash: target.targetSource.hash } });
+      if (file) {
+        const p = file.provenance;
+        if (!["canonical_fact", "untrusted_repository_text"].includes(p.trust) || p.reason !== "task_path") throw mismatch();
+        if (target.targetSource && p.source.sha256 !== target.targetSource.hash) throw mismatch();
+      }
+      if (file || target.targetSource) exists = true;
+      else unknown = true;
     }
-    const contextObservation = observation(pack.observation);
-    const impactObservation = observation(impact.observation);
+    observation(pack.observation);
+    observation(impact.observation);
     const at = impact.affectedTests;
     if (!record(at)) throw mismatch();
     // Retained records must obey both hard maxima and any supplied producer budget.
@@ -542,29 +545,19 @@ export function bindCreateIntent(intent, paths, pack, impact) {
       rawWitnessCount += item.origins.length;
     }
     bound(rawWitnessCount, "originWitnessRecords");
-    const affectedTests = { status: normalizeImpactStatus(at.status, { section: true }) };
-    if (Object.hasOwn(at, "findingState")) affectedTests.findingState = normalizeImpactFindingState(at.findingState);
-    if (Object.hasOwn(at, "completeness")) affectedTests.completeness = completeness(at.completeness);
-    const comp = completeness(impact.completeness);
-    const providers = { context: provider(pack.analysis.provider), impact: provider(impact.provider) };
-    const coverages = { context: coverage(pack.analysis.coverage), impact: coverage(impact.coverage) };
-    const contextStatus = normalizeImpactStatus(pack.analysis.status);
-    if (contextStatus !== "available") add(`create_context_provider_${contextStatus}`);
-    if (coverages.context.uncovered.length) add("create_context_coverage_uncovered");
-    if (coverages.impact.uncovered.length) add("create_impact_coverage_uncovered");
-    if (contextObservation.incomplete) add("create_context_observation_incomplete");
-    if (impactObservation.incomplete) add("create_impact_observation_incomplete");
-    for (const dimension of IMPACT_COMPLETENESS_DIMENSIONS) {
-      for (const cause of [...comp[dimension], ...(affectedTests.completeness?.[dimension] || [])]) add(`create_impact_${dimension}_${cause}`);
-    }
-    if (affectedTests.status !== "available") add(`create_affected_tests_${affectedTests.status}`);
-    if (affectedTests.findingState === "not_evaluated") add("create_affected_tests_not_evaluated");
-    if (unevaluated) return { notEvaluated: "create_target_not_evaluated" };
-    if (missingSource) return { notEvaluated: "create_source_not_evaluated" };
-    return { operationIntent: { kind: "create", provenance: "task_declaration", targets: intent.targets,
-      evidence: { sources, context: { observation: contextObservation, sections },
-        impact: { observation: impactObservation, targets: targets.sort((a, b) => compareStrings(a.originPath, b.originPath)), affectedTests, completeness: comp },
-        providers, coverage: coverages } }, reasons: [...reasons].sort(compareStrings) };
+    normalizeImpactStatus(at.status, { section: true });
+    if (Object.hasOwn(at, "findingState")) normalizeImpactFindingState(at.findingState);
+    if (Object.hasOwn(at, "completeness")) completeness(at.completeness);
+    completeness(impact.completeness);
+    provider(pack.analysis.provider);
+    provider(impact.provider);
+    coverage(pack.analysis.coverage);
+    coverage(impact.coverage);
+    normalizeImpactStatus(pack.analysis.status);
+    if (exists) return { notEvaluated: "create_destination_exists" };
+    if (unknown) return { notEvaluated: "create_destination_absence_not_proven" };
+    // PROVEN-ABSENT is unreachable under step4-foundation-4 (no absence witness input).
+    return { notEvaluated: "create_destination_absence_not_proven" };
   } catch (error) {
     if (["scope_budget_exceeded", "create_intent_target_mismatch"].includes(error.code)) throw error;
     throw mismatch();
