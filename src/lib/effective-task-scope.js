@@ -8,6 +8,7 @@ import {
   effectiveTaskScopeError,
   normalizeEffectiveTaskScopeRequest,
   bindDeleteIntent,
+  bindCreateIntent,
   resolveChangeSemantics,
   normalizeEffectiveTaskScopeEvidence,
   normalizeSymbolTargetCompletenessWitness,
@@ -123,7 +124,7 @@ export function composeEffectiveTaskScope(request, evidence) {
   }
   let normalizedRequest;
   try {
-    normalizedRequest = normalizeEffectiveTaskScopeRequest(request);
+    normalizedRequest = normalizeEffectiveTaskScopeRequest(request, { allowCreateIntent: true });
   } catch (e) {
     return {
       schemaVersion: EFFECTIVE_TASK_SCOPE_SCHEMA_VERSION,
@@ -316,6 +317,18 @@ export function composeEffectiveTaskScope(request, evidence) {
     );
   } catch (e) {
     return buildRejected("scope_budget_exceeded");
+  }
+
+  // Create (step4-foundation-4) is refused fail-closed after the existing gates and whole
+  // proof validation: EXISTS or UNKNOWN destination -> not_evaluated, never WRITE/operationIntent.
+  if (normalizedRequest.operationIntent && normalizedRequest.operationIntent.kind === "create") {
+    let creation;
+    try {
+      creation = bindCreateIntent(normalizedRequest.operationIntent, normalizedRequest.task.paths, pack, impact);
+    } catch (error) {
+      return buildRejected(error.code);
+    }
+    return buildNotEvaluatedNoContainers(creation?.notEvaluated ?? "create_destination_absence_not_proven");
   }
 
   // Activate deletion only after the existing binding/staleness gates and whole proof validation.

@@ -9,7 +9,7 @@ import { TASK_CONTEXT_LIMITS } from "./task-context-policy.js";
 
 export const EFFECTIVE_TASK_SCOPE_SCHEMA_VERSION = 2;
 export const EFFECTIVE_TASK_SCOPE_ANALYSIS_VERSION = "effective-task-scope-v2";
-export const EFFECTIVE_TASK_SCOPE_POLICY_VERSION = "step4-foundation-3";
+export const EFFECTIVE_TASK_SCOPE_POLICY_VERSION = "step4-foundation-4";
 
 export const ETS_STATUSES = Object.freeze([
   "available",
@@ -73,7 +73,15 @@ function compareStrings(left, right) {
   return 0;
 }
 
-export function normalizeEffectiveTaskScopeRequest(input) {
+/**
+ * Shared request normalizer. Create intents are denied by default: only a caller that
+ * passes `{ allowCreateIntent: true }` (strictly `=== true`; today only the pure composer)
+ * gets create normalization. Every other caller (including the HTTP route) routes any
+ * operationIntent through the delete normalizer, which refuses kind "create" with
+ * `invalid_delete_intent` exactly like base 95ea609.
+ */
+export function normalizeEffectiveTaskScopeRequest(input, options) {
+  const allowCreateIntent = options?.allowCreateIntent === true;
   input = materializeBoundedJsonData(input);
   const invalid = () => effectiveTaskScopeError("invalid_effective_task_scope_request", "Invalid bounded effective task scope request.");
   assertRecord(input);
@@ -209,7 +217,18 @@ export function normalizeEffectiveTaskScopeRequest(input) {
     expectedRevision,
     includeTests: input.includeTests,
     ...(changeSemantics ? { changeSemantics } : {}),
-    ...(Object.hasOwn(input, "operationIntent") ? { operationIntent: normalizeDeleteIntent(input.operationIntent) } : {}),
+    ...(Object.hasOwn(input, "operationIntent")
+      ? {
+          operationIntent:
+            allowCreateIntent
+            && input.operationIntent
+            && typeof input.operationIntent === "object"
+            && !Array.isArray(input.operationIntent)
+            && input.operationIntent.kind === "create"
+              ? normalizeCreateIntent(input.operationIntent)
+              : normalizeDeleteIntent(input.operationIntent)
+        }
+      : {}),
     ...(limits ? { limits } : {})
   };
 }
@@ -231,6 +250,30 @@ function normalizeDeleteIntent(intent) {
       return path;
     });
     return { kind: "delete", targets: [...new Set(paths)].sort(compareStrings).map(oldPath => ({ oldPath, newPath: null })) };
+  } catch (error) {
+    if (error.code === "scope_budget_exceeded") throw error;
+    throw invalid();
+  }
+}
+
+
+function normalizeCreateIntent(intent) {
+  const invalid = () => effectiveTaskScopeError("invalid_create_intent");
+  try {
+    assertRecord(intent);
+    assertAllowedFields(intent, ["kind", "targets"]);
+    if (intent.kind !== "create" || !Array.isArray(intent.targets) || intent.targets.length === 0) throw invalid();
+    if (intent.targets.length > MAX_RAW_PATHS_BEFORE_DEDUPE) throw effectiveTaskScopeError("scope_budget_exceeded");
+    const paths = intent.targets.map(target => {
+      assertRecord(target);
+      assertAllowedFields(target, ["oldPath", "newPath"]);
+      if (!Object.hasOwn(target, "oldPath") || !Object.hasOwn(target, "newPath") || target.oldPath !== null) throw invalid();
+      const path = target.newPath;
+      if (typeof path !== "string" || path.length === 0 || path.length > 1024 || CONTROL.test(path) ||
+          normalizeImpactPaths([path])[0] !== path) throw invalid();
+      return path;
+    });
+    return { kind: "create", targets: [...new Set(paths)].sort(compareStrings).map(newPath => ({ oldPath: null, newPath })) };
   } catch (error) {
     if (error.code === "scope_budget_exceeded") throw error;
     throw invalid();
@@ -383,6 +426,140 @@ export function bindDeleteIntent(intent, paths, pack, impact) {
         providers, coverage: coverages } }, reasons: [...reasons].sort(compareStrings) };
   } catch (error) {
     if (["scope_budget_exceeded", "delete_intent_target_mismatch"].includes(error.code)) throw error;
+    throw mismatch();
+  }
+}
+
+/**
+ * Validate create-intent proof and return a fail-closed verdict (policy step4-foundation-4).
+ * Per declared newPath: any positive byte observation (Context files item or non-null Impact
+ * targetSource) is EXISTS; otherwise UNKNOWN. PROVEN-ABSENT needs a positive absence witness
+ * that no current pure input supplies, so it is unreachable and create never yields WRITE or
+ * operationIntent. Whole-proof structural/budget validation runs before any verdict.
+ * Precedence: bind-stage rejection, then any EXISTS => create_destination_exists, then any
+ * UNKNOWN => create_destination_absence_not_proven.
+ */
+export function bindCreateIntent(intent, paths, pack, impact) {
+  const mismatch = () => effectiveTaskScopeError("create_source_binding_mismatch");
+  const record = value => value && typeof value === "object" && !Array.isArray(value);
+  const text = value => typeof value === "string" && value.length > 0 && value.length <= 128 && !CONTROL.test(value);
+  const hash = value => typeof value === "string" && OPAQUE_ID_PATTERN.test(value);
+  const literal = value => {
+    try { return typeof value === "string" && value.length <= 1024 && normalizeImpactPaths([value])[0] === value; }
+    catch { return false; }
+  };
+  const completeness = value => {
+    if (!record(value) || IMPACT_COMPLETENESS_DIMENSIONS.some(key => !Array.isArray(value[key]))) throw mismatch();
+    if (IMPACT_COMPLETENESS_DIMENSIONS.some(key => value[key].length > IMPACT_COMPLETENESS_REASONS.length)) {
+      throw effectiveTaskScopeError("scope_budget_exceeded");
+    }
+    return normalizeImpactCompleteness(value);
+  };
+  const observation = value => {
+    if (!record(value) || typeof value.incomplete !== "boolean" || !text(value.digestCoverage)) throw mismatch();
+  };
+  const provider = value => {
+    if (!record(value) || !text(value.id) || !text(value.version)) throw mismatch();
+  };
+  const coverage = value => {
+    if (!record(value) || Object.keys(value).some(key => !["observed", "covered", "uncovered"].includes(key)) ||
+        ["observed", "covered", "uncovered"].some(key => !Array.isArray(value[key]) || value[key].some(v => !text(v)))) throw mismatch();
+  };
+  try {
+    if (JSON.stringify(intent.targets.map(target => target.newPath)) !== JSON.stringify(paths)) {
+      throw effectiveTaskScopeError("create_intent_target_mismatch");
+    }
+    const maxima = { ...Object.fromEntries(Object.entries(TASK_CONTEXT_LIMITS).filter(([key]) => key !== "maxBytes").map(([key, limits]) => [key, limits[1]])), task: 1, policy: 4 };
+    const sectionStatuses = ["available", "empty", "partial", "omitted", "not_analyzed"];
+    for (const name of Object.keys(pack.sections).sort(compareStrings)) {
+      const section = pack.sections[name];
+      if (!Object.hasOwn(maxima, name) || !record(section) || !sectionStatuses.includes(section.status) ||
+          typeof section.truncated !== "boolean" || !Number.isSafeInteger(section.limit) || section.limit < 0 || !Array.isArray(section.items)) throw mismatch();
+      if (section.limit > maxima[name] || section.items.length > section.limit || section.items.length > maxima[name]) {
+        throw effectiveTaskScopeError("scope_budget_exceeded");
+      }
+      if (Object.hasOwn(pack.limits || {}, name)) {
+        const limit = pack.limits[name];
+        if (!Number.isSafeInteger(limit) || limit < 0) throw mismatch();
+        if (limit > maxima[name] || section.limit > limit || section.items.length > limit) throw effectiveTaskScopeError("scope_budget_exceeded");
+      }
+      const provenance = section.provenance;
+      if (!record(provenance) || provenance.projectId !== pack.projectId || provenance.revisionRef !== "revision" ||
+          !text(provenance.producer) || !["canonical_fact", "derived_analysis", "untrusted_repository_text", "untrusted_external_analysis", "untrusted_request_text", "trusted_policy"].includes(provenance.trust)) throw mismatch();
+      if (name === "files" && (provenance.producer !== "context-source-observation" || provenance.trust !== "untrusted_repository_text")) throw mismatch();
+      if (["empty", "omitted", "not_analyzed"].includes(section.status) && section.items.length > 0) throw mismatch();
+    }
+    const files = pack.sections.files;
+    const sourcesByPath = new Map();
+    for (const file of files?.items || []) {
+      if (!record(file) || !literal(file.path) || sourcesByPath.has(file.path)) throw mismatch();
+      const provenance = file.provenance;
+      if (!record(provenance) || !record(provenance.source) || provenance.source.path !== file.path || !hash(provenance.source.sha256)) throw mismatch();
+      sourcesByPath.set(file.path, file);
+    }
+    if (impact.targets.length > MAX_RAW_PATHS_BEFORE_DEDUPE) throw effectiveTaskScopeError("scope_budget_exceeded");
+    const targetsByPath = new Map();
+    for (const target of impact.targets) {
+      if (!record(target) || !literal(target.originPath) || targetsByPath.has(target.originPath)) throw mismatch();
+      normalizeImpactStatus(target.status);
+      normalizeImpactFindingState(target.findingState);
+      completeness(target.completeness);
+      if (target.targetSource != null &&
+          (!record(target.targetSource) || target.targetSource.path !== target.originPath || !hash(target.targetSource.hash))) throw mismatch();
+      targetsByPath.set(target.originPath, target);
+    }
+    // Per-path destination state: EXISTS on any positive observation, else UNKNOWN.
+    let exists = false;
+    let unknown = false;
+    for (const newPath of paths) {
+      const file = sourcesByPath.get(newPath);
+      const target = targetsByPath.get(newPath);
+      if (!target) throw effectiveTaskScopeError("create_intent_target_mismatch");
+      if (file) {
+        const p = file.provenance;
+        if (!["canonical_fact", "untrusted_repository_text"].includes(p.trust) || p.reason !== "task_path") throw mismatch();
+        if (target.targetSource && p.source.sha256 !== target.targetSource.hash) throw mismatch();
+      }
+      if (file || target.targetSource) exists = true;
+      else unknown = true;
+    }
+    observation(pack.observation);
+    observation(impact.observation);
+    const at = impact.affectedTests;
+    if (!record(at)) throw mismatch();
+    // Retained records must obey both hard maxima and any supplied producer budget.
+    const bound = (count, name) => {
+      const supplied = impact.limits?.[name];
+      if (supplied !== undefined && (!Number.isSafeInteger(supplied) || supplied < 1)) throw mismatch();
+      if (count > IMPACT_LIMITS[name].max || supplied > IMPACT_LIMITS[name].max || count > supplied) {
+        throw effectiveTaskScopeError("scope_budget_exceeded");
+      }
+    };
+    if (!Array.isArray(impact.affectedFiles) || !Array.isArray(at.candidates)) throw mismatch();
+    bound(impact.affectedFiles.length, "affectedFiles");
+    bound(at.candidates.length, "affectedTests");
+    let rawWitnessCount = 0;
+    for (const item of [...impact.affectedFiles, ...at.candidates]) {
+      if (!record(item) || !Array.isArray(item.origins)) throw mismatch();
+      bound(item.origins.length, "originWitnessesPerItem");
+      rawWitnessCount += item.origins.length;
+    }
+    bound(rawWitnessCount, "originWitnessRecords");
+    normalizeImpactStatus(at.status, { section: true });
+    if (Object.hasOwn(at, "findingState")) normalizeImpactFindingState(at.findingState);
+    if (Object.hasOwn(at, "completeness")) completeness(at.completeness);
+    completeness(impact.completeness);
+    provider(pack.analysis.provider);
+    provider(impact.provider);
+    coverage(pack.analysis.coverage);
+    coverage(impact.coverage);
+    normalizeImpactStatus(pack.analysis.status);
+    if (exists) return { notEvaluated: "create_destination_exists" };
+    if (unknown) return { notEvaluated: "create_destination_absence_not_proven" };
+    // PROVEN-ABSENT is unreachable under step4-foundation-4 (no absence witness input).
+    return { notEvaluated: "create_destination_absence_not_proven" };
+  } catch (error) {
+    if (["scope_budget_exceeded", "create_intent_target_mismatch"].includes(error.code)) throw error;
     throw mismatch();
   }
 }

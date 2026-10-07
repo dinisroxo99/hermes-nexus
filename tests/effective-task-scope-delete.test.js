@@ -50,7 +50,7 @@ function terminal(f, status, code) {
 
 test("delete: source-bound explicit WRITE; every retained effect WATCH, no safety or expansion", () => {
   const f = fixture(); const before = JSON.stringify(f); const r = run(f);
-  assert.equal(r.status, "incomplete"); assert.equal(r.policyVersion, "step4-foundation-3");
+  assert.equal(r.status, "incomplete"); assert.equal(r.policyVersion, "step4-foundation-4");
   assert.deepEqual(r.write.items.map(i => i.target.path), f.request.task.paths);
   assert.ok(r.write.items.every(i => i.ruleIds.includes("explicit_delete_intent")));
   assert.deepEqual(r.watch.items.map(i => i.target.path), ["src/far.js"]);
@@ -77,7 +77,7 @@ test("delete: source-bound explicit WRITE; every retained effect WATCH, no safet
   assert.equal(JSON.stringify(f), before);
 });
 
-for (const intent of [null, {}, { kind: "create", targets: [] }, { kind: "rename", targets: [] },
+for (const intent of [null, {}, { kind: "rename", targets: [] },
   { kind: "delete", targets: [] }, { kind: "delete", targets: [{ newPath: null }] },
   { kind: "delete", targets: [{ oldPath: null, newPath: null }] },
   { kind: "delete", targets: [{ oldPath: "src/a.js" }] },
@@ -90,6 +90,10 @@ for (const intent of [null, {}, { kind: "create", targets: [] }, { kind: "rename
     terminal(f, "rejected", "invalid_delete_intent");
   });
 }
+test("delete: empty create intent now routes to invalid_create_intent", () => {
+  const f = fixture(); f.request.operationIntent = { kind: "create", targets: [] };
+  terminal(f, "rejected", "invalid_create_intent");
+});
 for (const path of ["../a", "/a", " src/a.js", "src//a.js", "src/./a.js", "src/a.js/", "src/*.js", "C:/a", "src\\a.js", "src/a.js\n"]) {
   test(`delete: literal spelling rejected ${JSON.stringify(path)}`, () => {
     const f = fixture(); f.request.operationIntent.targets[0].oldPath = path;
