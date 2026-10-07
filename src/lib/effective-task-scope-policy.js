@@ -555,15 +555,41 @@ function a1CitationAdmitted(citation) {
 }
 
 const SYMBOL_TARGET_EFFECTIVE_OUTCOMES = new Set(["unique", "not_found", "ambiguous"]);
+const SYMBOL_TARGET_EFFECTIVE_A1_STATUSES = new Set(["resolved_unique", "not_found", "ambiguous"]);
+const SYMBOL_TARGET_OUTCOME_TO_RUN_STATUS = Object.freeze({
+  unique: "resolved_unique",
+  not_found: "not_found",
+  ambiguous: "ambiguous"
+});
 const SYMBOL_TARGET_PATH_COVERAGE_STATUSES = new Set(["covered", "uncovered_language", "unevaluated"]);
 const SYMBOL_TARGET_SHA256_HEX = /^[a-f0-9]{64}$/;
 
-/** Consume-side effectivelyEvaluated (data-only; no A1 call). */
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.length > 0;
+}
+
+/**
+ * Consume-side effectivelyEvaluated (data-only; no A1 call).
+ * Hole 3: evidenceComplete===true must cohere with runStatus, outcome↔runStatus,
+ * and completeness.{source,parse,enumeration} when completeness is present.
+ */
 export function isSymbolTargetEffectivelyEvaluated(evaluation) {
-  return isWitnessPlainObject(evaluation)
-    && SYMBOL_TARGET_EFFECTIVE_OUTCOMES.has(evaluation.outcome)
-    && isWitnessPlainObject(evaluation.a1Citation)
-    && evaluation.a1Citation.evidenceComplete === true;
+  if (!isWitnessPlainObject(evaluation)) return false;
+  if (!SYMBOL_TARGET_EFFECTIVE_OUTCOMES.has(evaluation.outcome)) return false;
+  const citation = evaluation.a1Citation;
+  if (!isWitnessPlainObject(citation) || citation.evidenceComplete !== true) return false;
+  if (!SYMBOL_TARGET_EFFECTIVE_A1_STATUSES.has(citation.runStatus)) return false;
+  if (SYMBOL_TARGET_OUTCOME_TO_RUN_STATUS[evaluation.outcome] !== citation.runStatus) return false;
+  if (isWitnessPlainObject(citation.completeness)) {
+    if (
+      citation.completeness.source !== "complete"
+      || citation.completeness.parse !== "complete"
+      || citation.completeness.enumeration !== "complete"
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function sortedStringMultisetEqual(left, right) {
@@ -591,13 +617,50 @@ function citationFieldsAgree(evalCitation, topCitation) {
   for (const field of required) {
     if (evalCitation[field] !== topCitation[field]) return false;
   }
-  for (const field of ["declarationId", "symbolId"]) {
+  // Presence-symmetric optional fields (Hole 2: snapshotToken; Fix 1: declarationId/symbolId)
+  for (const field of ["declarationId", "symbolId", "snapshotToken"]) {
     if (Object.prototype.hasOwnProperty.call(evalCitation, field)
       || Object.prototype.hasOwnProperty.call(topCitation, field)) {
       if (evalCitation[field] !== topCitation[field]) return false;
     }
   }
   return true;
+}
+
+/**
+ * Hole 2: reconcile citation snapshotToken to exterior witness.snapshotToken.
+ * If a citation carries snapshotToken, it must equal exterior.
+ * When holds===true: every eval-embedded and top-level citation must present
+ * nonempty snapshotToken equal to exterior.
+ * @returns {string|null} symbol_target_binding_mismatch or null
+ */
+export function checkSymbolTargetCitationSnapshotReconcile(witness) {
+  const exterior = witness.snapshotToken;
+  const holdsTrue = witness.completenessHolds === true || witness.uniquenessHolds === true;
+  const citations = [];
+  if (Array.isArray(witness.evaluations)) {
+    for (const evaluation of witness.evaluations) {
+      if (evaluation && isWitnessPlainObject(evaluation.a1Citation)) {
+        citations.push(evaluation.a1Citation);
+      }
+    }
+  }
+  if (Array.isArray(witness.a1Citations)) {
+    for (const citation of witness.a1Citations) {
+      if (isWitnessPlainObject(citation)) citations.push(citation);
+    }
+  }
+  for (const citation of citations) {
+    const carries = Object.prototype.hasOwnProperty.call(citation, "snapshotToken");
+    if (holdsTrue) {
+      if (!isNonEmptyString(citation.snapshotToken) || citation.snapshotToken !== exterior) {
+        return "symbol_target_binding_mismatch";
+      }
+    } else if (carries && citation.snapshotToken !== exterior) {
+      return "symbol_target_binding_mismatch";
+    }
+  }
+  return null;
 }
 
 /**
@@ -789,12 +852,29 @@ export function checkSymbolTargetSourceHashesAgainstRetained(witness, retained) 
 
 /**
  * Boolean↔details consistency when holds===true (F).
+ * Hole 1: when holds true, each evaluation pathScope must sorted-multiset-equal
+ * witness.taskPaths (full required domain; subset or [] refuse inconsistent).
+ * Hole 3: effectivelyEvaluated coherence applied via isSymbolTargetEffectivelyEvaluated.
  * @returns {string|null} evidence_inconsistent or null
  */
 export function checkSymbolTargetHoldsDetailsConsistency(witness) {
   const evaluations = witness.evaluations;
   const pathCoverage = witness.pathCoverage;
   const requiredNames = witness.requiredNames;
+  const taskPaths = witness.taskPaths;
+  const holdsTrue = witness.completenessHolds === true || witness.uniquenessHolds === true;
+
+  // Hole 1: full-domain pathScope when either hold is claimed true
+  if (holdsTrue) {
+    if (!Array.isArray(evaluations) || !Array.isArray(taskPaths)) {
+      return "symbol_target_evidence_inconsistent";
+    }
+    for (const evaluation of evaluations) {
+      if (!evaluation || !sortedStringMultisetEqual(evaluation.pathScope, taskPaths)) {
+        return "symbol_target_evidence_inconsistent";
+      }
+    }
+  }
 
   if (witness.completenessHolds === true) {
     if (!Array.isArray(requiredNames) || !Array.isArray(evaluations)) {
@@ -918,6 +998,10 @@ export function evaluateSymbolTargetCompletenessWitness(witness, binding, retain
 
   const hashCode = checkSymbolTargetSourceHashesAgainstRetained(witness, retained);
   if (hashCode) return { ok: false, code: hashCode };
+
+  // Hole 2: citation snapshotToken ↔ exterior (binding_mismatch outranks holds-details)
+  const snapshotCode = checkSymbolTargetCitationSnapshotReconcile(witness);
+  if (snapshotCode) return { ok: false, code: snapshotCode };
 
   const holdsDetailsCode = checkSymbolTargetHoldsDetailsConsistency(witness);
   if (holdsDetailsCode) return { ok: false, code: holdsDetailsCode };

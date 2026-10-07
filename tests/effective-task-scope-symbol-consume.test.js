@@ -109,7 +109,32 @@ function produceBoundWitness({ requiredNames = ["composeEffectiveTaskScope"], ov
     ...overrides
   };
   const witness = produceSymbolTargetCompletenessWitness(request);
+  // Hole 2: producer top-level a1Citations omit snapshotToken; align eval+top to exterior
+  // so positive consume tests exercise the holds-true citation snapshot requirement.
+  alignCitationSnapshotTokens(witness);
   return { witness, live, etsText, snapshotToken: live.snapshotToken };
+}
+
+/** Stamp exterior snapshotToken onto eval-embedded and top-level a1Citations. */
+function alignCitationSnapshotTokens(witness) {
+  if (!witness || typeof witness !== "object") return witness;
+  const token = witness.snapshotToken;
+  if (typeof token !== "string" || token.length === 0) return witness;
+  if (Array.isArray(witness.evaluations)) {
+    for (const evaluation of witness.evaluations) {
+      if (evaluation && evaluation.a1Citation && typeof evaluation.a1Citation === "object") {
+        evaluation.a1Citation.snapshotToken = token;
+      }
+    }
+  }
+  if (Array.isArray(witness.a1Citations)) {
+    for (const citation of witness.a1Citations) {
+      if (citation && typeof citation === "object") {
+        citation.snapshotToken = token;
+      }
+    }
+  }
+  return witness;
 }
 
 function buildPackImpactRequest({ symbols, snapshotToken, paths = [ETS_PATH], sourceHashes = null }) {
@@ -624,4 +649,248 @@ test("F2-B3: empty symbols omit witness; oversized pack still rejected", () => {
   const res = composeEffectiveTaskScope(request, { pack, impact });
   assert.equal(res.status, "rejected");
   assert.ok(res.reasons.some((r) => r.code === "scope_budget_exceeded"));
+});
+
+
+function expandWitnessToTwoPaths(witness, extraPath, extraHash) {
+  const paths = [...witness.taskPaths, extraPath].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  witness.taskPaths = paths;
+  witness.pathCoverage = paths.map((p) => ({ path: p, status: "covered" }));
+  witness.sourceHashes = { ...witness.sourceHashes, [extraPath]: extraHash };
+  return witness;
+}
+
+test("R2-H1a: pathScope proper nonempty subset while holds true -> inconsistent no WRITE", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  const bad = cloneWitness(witness);
+  const extraPath = "src/lib/effective-task-scope-policy.js";
+  const extraHash = createHash("sha256").update("r2-h1a-extra", "utf8").digest("hex");
+  expandWitnessToTwoPaths(bad, extraPath, extraHash);
+  assert.ok(bad.taskPaths.length >= 2);
+  bad.evaluations[0].pathScope = [ETS_PATH];
+  assert.equal(bad.completenessHolds, true);
+  assert.equal(bad.uniquenessHolds, true);
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    paths: bad.taskPaths,
+    sourceHashes: bad.sourceHashes
+  });
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: bad
+  });
+  assert.equal(res.status, "not_evaluated");
+  assert.ok(res.reasons.some((r) => r.code === "symbol_target_evidence_inconsistent"), JSON.stringify(res.reasons));
+  assert.ok(!("write" in res));
+});
+
+test("R2-H1b: pathScope [] while holds true -> inconsistent no WRITE", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  const bad = cloneWitness(witness);
+  const extraPath = "src/lib/effective-task-scope-policy.js";
+  const extraHash = createHash("sha256").update("r2-h1b-extra", "utf8").digest("hex");
+  expandWitnessToTwoPaths(bad, extraPath, extraHash);
+  bad.evaluations[0].pathScope = [];
+  assert.equal(bad.completenessHolds, true);
+  assert.equal(bad.uniquenessHolds, true);
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    paths: bad.taskPaths,
+    sourceHashes: bad.sourceHashes
+  });
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: bad
+  });
+  assert.equal(res.status, "not_evaluated");
+  assert.ok(res.reasons.some((r) => r.code === "symbol_target_evidence_inconsistent"), JSON.stringify(res.reasons));
+  assert.ok(!("write" in res));
+});
+
+test("R2-H1-OK: full-domain pathScope still lifts", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  assert.deepEqual(witness.evaluations[0].pathScope.slice().sort(), witness.taskPaths.slice().sort());
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
+  });
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: witness
+  });
+  assert.ok(res.status === "incomplete" || res.status === "available");
+  assert.ok(res.write);
+  assert.ok(!res.reasons.some((r) => String(r.code || "").startsWith("symbol_target_")));
+});
+
+test("R2-H2a: exterior snapshotToken changed; citations keep old -> binding_mismatch no WRITE", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  const bad = cloneWitness(witness);
+  const oldToken = snapshotToken;
+  const newToken = "bb".repeat(32);
+  assert.notEqual(newToken, oldToken);
+  assert.equal(bad.evaluations[0].a1Citation.snapshotToken, oldToken);
+  assert.equal(bad.a1Citations[0].snapshotToken, oldToken);
+  bad.snapshotToken = newToken;
+  // citations deliberately keep oldToken
+  assert.equal(bad.evaluations[0].a1Citation.snapshotToken, oldToken);
+  assert.equal(bad.completenessHolds, true);
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken: newToken,
+    sourceHashes: witness.sourceHashes
+  });
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: bad
+  });
+  assert.equal(res.status, "not_evaluated");
+  assert.ok(res.reasons.some((r) => r.code === "symbol_target_binding_mismatch"), JSON.stringify(res.reasons));
+  assert.ok(!("write" in res));
+});
+
+test("R2-H2b: delete citation snapshotToken while holds true -> binding_mismatch no WRITE", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  const bad = cloneWitness(witness);
+  delete bad.evaluations[0].a1Citation.snapshotToken;
+  delete bad.a1Citations[0].snapshotToken;
+  assert.equal(bad.completenessHolds, true);
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
+  });
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: bad
+  });
+  assert.equal(res.status, "not_evaluated");
+  assert.ok(res.reasons.some((r) => r.code === "symbol_target_binding_mismatch"), JSON.stringify(res.reasons));
+  assert.ok(!("write" in res));
+});
+
+test("R2-H2-OK: citation snapshotToken equals exterior still lifts", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  assert.equal(witness.evaluations[0].a1Citation.snapshotToken, witness.snapshotToken);
+  assert.equal(witness.a1Citations[0].snapshotToken, witness.snapshotToken);
+  assert.equal(witness.snapshotToken, snapshotToken);
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
+  });
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: witness
+  });
+  assert.ok(res.status === "incomplete" || res.status === "available");
+  assert.ok(res.write);
+});
+
+test("R2-H3a: runStatus not_evaluated + outcome unique + evidenceComplete true -> inconsistent", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  const bad = cloneWitness(witness);
+  bad.evaluations[0].outcome = "unique";
+  bad.evaluations[0].a1Citation.runStatus = "not_evaluated";
+  bad.evaluations[0].a1Citation.evidenceComplete = true;
+  bad.a1Citations[0].runStatus = "not_evaluated";
+  bad.a1Citations[0].evidenceComplete = true;
+  assert.equal(bad.completenessHolds, true);
+  assert.equal(bad.uniquenessHolds, true);
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
+  });
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: bad
+  });
+  assert.equal(res.status, "not_evaluated");
+  assert.ok(res.reasons.some((r) => r.code === "symbol_target_evidence_inconsistent"), JSON.stringify(res.reasons));
+  assert.ok(!("write" in res));
+});
+
+test("R2-H3b: completeness.source partial + evidenceComplete true -> inconsistent", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  const bad = cloneWitness(witness);
+  const completeness = {
+    source: "partial",
+    parse: "complete",
+    enumeration: "complete",
+    output: "complete"
+  };
+  bad.evaluations[0].a1Citation.completeness = { ...completeness };
+  bad.evaluations[0].a1Citation.evidenceComplete = true;
+  bad.a1Citations[0].completeness = { ...completeness };
+  bad.a1Citations[0].evidenceComplete = true;
+  assert.equal(bad.completenessHolds, true);
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
+  });
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: bad
+  });
+  assert.equal(res.status, "not_evaluated");
+  assert.ok(res.reasons.some((r) => r.code === "symbol_target_evidence_inconsistent"), JSON.stringify(res.reasons));
+  assert.ok(!("write" in res));
+});
+
+test("R2-H3c: outcome unique + runStatus not_found + evidenceComplete true -> inconsistent", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  const bad = cloneWitness(witness);
+  bad.evaluations[0].outcome = "unique";
+  bad.evaluations[0].a1Citation.runStatus = "not_found";
+  bad.evaluations[0].a1Citation.evidenceComplete = true;
+  bad.a1Citations[0].runStatus = "not_found";
+  bad.a1Citations[0].evidenceComplete = true;
+  assert.equal(bad.completenessHolds, true);
+  assert.equal(bad.uniquenessHolds, true);
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
+  });
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: bad
+  });
+  assert.equal(res.status, "not_evaluated");
+  assert.ok(res.reasons.some((r) => r.code === "symbol_target_evidence_inconsistent"), JSON.stringify(res.reasons));
+  assert.ok(!("write" in res));
+});
+
+test("R2-H3-OK: coherent live citation still lifts", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  const citation = witness.evaluations[0].a1Citation;
+  assert.equal(witness.evaluations[0].outcome, "unique");
+  assert.equal(citation.runStatus, "resolved_unique");
+  assert.equal(citation.evidenceComplete, true);
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
+  });
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: witness
+  });
+  assert.ok(res.status === "incomplete" || res.status === "available");
+  assert.ok(res.write);
 });
