@@ -30,22 +30,22 @@ Evidence calls omit `worktree` and `expectedRevision`.
 
 Wires `composeEffectiveTaskScopeFromEnvelopes` then `composeEffectiveTaskScope`.
 
-Success response: HTTP `200` envelope with `policyVersion` `step4-foundation-2` (value at the time of this slice; see [Operation intent pass-through](#operation-intent-pass-through-later-slices) for the current constant). That value is an **existing constant**, not Step 4 authorization or completion.
+Success response: HTTP `200` envelope with `policyVersion` `step4-foundation-2` (value at the time of this slice; see [Operation intent pass-through](#operation-intent-pass-through-later-slices) for the current constant, `step4-foundation-4`). That value is an **existing constant**, not Step 4 authorization or completion.
 
 - `RESERVED` stays `not_evaluated` with reason `coupling_evidence_not_supported`.
 - `WRITE` is a classification, **not** permission to write or publish.
 
 ## Operation intent pass-through (later slices)
 
-Observed by code reading on branch `feat/ets-create-intent-classification` at `6250625bd9d302b6a0876355fb22bdb8e6e9b542` (PR #60, **open, not merged**). `src/routes/effective-task-scope.routes.js` is not changed by the later slices described here.
+Observed by code reading on branch `feat/ets-create-intent-classification` at the PR #60 fix commit `1c382eb56b554e390e99ce5757b5df8e99166b14` (PR #60, **open, not merged**). `src/routes/effective-task-scope.routes.js` is unchanged since base `95ea609`; the behavior below comes from the shared request normalizer.
 
-- The route normalizes the body with `normalizeEffectiveTaskScopeRequest` (`projectId` taken from the path) and passes the normalized request, including optional `operationIntent`, unchanged through `composeEffectiveTaskScopeFromEnvelopes` into `composeEffectiveTaskScope`. The adapter does not inspect or rewrite `operationIntent`; intent binding happens in the composer.
-- `operationIntent.kind` may be `"delete"` (Slice 3, PR #46; targets `{ oldPath, newPath: null }`) or `"create"` (C2, PR #60 — open, not merged; targets `{ oldPath: null, newPath }`). Exact keys `kind` and `targets`; targets must be non-empty and match the explicit `task.paths`. See [create-intent classification](effective-task-scope-create-intent.md).
-- Malformed intents are refused during request normalization: `invalid_create_intent` for a malformed create intent, `invalid_delete_intent` for any other kind or a malformed delete intent. The route maps these request codes to HTTP `400` (`classifyRouteCode`).
-- Composer-side binding failures (e.g. `create_intent_target_mismatch`, `create_source_binding_mismatch`) and not-evaluated sources/targets (`create_source_not_evaluated`, `create_target_not_evaluated`) are returned as composer results (`status: "rejected"` or `status: "not_evaluated"`), not thrown.
-- This is **classification, not authorization**: WRITE items carrying `explicit_create_intent` / `explicit_delete_intent` are not permission to create, delete, write or publish, and nothing is created or deleted on disk. Rename and directory expansion are not supported.
+- The route calls `normalizeEffectiveTaskScopeRequest({ ...body, projectId })` (`projectId` taken from the path) with **no options**, then passes the normalized request through `composeEffectiveTaskScopeFromEnvelopes` into `composeEffectiveTaskScope`. The adapter does not inspect or rewrite `operationIntent`; intent binding happens in the composer.
+- Over HTTP only `operationIntent.kind: "delete"` (Slice 3, PR #46; exact keys `kind` and `targets`, targets `{ oldPath, newPath: null }` matching the explicit `task.paths`) reaches compose. The shared normalizer is default-deny for create: only a caller passing `{ allowCreateIntent: true }` (strictly `=== true`; today only `composeEffectiveTaskScope`) gets create normalization.
+- Any body whose `operationIntent` has `kind: "create"` (well-formed, malformed or over-budget) is refused during normalization with HTTP `400` `invalid_delete_intent` (`classifyRouteCode`), identical to base `95ea609`, before `getProjectConfig`, `getConfiguredProjectRoots`, the Context Pack and Impact producers, or compose are called (zero calls; pinned by route tests). Any other non-delete kind or malformed delete intent gets the same `400` `invalid_delete_intent`. `invalid_create_intent` and the `create_destination_*` codes are lib-only and never appear over HTTP. See [create intent (refuse-only)](effective-task-scope-create-intent.md).
+- Delete-intent binding failures in the composer are returned as composer results (`status: "rejected"` or `status: "not_evaluated"`), not thrown.
+- This is **classification, not authorization**: WRITE items carrying `explicit_delete_intent` are not permission to delete, write or publish, and nothing is deleted on disk. Create, rename and directory expansion are not available over HTTP.
 - The route still passes only the `pack` and `impact` envelopes; it does not supply the optional `symbolTargetCompletenessWitness` envelope that PR #59 (C1, merged) made acceptable at the adapter seam.
-- `policyVersion`: `EFFECTIVE_TASK_SCOPE_POLICY_VERSION` on this branch is `step4-foundation-3` (introduced with PR #57; unchanged by PR #59 and PR #60). Hard flags (`IMPLEMENTATION_AUTHORIZED`, `SLICE4`, `STEP4_SLICE4_READY_TO_IMPLEMENT`, confinement) are unchanged.
+- `policyVersion`: `EFFECTIVE_TASK_SCOPE_POLICY_VERSION` on this branch is `step4-foundation-4`, bumped from `step4-foundation-3` (introduced with PR #57) by the PR #60 fix because the create rules changed. The route has no version constant of its own, so route responses now report `step4-foundation-4`; the DTO shape is unchanged. Hard flags (`IMPLEMENTATION_AUTHORIZED`, `SLICE4`, `STEP4_SLICE4_READY_TO_IMPLEMENT`, confinement) are unchanged.
 
 ## Files in this slice
 
