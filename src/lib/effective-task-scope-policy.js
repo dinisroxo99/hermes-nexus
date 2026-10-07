@@ -209,7 +209,17 @@ export function normalizeEffectiveTaskScopeRequest(input) {
     expectedRevision,
     includeTests: input.includeTests,
     ...(changeSemantics ? { changeSemantics } : {}),
-    ...(Object.hasOwn(input, "operationIntent") ? { operationIntent: normalizeDeleteIntent(input.operationIntent) } : {}),
+    ...(Object.hasOwn(input, "operationIntent")
+      ? {
+          operationIntent:
+            input.operationIntent
+            && typeof input.operationIntent === "object"
+            && !Array.isArray(input.operationIntent)
+            && input.operationIntent.kind === "create"
+              ? normalizeCreateIntent(input.operationIntent)
+              : normalizeDeleteIntent(input.operationIntent)
+        }
+      : {}),
     ...(limits ? { limits } : {})
   };
 }
@@ -231,6 +241,30 @@ function normalizeDeleteIntent(intent) {
       return path;
     });
     return { kind: "delete", targets: [...new Set(paths)].sort(compareStrings).map(oldPath => ({ oldPath, newPath: null })) };
+  } catch (error) {
+    if (error.code === "scope_budget_exceeded") throw error;
+    throw invalid();
+  }
+}
+
+
+function normalizeCreateIntent(intent) {
+  const invalid = () => effectiveTaskScopeError("invalid_create_intent");
+  try {
+    assertRecord(intent);
+    assertAllowedFields(intent, ["kind", "targets"]);
+    if (intent.kind !== "create" || !Array.isArray(intent.targets) || intent.targets.length === 0) throw invalid();
+    if (intent.targets.length > MAX_RAW_PATHS_BEFORE_DEDUPE) throw effectiveTaskScopeError("scope_budget_exceeded");
+    const paths = intent.targets.map(target => {
+      assertRecord(target);
+      assertAllowedFields(target, ["oldPath", "newPath"]);
+      if (!Object.hasOwn(target, "oldPath") || !Object.hasOwn(target, "newPath") || target.oldPath !== null) throw invalid();
+      const path = target.newPath;
+      if (typeof path !== "string" || path.length === 0 || path.length > 1024 || CONTROL.test(path) ||
+          normalizeImpactPaths([path])[0] !== path) throw invalid();
+      return path;
+    });
+    return { kind: "create", targets: [...new Set(paths)].sort(compareStrings).map(newPath => ({ oldPath: null, newPath })) };
   } catch (error) {
     if (error.code === "scope_budget_exceeded") throw error;
     throw invalid();
@@ -383,6 +417,156 @@ export function bindDeleteIntent(intent, paths, pack, impact) {
         providers, coverage: coverages } }, reasons: [...reasons].sort(compareStrings) };
   } catch (error) {
     if (["scope_budget_exceeded", "delete_intent_target_mismatch"].includes(error.code)) throw error;
+    throw mismatch();
+  }
+}
+
+/** Project materialized, retained path proof after existing gates (create-intent). */
+export function bindCreateIntent(intent, paths, pack, impact) {
+  const mismatch = () => effectiveTaskScopeError("create_source_binding_mismatch");
+  const record = value => value && typeof value === "object" && !Array.isArray(value);
+  const text = value => typeof value === "string" && value.length > 0 && value.length <= 128 && !CONTROL.test(value);
+  const hash = value => typeof value === "string" && OPAQUE_ID_PATTERN.test(value);
+  const literal = value => {
+    try { return typeof value === "string" && value.length <= 1024 && normalizeImpactPaths([value])[0] === value; }
+    catch { return false; }
+  };
+  const reasons = new Set();
+  const add = code => reasons.add(code);
+  const completeness = value => {
+    if (!record(value) || IMPACT_COMPLETENESS_DIMENSIONS.some(key => !Array.isArray(value[key]))) throw mismatch();
+    if (IMPACT_COMPLETENESS_DIMENSIONS.some(key => value[key].length > IMPACT_COMPLETENESS_REASONS.length)) {
+      throw effectiveTaskScopeError("scope_budget_exceeded");
+    }
+    return normalizeImpactCompleteness(value);
+  };
+  const observation = value => {
+    if (!record(value) || typeof value.incomplete !== "boolean" || !text(value.digestCoverage)) throw mismatch();
+    return { incomplete: value.incomplete, digestCoverage: value.digestCoverage };
+  };
+  const provider = value => {
+    if (!record(value) || !text(value.id) || !text(value.version)) throw mismatch();
+    return { id: value.id, version: value.version };
+  };
+  const coverage = value => {
+    if (!record(value) || Object.keys(value).some(key => !["observed", "covered", "uncovered"].includes(key)) ||
+        ["observed", "covered", "uncovered"].some(key => !Array.isArray(value[key]) || value[key].some(v => !text(v)))) throw mismatch();
+    return Object.fromEntries(["observed", "covered", "uncovered"].map(key => [key, [...value[key]]]));
+  };
+  try {
+    if (JSON.stringify(intent.targets.map(target => target.newPath)) !== JSON.stringify(paths)) {
+      throw effectiveTaskScopeError("create_intent_target_mismatch");
+    }
+    const sections = {};
+    const maxima = { ...Object.fromEntries(Object.entries(TASK_CONTEXT_LIMITS).filter(([key]) => key !== "maxBytes").map(([key, limits]) => [key, limits[1]])), task: 1, policy: 4 };
+    const sectionStatuses = ["available", "empty", "partial", "omitted", "not_analyzed"];
+    for (const name of Object.keys(pack.sections).sort(compareStrings)) {
+      const section = pack.sections[name];
+      if (!Object.hasOwn(maxima, name) || !record(section) || !sectionStatuses.includes(section.status) ||
+          typeof section.truncated !== "boolean" || !Number.isSafeInteger(section.limit) || section.limit < 0 || !Array.isArray(section.items)) throw mismatch();
+      if (section.limit > maxima[name] || section.items.length > section.limit || section.items.length > maxima[name]) {
+        throw effectiveTaskScopeError("scope_budget_exceeded");
+      }
+      if (Object.hasOwn(pack.limits || {}, name)) {
+        const limit = pack.limits[name];
+        if (!Number.isSafeInteger(limit) || limit < 0) throw mismatch();
+        if (limit > maxima[name] || section.limit > limit || section.items.length > limit) throw effectiveTaskScopeError("scope_budget_exceeded");
+      }
+      const provenance = section.provenance;
+      if (!record(provenance) || provenance.projectId !== pack.projectId || provenance.revisionRef !== "revision" ||
+          !text(provenance.producer) || !["canonical_fact", "derived_analysis", "untrusted_repository_text", "untrusted_external_analysis", "untrusted_request_text", "trusted_policy"].includes(provenance.trust)) throw mismatch();
+      if (name === "files" && (provenance.producer !== "context-source-observation" || provenance.trust !== "untrusted_repository_text")) throw mismatch();
+      if (["empty", "omitted", "not_analyzed"].includes(section.status) && section.items.length > 0) throw mismatch();
+      sections[name] = { status: section.status, limit: section.limit, truncated: section.truncated };
+      if (section.truncated) add(`create_context_section_${name}_truncated`);
+      if (["partial", "omitted", "not_analyzed"].includes(section.status)) add(`create_context_section_${name}_${section.status}`);
+    }
+    const files = pack.sections.files;
+    const sourcesByPath = new Map();
+    for (const file of files?.items || []) {
+      if (!record(file) || !literal(file.path) || sourcesByPath.has(file.path)) throw mismatch();
+      const provenance = file.provenance;
+      if (!record(provenance) || !record(provenance.source) || provenance.source.path !== file.path || !hash(provenance.source.sha256)) throw mismatch();
+      sourcesByPath.set(file.path, file);
+    }
+    if (impact.targets.length > MAX_RAW_PATHS_BEFORE_DEDUPE) throw effectiveTaskScopeError("scope_budget_exceeded");
+    const targetsByPath = new Map();
+    const targets = [];
+    let unevaluated = false;
+    let missingSource = !files || ["empty", "omitted", "not_analyzed"].includes(files.status);
+    for (const target of impact.targets) {
+      if (!record(target) || !literal(target.originPath) || targetsByPath.has(target.originPath)) throw mismatch();
+      const status = normalizeImpactStatus(target.status);
+      const findingState = normalizeImpactFindingState(target.findingState);
+      const comp = completeness(target.completeness);
+      if (findingState === "not_evaluated") unevaluated = true;
+      if (target.targetSource == null) missingSource = true;
+      else if (!record(target.targetSource) || target.targetSource.path !== target.originPath || !hash(target.targetSource.hash)) throw mismatch();
+      targetsByPath.set(target.originPath, target);
+      targets.push({ originPath: target.originPath, status, findingState, completeness: comp });
+      if (status !== "available") add(`create_impact_target_${status}`);
+      for (const dimension of IMPACT_COMPLETENESS_DIMENSIONS) for (const cause of comp[dimension]) add(`create_impact_${dimension}_${cause}`);
+    }
+    const sources = [];
+    for (const newPath of paths) {
+      const file = sourcesByPath.get(newPath);
+      const target = targetsByPath.get(newPath);
+      if (!target) throw effectiveTaskScopeError("create_intent_target_mismatch");
+      if (!file) { missingSource = true; continue; }
+      const p = file.provenance;
+      if (!["canonical_fact", "untrusted_repository_text"].includes(p.trust) || p.reason !== "task_path") throw mismatch();
+      if (!target.targetSource) continue;
+      if (p.source.sha256 !== target.targetSource.hash) throw mismatch();
+      sources.push({ newPath, context: { source: { path: p.source.path, sha256: p.source.sha256 }, trust: p.trust, reason: p.reason },
+        impact: { path: target.targetSource.path, hash: target.targetSource.hash } });
+    }
+    const contextObservation = observation(pack.observation);
+    const impactObservation = observation(impact.observation);
+    const at = impact.affectedTests;
+    if (!record(at)) throw mismatch();
+    // Retained records must obey both hard maxima and any supplied producer budget.
+    const bound = (count, name) => {
+      const supplied = impact.limits?.[name];
+      if (supplied !== undefined && (!Number.isSafeInteger(supplied) || supplied < 1)) throw mismatch();
+      if (count > IMPACT_LIMITS[name].max || supplied > IMPACT_LIMITS[name].max || count > supplied) {
+        throw effectiveTaskScopeError("scope_budget_exceeded");
+      }
+    };
+    if (!Array.isArray(impact.affectedFiles) || !Array.isArray(at.candidates)) throw mismatch();
+    bound(impact.affectedFiles.length, "affectedFiles");
+    bound(at.candidates.length, "affectedTests");
+    let rawWitnessCount = 0;
+    for (const item of [...impact.affectedFiles, ...at.candidates]) {
+      if (!record(item) || !Array.isArray(item.origins)) throw mismatch();
+      bound(item.origins.length, "originWitnessesPerItem");
+      rawWitnessCount += item.origins.length;
+    }
+    bound(rawWitnessCount, "originWitnessRecords");
+    const affectedTests = { status: normalizeImpactStatus(at.status, { section: true }) };
+    if (Object.hasOwn(at, "findingState")) affectedTests.findingState = normalizeImpactFindingState(at.findingState);
+    if (Object.hasOwn(at, "completeness")) affectedTests.completeness = completeness(at.completeness);
+    const comp = completeness(impact.completeness);
+    const providers = { context: provider(pack.analysis.provider), impact: provider(impact.provider) };
+    const coverages = { context: coverage(pack.analysis.coverage), impact: coverage(impact.coverage) };
+    const contextStatus = normalizeImpactStatus(pack.analysis.status);
+    if (contextStatus !== "available") add(`create_context_provider_${contextStatus}`);
+    if (coverages.context.uncovered.length) add("create_context_coverage_uncovered");
+    if (coverages.impact.uncovered.length) add("create_impact_coverage_uncovered");
+    if (contextObservation.incomplete) add("create_context_observation_incomplete");
+    if (impactObservation.incomplete) add("create_impact_observation_incomplete");
+    for (const dimension of IMPACT_COMPLETENESS_DIMENSIONS) {
+      for (const cause of [...comp[dimension], ...(affectedTests.completeness?.[dimension] || [])]) add(`create_impact_${dimension}_${cause}`);
+    }
+    if (affectedTests.status !== "available") add(`create_affected_tests_${affectedTests.status}`);
+    if (affectedTests.findingState === "not_evaluated") add("create_affected_tests_not_evaluated");
+    if (unevaluated) return { notEvaluated: "create_target_not_evaluated" };
+    if (missingSource) return { notEvaluated: "create_source_not_evaluated" };
+    return { operationIntent: { kind: "create", provenance: "task_declaration", targets: intent.targets,
+      evidence: { sources, context: { observation: contextObservation, sections },
+        impact: { observation: impactObservation, targets: targets.sort((a, b) => compareStrings(a.originPath, b.originPath)), affectedTests, completeness: comp },
+        providers, coverage: coverages } }, reasons: [...reasons].sort(compareStrings) };
+  } catch (error) {
+    if (["scope_budget_exceeded", "create_intent_target_mismatch"].includes(error.code)) throw error;
     throw mismatch();
   }
 }

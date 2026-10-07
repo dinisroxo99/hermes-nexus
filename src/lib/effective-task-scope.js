@@ -8,6 +8,7 @@ import {
   effectiveTaskScopeError,
   normalizeEffectiveTaskScopeRequest,
   bindDeleteIntent,
+  bindCreateIntent,
   resolveChangeSemantics,
   normalizeEffectiveTaskScopeEvidence,
   normalizeSymbolTargetCompletenessWitness,
@@ -75,7 +76,7 @@ function getMinDistance(item) {
   return Math.min(...item.origins.map(o => (o && typeof o.minimumDistance === "number" ? o.minimumDistance : 999)));
 }
 
-function classifyFromImpact(affectedItem, semantics, includeTests, isWrite, isDelete = false) {
+function classifyFromImpact(affectedItem, semantics, includeTests, isWrite, intentKind = null) {
   const dist = getMinDistance(affectedItem);
   const os = affectedItem.originSummary || {};
   const isTrunc = !!(affectedItem.attributionTruncated || os.attributionTruncated);
@@ -102,9 +103,9 @@ function classifyFromImpact(affectedItem, semantics, includeTests, isWrite, isDe
     category = "watch";
     ruleId = isTrunc ? "truncated_attribution" : "distance_1_2_awareness";
   }
-  if (isDelete && !isWrite) {
+  if (intentKind && !isWrite) {
     category = "watch";
-    ruleId = "delete_intent_awareness";
+    ruleId = intentKind === "create" ? "create_intent_awareness" : "delete_intent_awareness";
   }
   if (isWrite) category = "write";
   return { category, roles: [...new Set(roles)].sort(compareStrings), ruleId };
@@ -318,23 +319,35 @@ export function composeEffectiveTaskScope(request, evidence) {
     return buildRejected("scope_budget_exceeded");
   }
 
-  // Activate deletion only after the existing binding/staleness gates and whole proof validation.
+  // Activate delete/create intent only after existing binding/staleness gates and proof validation.
   let deletion;
+  let creation;
   if (normalizedRequest.operationIntent) {
     try {
-      deletion = bindDeleteIntent(normalizedRequest.operationIntent, normalizedRequest.task.paths, pack, impact);
+      if (normalizedRequest.operationIntent.kind === "create") {
+        creation = bindCreateIntent(normalizedRequest.operationIntent, normalizedRequest.task.paths, pack, impact);
+      } else {
+        deletion = bindDeleteIntent(normalizedRequest.operationIntent, normalizedRequest.task.paths, pack, impact);
+      }
     } catch (error) {
       return buildRejected(error.code);
     }
-    if (deletion.notEvaluated) return buildNotEvaluatedNoContainers(deletion.notEvaluated);
+    const bound = deletion || creation;
+    if (bound.notEvaluated) return buildNotEvaluatedNoContainers(bound.notEvaluated);
   }
+  const boundIntent = deletion || creation;
+  const intentKind = deletion ? "delete" : creation ? "create" : null;
 
   // build write items (explicit only)
   const writePaths = normalizedRequest.task.paths;
   const writeItems = writePaths.map((p) => ({
     target: makeFileTarget(p),
     roles: ["explicit_task_path"],
-    ruleIds: deletion ? ["explicit_delete_intent", "explicit_task_path"] : ["explicit_task_path"],
+    ruleIds: deletion
+      ? ["explicit_delete_intent", "explicit_task_path"]
+      : creation
+        ? ["explicit_create_intent", "explicit_task_path"]
+        : ["explicit_task_path"],
     evidenceRefs: [],
     origins: [],
     attribution: null
@@ -344,7 +357,7 @@ export function composeEffectiveTaskScope(request, evidence) {
   let affected = impact.affectedFiles || [];
   if (!Array.isArray(affected)) affected = [];
   const targetOrigins = (impact.targets || []).filter(t => t && t.originPath).map(t => ({ originPath: t.originPath, minimumDistance: 0, witness: null }));
-  if (deletion) targetOrigins.sort(compareOrigin);
+  if (boundIntent) targetOrigins.sort(compareOrigin);
 
   // reject dist-0 that is not explicit origin
   for (const ao of (impact.affectedFiles || [])) {
@@ -371,7 +384,7 @@ export function composeEffectiveTaskScope(request, evidence) {
     }
     hasAnyEvidence = true;
     const isWritePath = writePaths.includes(item.path);
-    const cls = classifyFromImpact(item, effectiveSem, normalizedRequest.includeTests, isWritePath, !!deletion);
+    const cls = classifyFromImpact(item, effectiveSem, normalizedRequest.includeTests, isWritePath, intentKind);
     if (isWritePath) {
       // keep lower-classif evidence (origins, affected_file role) on WRITE winner
       const wentry = classified.get(item.path);
@@ -463,7 +476,7 @@ export function composeEffectiveTaskScope(request, evidence) {
         }
       } else {
         const cls = classifyFromImpact({origins: cand.origins || [], originSummary: cand.originSummary,
-          ...(deletion ? { roles: ["affected_test_candidate"] } : {})}, effectiveSem, true, false, !!deletion);
+          ...(boundIntent ? { roles: ["affected_test_candidate"] } : {})}, effectiveSem, true, false, intentKind);
         cls.category = "watch"; // force requested non-WRITE test candidates to WATCH (even far)
         const itemOrigins = Array.isArray(cand.origins) ? cand.origins.map(o => ({
           originPath: o.originPath, minimumDistance: o.minimumDistance,
@@ -523,10 +536,10 @@ export function composeEffectiveTaskScope(request, evidence) {
   for (const [, entry] of classified) {
     if (entry && entry.item && Array.isArray(entry.item.origins)) {
       entry.item.origins.sort(compareOrigin);
-      if (deletion) entry.item.evidenceRefs.sort(compareOrigin);
+      if (boundIntent) entry.item.evidenceRefs.sort(compareOrigin);
     }
   }
-  if (deletion) witnesses.sort((a, b) => compareStrings(a.id, b.id));
+  if (boundIntent) witnesses.sort((a, b) => compareStrings(a.id, b.id));
 
   // build categories - no "empty", use available for bounded no-evidence when classification bearing
   const writeCat = {
@@ -604,7 +617,7 @@ export function composeEffectiveTaskScope(request, evidence) {
     completeness.resolver = [...completeness.resolver, "semantics_unknown"].sort(compareStrings);
   }
 
-  if (deletion) completeness.resolver = [...new Set([...completeness.resolver, ...deletion.reasons])].sort(compareStrings);
+  if (boundIntent) completeness.resolver = [...new Set([...completeness.resolver, ...boundIntent.reasons])].sort(compareStrings);
 
   // count caps
   const classifiedCount = classified.size;
@@ -620,7 +633,7 @@ export function composeEffectiveTaskScope(request, evidence) {
   if (originWitnessRefCount > MAX_ORIGIN_WITNESS_REFS) {
     return buildRejected("scope_budget_exceeded");
   }
-  const resolverReasonCount = topReasons.length + (deletion ? completeness.resolver.length : 0);
+  const resolverReasonCount = topReasons.length + (boundIntent ? completeness.resolver.length : 0);
   if (resolverReasonCount > MAX_RESOLVER_REASONS) {
     return buildRejected("scope_budget_exceeded");
   }
@@ -661,7 +674,7 @@ export function composeEffectiveTaskScope(request, evidence) {
       provenance: sem.provenance,
       reasons: sem.reasons
     },
-    ...(deletion && emitCategories ? { operationIntent: deletion.operationIntent } : {}),
+    ...(boundIntent && emitCategories ? { operationIntent: boundIntent.operationIntent } : {}),
     ...(emitCategories ? { write: writeCat } : {}),
     ...(emitCategories ? { reserved: reservedCat } : {}),
     ...(emitCategories ? { watch: watchCat } : {}),
