@@ -570,8 +570,9 @@ function isNonEmptyString(value) {
 
 /**
  * Consume-side effectivelyEvaluated (data-only; no A1 call).
- * Hole 3: evidenceComplete===true must cohere with runStatus, outcome↔runStatus,
- * and completeness.{source,parse,enumeration} when completeness is present.
+ * r2 Hole 3: evidenceComplete===true must cohere with runStatus, outcome↔runStatus,
+ * and completeness.{source,parse,enumeration} when completeness is a plain object.
+ * r3 Hole 2: if completeness is PRESENT and not a plain object → fail (do not skip).
  */
 export function isSymbolTargetEffectivelyEvaluated(evaluation) {
   if (!isWitnessPlainObject(evaluation)) return false;
@@ -580,7 +581,8 @@ export function isSymbolTargetEffectivelyEvaluated(evaluation) {
   if (!isWitnessPlainObject(citation) || citation.evidenceComplete !== true) return false;
   if (!SYMBOL_TARGET_EFFECTIVE_A1_STATUSES.has(citation.runStatus)) return false;
   if (SYMBOL_TARGET_OUTCOME_TO_RUN_STATUS[evaluation.outcome] !== citation.runStatus) return false;
-  if (isWitnessPlainObject(citation.completeness)) {
+  if (Object.prototype.hasOwnProperty.call(citation, "completeness")) {
+    if (!isWitnessPlainObject(citation.completeness)) return false;
     if (
       citation.completeness.source !== "complete"
       || citation.completeness.parse !== "complete"
@@ -617,49 +619,65 @@ function citationFieldsAgree(evalCitation, topCitation) {
   for (const field of required) {
     if (evalCitation[field] !== topCitation[field]) return false;
   }
-  // Presence-symmetric optional fields (Hole 2: snapshotToken; Fix 1: declarationId/symbolId)
-  for (const field of ["declarationId", "symbolId", "snapshotToken"]) {
+  // Presence-symmetric: declarationId / symbolId (Fix 1)
+  for (const field of ["declarationId", "symbolId"]) {
     if (Object.prototype.hasOwnProperty.call(evalCitation, field)
       || Object.prototype.hasOwnProperty.call(topCitation, field)) {
       if (evalCitation[field] !== topCitation[field]) return false;
     }
   }
+  // r3 Hole 1: snapshotToken NOT presence-symmetric — compare only when BOTH carry
+  const evalHasToken = Object.prototype.hasOwnProperty.call(evalCitation, "snapshotToken");
+  const topHasToken = Object.prototype.hasOwnProperty.call(topCitation, "snapshotToken");
+  if (evalHasToken && topHasToken && evalCitation.snapshotToken !== topCitation.snapshotToken) {
+    return false;
+  }
   return true;
 }
 
 /**
- * Hole 2: reconcile citation snapshotToken to exterior witness.snapshotToken.
- * If a citation carries snapshotToken, it must equal exterior.
- * When holds===true: every eval-embedded and top-level citation must present
- * nonempty snapshotToken equal to exterior.
+ * r2/r3 citation snapshotToken ↔ exterior witness.snapshotToken.
+ * - Any layer that CARRIES snapshotToken must equal exterior (r2 strength).
+ * - When holds===true: detailed evaluations[].a1Citation MUST present nonempty
+ *   snapshotToken === exterior (r3 Hole 1).
+ * - Summary a1Citations[] MAY omit snapshotToken; if it carries, must === exterior.
  * @returns {string|null} symbol_target_binding_mismatch or null
  */
 export function checkSymbolTargetCitationSnapshotReconcile(witness) {
   const exterior = witness.snapshotToken;
   const holdsTrue = witness.completenessHolds === true || witness.uniquenessHolds === true;
-  const citations = [];
+
+  // Detailed eval citations
   if (Array.isArray(witness.evaluations)) {
     for (const evaluation of witness.evaluations) {
-      if (evaluation && isWitnessPlainObject(evaluation.a1Citation)) {
-        citations.push(evaluation.a1Citation);
+      if (!evaluation || !isWitnessPlainObject(evaluation.a1Citation)) {
+        if (holdsTrue) return "symbol_target_binding_mismatch";
+        continue;
+      }
+      const citation = evaluation.a1Citation;
+      const carries = Object.prototype.hasOwnProperty.call(citation, "snapshotToken");
+      if (holdsTrue) {
+        if (!isNonEmptyString(citation.snapshotToken) || citation.snapshotToken !== exterior) {
+          return "symbol_target_binding_mismatch";
+        }
+      } else if (carries && citation.snapshotToken !== exterior) {
+        return "symbol_target_binding_mismatch";
       }
     }
   }
+
+  // Summary a1Citations — omission OK; carrying layer must equal exterior
   if (Array.isArray(witness.a1Citations)) {
     for (const citation of witness.a1Citations) {
-      if (isWitnessPlainObject(citation)) citations.push(citation);
-    }
-  }
-  for (const citation of citations) {
-    const carries = Object.prototype.hasOwnProperty.call(citation, "snapshotToken");
-    if (holdsTrue) {
+      if (!isWitnessPlainObject(citation)) continue;
+      const carries = Object.prototype.hasOwnProperty.call(citation, "snapshotToken");
+      if (!carries) continue;
       if (!isNonEmptyString(citation.snapshotToken) || citation.snapshotToken !== exterior) {
         return "symbol_target_binding_mismatch";
       }
-    } else if (carries && citation.snapshotToken !== exterior) {
-      return "symbol_target_binding_mismatch";
     }
   }
+
   return null;
 }
 

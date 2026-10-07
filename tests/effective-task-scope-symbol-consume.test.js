@@ -109,32 +109,7 @@ function produceBoundWitness({ requiredNames = ["composeEffectiveTaskScope"], ov
     ...overrides
   };
   const witness = produceSymbolTargetCompletenessWitness(request);
-  // Hole 2: producer top-level a1Citations omit snapshotToken; align eval+top to exterior
-  // so positive consume tests exercise the holds-true citation snapshot requirement.
-  alignCitationSnapshotTokens(witness);
   return { witness, live, etsText, snapshotToken: live.snapshotToken };
-}
-
-/** Stamp exterior snapshotToken onto eval-embedded and top-level a1Citations. */
-function alignCitationSnapshotTokens(witness) {
-  if (!witness || typeof witness !== "object") return witness;
-  const token = witness.snapshotToken;
-  if (typeof token !== "string" || token.length === 0) return witness;
-  if (Array.isArray(witness.evaluations)) {
-    for (const evaluation of witness.evaluations) {
-      if (evaluation && evaluation.a1Citation && typeof evaluation.a1Citation === "object") {
-        evaluation.a1Citation.snapshotToken = token;
-      }
-    }
-  }
-  if (Array.isArray(witness.a1Citations)) {
-    for (const citation of witness.a1Citations) {
-      if (citation && typeof citation === "object") {
-        citation.snapshotToken = token;
-      }
-    }
-  }
-  return witness;
 }
 
 function buildPackImpactRequest({ symbols, snapshotToken, paths = [ETS_PATH], sourceHashes = null }) {
@@ -729,16 +704,20 @@ test("R2-H1-OK: full-domain pathScope still lifts", () => {
   assert.ok(!res.reasons.some((r) => String(r.code || "").startsWith("symbol_target_")));
 });
 
-test("R2-H2a: exterior snapshotToken changed; citations keep old -> binding_mismatch no WRITE", () => {
+test("R2-H2a: exterior snapshotToken changed; detailed citation keeps old -> binding_mismatch no WRITE", () => {
   const { witness, snapshotToken } = produceBoundWitness();
   const bad = cloneWitness(witness);
   const oldToken = snapshotToken;
   const newToken = "bb".repeat(32);
   assert.notEqual(newToken, oldToken);
   assert.equal(bad.evaluations[0].a1Citation.snapshotToken, oldToken);
-  assert.equal(bad.a1Citations[0].snapshotToken, oldToken);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(bad.a1Citations[0], "snapshotToken"),
+    false,
+    "producer summary omits snapshotToken"
+  );
   bad.snapshotToken = newToken;
-  // citations deliberately keep oldToken
+  // detailed citation deliberately keeps oldToken; summary still omits
   assert.equal(bad.evaluations[0].a1Citation.snapshotToken, oldToken);
   assert.equal(bad.completenessHolds, true);
   const { request, pack, impact } = buildPackImpactRequest({
@@ -756,11 +735,12 @@ test("R2-H2a: exterior snapshotToken changed; citations keep old -> binding_mism
   assert.ok(!("write" in res));
 });
 
-test("R2-H2b: delete citation snapshotToken while holds true -> binding_mismatch no WRITE", () => {
+test("R2-H2b: detailed snapshotToken missing while holds true -> binding_mismatch no WRITE", () => {
   const { witness, snapshotToken } = produceBoundWitness();
   const bad = cloneWitness(witness);
   delete bad.evaluations[0].a1Citation.snapshotToken;
-  delete bad.a1Citations[0].snapshotToken;
+  // summary already omits token in producer shape
+  assert.equal(Object.prototype.hasOwnProperty.call(bad.a1Citations[0], "snapshotToken"), false);
   assert.equal(bad.completenessHolds, true);
   const { request, pack, impact } = buildPackImpactRequest({
     symbols: ["composeEffectiveTaskScope"],
@@ -777,10 +757,10 @@ test("R2-H2b: delete citation snapshotToken while holds true -> binding_mismatch
   assert.ok(!("write" in res));
 });
 
-test("R2-H2-OK: citation snapshotToken equals exterior still lifts", () => {
+test("R2-H2-OK: detailed snapshotToken equals exterior; summary may omit; still lifts", () => {
   const { witness, snapshotToken } = produceBoundWitness();
   assert.equal(witness.evaluations[0].a1Citation.snapshotToken, witness.snapshotToken);
-  assert.equal(witness.a1Citations[0].snapshotToken, witness.snapshotToken);
+  assert.equal(Object.prototype.hasOwnProperty.call(witness.a1Citations[0], "snapshotToken"), false);
   assert.equal(witness.snapshotToken, snapshotToken);
   const { request, pack, impact } = buildPackImpactRequest({
     symbols: ["composeEffectiveTaskScope"],
@@ -881,6 +861,142 @@ test("R2-H3-OK: coherent live citation still lifts", () => {
   assert.equal(witness.evaluations[0].outcome, "unique");
   assert.equal(citation.runStatus, "resolved_unique");
   assert.equal(citation.evidenceComplete, true);
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
+  });
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: witness
+  });
+  assert.ok(res.status === "incomplete" || res.status === "available");
+  assert.ok(res.write);
+});
+
+
+test("R3-H1-OK: intact producer witness without align; summary lacks token; detailed equals exterior; lifts", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  assert.equal(Object.prototype.hasOwnProperty.call(witness.a1Citations[0], "snapshotToken"), false);
+  assert.equal(witness.evaluations[0].a1Citation.snapshotToken, witness.snapshotToken);
+  assert.equal(witness.snapshotToken, snapshotToken);
+  assert.equal(witness.completenessHolds, true);
+  assert.equal(witness.uniquenessHolds, true);
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
+  });
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: witness
+  });
+  assert.ok(res.status === "incomplete" || res.status === "available");
+  assert.ok(res.write);
+  assert.ok(!res.reasons.some((r) => String(r.code || "").startsWith("symbol_target_")));
+});
+
+test("R3-H1a: delete detailed snapshotToken; holds true -> binding_mismatch no WRITE", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  const bad = cloneWitness(witness);
+  delete bad.evaluations[0].a1Citation.snapshotToken;
+  assert.equal(bad.completenessHolds, true);
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
+  });
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: bad
+  });
+  assert.equal(res.status, "not_evaluated");
+  assert.ok(res.reasons.some((r) => r.code === "symbol_target_binding_mismatch"), JSON.stringify(res.reasons));
+  assert.ok(!("write" in res));
+});
+
+test("R3-H1b: detailed token !== exterior -> binding_mismatch no WRITE", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  const bad = cloneWitness(witness);
+  const wrong = "cc".repeat(32);
+  assert.notEqual(wrong, snapshotToken);
+  bad.evaluations[0].a1Citation.snapshotToken = wrong;
+  assert.equal(bad.completenessHolds, true);
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
+  });
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: bad
+  });
+  assert.equal(res.status, "not_evaluated");
+  assert.ok(res.reasons.some((r) => r.code === "symbol_target_binding_mismatch"), JSON.stringify(res.reasons));
+  assert.ok(!("write" in res));
+});
+
+test("R3-H1c: wrong token on summary only; detailed correct -> binding_mismatch no WRITE", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  const bad = cloneWitness(witness);
+  assert.equal(bad.evaluations[0].a1Citation.snapshotToken, snapshotToken);
+  bad.a1Citations[0].snapshotToken = "dd".repeat(32);
+  assert.notEqual(bad.a1Citations[0].snapshotToken, snapshotToken);
+  assert.equal(bad.completenessHolds, true);
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
+  });
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: bad
+  });
+  assert.equal(res.status, "not_evaluated");
+  assert.ok(res.reasons.some((r) => r.code === "symbol_target_binding_mismatch"), JSON.stringify(res.reasons));
+  assert.ok(!("write" in res));
+});
+
+test("R3-H2a: completeness string 'partial' + evidenceComplete true -> inconsistent no WRITE", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  const bad = cloneWitness(witness);
+  bad.evaluations[0].a1Citation.completeness = "partial";
+  bad.evaluations[0].a1Citation.evidenceComplete = true;
+  assert.equal(bad.completenessHolds, true);
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
+  });
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: bad
+  });
+  assert.equal(res.status, "not_evaluated");
+  assert.ok(res.reasons.some((r) => r.code === "symbol_target_evidence_inconsistent"), JSON.stringify(res.reasons));
+  assert.ok(!("write" in res));
+});
+
+test("R3-H2-OK: coherent object completeness still lifts", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  const citation = witness.evaluations[0].a1Citation;
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(citation, "completeness")
+    || (
+      citation.completeness
+      && typeof citation.completeness === "object"
+      && !Array.isArray(citation.completeness)
+      && citation.completeness.source === "complete"
+      && citation.completeness.parse === "complete"
+      && citation.completeness.enumeration === "complete"
+    )
+  );
   const { request, pack, impact } = buildPackImpactRequest({
     symbols: ["composeEffectiveTaskScope"],
     snapshotToken,
