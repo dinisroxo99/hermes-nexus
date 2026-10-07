@@ -24,11 +24,11 @@ data-only envelope adapter is merged; Slice 3 (source-bound explicit file
 deletion intent) is merged via PR #46. Later merged feature records: Track B
 direct-coupling producer (PR #51), [effective task scope HTTP route](effective-task-scope-http-route.md)
 (PR #52), [first Step 4 RESERVED item from Track B](step4-reserved-track-b-item.md)
-(PR #53), and [Track A1 symbol resolution](track-a1-symbol-resolution.md)
-(PR #54). Docs follow-up for those records is on open PR #55. In-repo
-[symbol-target completeness witness](symbol-target-completeness-witness.md)
-producer docs are on open PR #56. Roadmap Slice 4
-selection remains NOT STARTED (selection NO-GO). Step 4 remains INCOMPLETE and is
+(PR #53), [Track A1 symbol resolution](track-a1-symbol-resolution.md)
+(PR #54), docs follow-up (PR #55), [symbol-target completeness witness](symbol-target-completeness-witness.md)
+(PR #56), and [ETS A1+completeness consume (Slice 4 bounded)](effective-task-scope-symbol-consume.md)
+(PR #57, merge `a277ee43`). Roadmap Slice 4 product-wide readiness remains
+NOT STARTED (selection NO-GO; auth still NO). Step 4 remains INCOMPLETE and is
 **not** coordination/enforcement; v2 runtime exposure is NO. Step 5
 (Conflict Engine) and Step 6 (Guard) are NOT STARTED;
 scope/conflicts, runtime guard integration and project knowledge remain planned.
@@ -60,6 +60,7 @@ unchanged. This acceptance is not full technical validation or Step 4 authorizat
 - [Step 4 first RESERVED item (Track B)](step4-reserved-track-b-item.md) — first nonempty `RESERVED` item from the Track B witness.
 - [Track A1 symbol resolution](track-a1-symbol-resolution.md) — Track A1 declaration-evidence producer/adapter feature record.
 - [Symbol-target completeness witness](symbol-target-completeness-witness.md) — in-repo ArchW completeness witness producer feature record.
+- [ETS A1+completeness consume](effective-task-scope-symbol-consume.md) — Slice 4 (bounded) ETS consume of A1+completeness witness (PR #57).
 
 The tracked plugin is delivered in source, not automatically installed into the
 approved fleet. Legacy examples are archived, not the current procedure. For Hermes
