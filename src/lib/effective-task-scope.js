@@ -10,6 +10,8 @@ import {
   bindDeleteIntent,
   resolveChangeSemantics,
   normalizeEffectiveTaskScopeEvidence,
+  normalizeSymbolTargetCompletenessWitness,
+  evaluateSymbolTargetCompletenessWitness,
   materializeBoundedJsonData,
   checkInputBudget,
   buildEmptyCategory,
@@ -110,7 +112,7 @@ function classifyFromImpact(affectedItem, semantics, includeTests, isWrite, isDe
 
 /**
  * Pure composer: composeEffectiveTaskScope(request, evidence)
- * Receives validated request + {pack, impact} evidence. No IO.
+ * Receives validated request + {pack, impact, optional symbolTargetCompletenessWitness} evidence. No IO.
  */
 export function composeEffectiveTaskScope(request, evidence) {
   // Cross the structural ingress boundary before reading either raw argument.
@@ -267,11 +269,28 @@ export function composeEffectiveTaskScope(request, evidence) {
     return buildNotEvaluatedNoContainers("working_tree_observation_only");
   }
 
-  // symbols nonempty unsupported
+  // symbols nonempty: lift gate only when already-produced completeness witness binds + holds
   if (normalizedRequest.task.symbols && normalizedRequest.task.symbols.length > 0) {
-    const res = buildNotEvaluatedNoContainers("symbol_targets_not_supported");
-    res.task = { id: normalizedRequest.task.id, title: normalizedRequest.task.title, paths: normalizedRequest.task.paths, symbols: normalizedRequest.task.symbols };
-    return res;
+    let symbolWitness;
+    try {
+      symbolWitness = normalizeSymbolTargetCompletenessWitness(
+        evidence && evidence.symbolTargetCompletenessWitness
+      );
+    } catch (e) {
+      return buildNotEvaluatedNoContainers(e.code || "symbol_target_evidence_missing");
+    }
+    const symbolEval = evaluateSymbolTargetCompletenessWitness(symbolWitness, {
+      taskPaths: normalizedRequest.task.paths,
+      symbols: normalizedRequest.task.symbols,
+      projectId: normalizedRequest.projectId,
+      repositoryId: er.repositoryId,
+      worktreeId: er.worktreeId,
+      snapshotToken: pack.analysis.snapshotToken
+    });
+    if (!symbolEval.ok) {
+      return buildNotEvaluatedNoContainers(symbolEval.code);
+    }
+    // bound holds established — continue existing pack/impact classification (no WRITE widen)
   }
 
   // global unevaluated Impact -> not_evaluated with no classification containers

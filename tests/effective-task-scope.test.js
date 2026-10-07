@@ -137,7 +137,7 @@ test("composer: returns incomplete for missing target sources, write available e
   const res = composeEffectiveTaskScope(BASE_REQ, { pack: MIN_PACK, impact: MIN_IMPACT });
   assert.equal(res.schemaVersion, 2);
   assert.equal(res.analysisVersion, "effective-task-scope-v2");
-  assert.equal(res.policyVersion, "step4-foundation-2");
+  assert.equal(res.policyVersion, "step4-foundation-3");
   assert.equal(res.status, "incomplete");
   assert.ok(Array.isArray(res.reasons));
   assert.deepEqual(res.task.paths, BASE_REQ.task.paths);
@@ -173,12 +173,12 @@ test("composer: dirty true yields not_evaluated without classification container
   assert.ok(res.reasons.some(r => String(r.code || "").includes("working_tree") || String(r.code || "").includes("dirty")));
 });
 
-test("composer: symbols nonempty -> not_evaluated symbol_targets_not_supported, no cats", () => {
+test("composer: symbols nonempty without witness -> not_evaluated symbol_target_evidence_missing, no cats", () => {
   const symReq = { ...BASE_REQ, task: { ...BASE_REQ.task, symbols: ["Foo"] } };
   const symPack = { ...MIN_PACK, sections: { ...MIN_PACK.sections, task: { items: [ { ...MIN_PACK.sections.task.items[0], symbols: ["Foo"] } ] } } };
   const res = composeEffectiveTaskScope(symReq, { pack: symPack, impact: MIN_IMPACT });
   assert.equal(res.status, "not_evaluated");
-  assert.ok(res.reasons.some(r => r.code === "symbol_targets_not_supported"));
+  assert.ok(res.reasons.some(r => r.code === "symbol_target_evidence_missing"));
   assert.ok(!("write" in res));
   assert.ok(!("watch" in res));
   assert.ok(!("impact" in res));

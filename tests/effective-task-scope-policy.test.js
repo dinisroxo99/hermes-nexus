@@ -117,7 +117,7 @@ test("policy: resolveChangeSemantics - decl wins or disagreement -> unknown + re
 test("policy: versions exported and contract tokens", () => {
   assert.equal(EFFECTIVE_TASK_SCOPE_SCHEMA_VERSION, 2);
   assert.equal(EFFECTIVE_TASK_SCOPE_ANALYSIS_VERSION, "effective-task-scope-v2");
-  assert.equal(EFFECTIVE_TASK_SCOPE_POLICY_VERSION, "step4-foundation-2");
+  assert.equal(EFFECTIVE_TASK_SCOPE_POLICY_VERSION, "step4-foundation-3");
   assert.ok(CHANGE_SEMANTICS_CATEGORIES.includes("unknown"));
   assert.deepEqual(DOCUMENTATION_EXTENSIONS, [".md", ".rst", ".txt"]);
 });

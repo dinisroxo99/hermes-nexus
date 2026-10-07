@@ -50,7 +50,7 @@ function terminal(f, status, code) {
 
 test("delete: source-bound explicit WRITE; every retained effect WATCH, no safety or expansion", () => {
   const f = fixture(); const before = JSON.stringify(f); const r = run(f);
-  assert.equal(r.status, "incomplete"); assert.equal(r.policyVersion, "step4-foundation-2");
+  assert.equal(r.status, "incomplete"); assert.equal(r.policyVersion, "step4-foundation-3");
   assert.deepEqual(r.write.items.map(i => i.target.path), f.request.task.paths);
   assert.ok(r.write.items.every(i => i.ruleIds.includes("explicit_delete_intent")));
   assert.deepEqual(r.watch.items.map(i => i.target.path), ["src/far.js"]);
@@ -276,7 +276,7 @@ test("delete: existing terminal gates precede stricter source checks", () => {
     [f => { f.request.expectedRevision.commitSha = "f".repeat(40); }, "stale", "revision_observation_differs"],
     [f => { f.evidence.impact.provider.id = "other"; }, "rejected", "provider_mismatch"],
     [f => { f.evidence.impact.findingState = "not_evaluated"; }, "not_evaluated", "impact_not_evaluated"],
-    [f => { f.request.task.symbols = ["symbol"]; f.evidence.pack.sections.task.items[0].symbols = ["symbol"]; }, "not_evaluated", "symbol_targets_not_supported"]
+    [f => { f.request.task.symbols = ["symbol"]; f.evidence.pack.sections.task.items[0].symbols = ["symbol"]; }, "not_evaluated", "symbol_target_evidence_missing"]
   ]) {
     const f = fixture(); delete f.evidence.pack.sections.files; mutate(f); terminal(f, status, code);
   }

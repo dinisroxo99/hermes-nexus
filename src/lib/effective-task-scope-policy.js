@@ -9,7 +9,7 @@ import { TASK_CONTEXT_LIMITS } from "./task-context-policy.js";
 
 export const EFFECTIVE_TASK_SCOPE_SCHEMA_VERSION = 2;
 export const EFFECTIVE_TASK_SCOPE_ANALYSIS_VERSION = "effective-task-scope-v2";
-export const EFFECTIVE_TASK_SCOPE_POLICY_VERSION = "step4-foundation-2";
+export const EFFECTIVE_TASK_SCOPE_POLICY_VERSION = "step4-foundation-3";
 
 export const ETS_STATUSES = Object.freeze([
   "available",
@@ -513,6 +513,122 @@ export function materializeBoundedJsonData(root) {
 
 export function buildEmptyCategory(status = "not_evaluated", reasons = []) {
   return { status, items: [], reasons: reasons.length ? [...reasons].sort(compareStrings) : [], truncated: false };
+}
+
+
+/** Admitted symbol-target completeness witness identity (consume-only; no producer call). */
+export const SYMBOL_TARGET_COMPLETENESS_WITNESS_KIND = "symbol-target-completeness-witness";
+export const SYMBOL_TARGET_COMPLETENESS_WITNESS_PRODUCER_IDENTITY =
+  "hermes-nexus-in-repo-symbol-target-completeness-witness";
+export const SYMBOL_TARGET_COMPLETENESS_WITNESS_VERSION = "symbol-target-completeness-witness-v1";
+export const SYMBOL_TARGET_ADMITTED_DOMAIN =
+  "typescript-javascript-direct-declarations-tsjs-direct-declarations-1";
+export const SYMBOL_TARGET_A1_ENTRY_POINT = "resolveTypeScriptDeclarationEvidence";
+export const SYMBOL_TARGET_A1_SCHEMA_VERSION = 1;
+export const SYMBOL_TARGET_A1_ANALYSIS_VERSION = "symbol-resolution-evidence-v1";
+export const SYMBOL_TARGET_A1_POLICY_VERSION = "tsjs-direct-declarations-1";
+
+function isWitnessPlainObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function sameSortedStringArrays(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right)) return false;
+  if (left.length !== right.length) return false;
+  const a = [...left].sort(compareStrings);
+  const b = [...right].sort(compareStrings);
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function a1CitationAdmitted(citation) {
+  return isWitnessPlainObject(citation)
+    && citation.entryPoint === SYMBOL_TARGET_A1_ENTRY_POINT
+    && citation.schemaVersion === SYMBOL_TARGET_A1_SCHEMA_VERSION
+    && citation.analysisVersion === SYMBOL_TARGET_A1_ANALYSIS_VERSION
+    && citation.policyVersion === SYMBOL_TARGET_A1_POLICY_VERSION;
+}
+
+/**
+ * Normalize optional symbol-target completeness witness for ETS consume.
+ * Returns null when absent; otherwise a materialized plain object.
+ * Identity/binding/holds evaluation is separate (evaluateSymbolTargetCompletenessWitness).
+ */
+export function normalizeSymbolTargetCompletenessWitness(raw) {
+  if (raw === undefined || raw === null) return null;
+  const witness = materializeBoundedJsonData(raw);
+  if (!isWitnessPlainObject(witness)) {
+    throw effectiveTaskScopeError("symbol_target_evidence_missing", "symbolTargetCompletenessWitness must be a plain object.");
+  }
+  return witness;
+}
+
+/**
+ * Pure bind+consume check for already-produced symbol-target completeness witness.
+ * Does not call producer, A1, analyzers, Git, FS, or HTTP.
+ *
+ * @param {object|null|undefined} witness
+ * @param {{ taskPaths: string[], symbols: string[], projectId: string, repositoryId: string, worktreeId: string, snapshotToken: string }} binding
+ * @returns {{ ok: true, witness: object } | { ok: false, code: string }}
+ */
+export function evaluateSymbolTargetCompletenessWitness(witness, binding) {
+  if (witness === undefined || witness === null) {
+    return { ok: false, code: "symbol_target_evidence_missing" };
+  }
+  if (!isWitnessPlainObject(witness)) {
+    return { ok: false, code: "symbol_target_evidence_missing" };
+  }
+  if (
+    witness.kind !== SYMBOL_TARGET_COMPLETENESS_WITNESS_KIND
+    || witness.producerIdentity !== SYMBOL_TARGET_COMPLETENESS_WITNESS_PRODUCER_IDENTITY
+    || witness.version !== SYMBOL_TARGET_COMPLETENESS_WITNESS_VERSION
+  ) {
+    return { ok: false, code: "symbol_target_evidence_missing" };
+  }
+
+  const domains = witness.claimedDomains;
+  if (!Array.isArray(domains) || !domains.includes(SYMBOL_TARGET_ADMITTED_DOMAIN)) {
+    return { ok: false, code: "symbol_target_domain_unsupported" };
+  }
+
+  const citations = Array.isArray(witness.a1Citations) ? witness.a1Citations : [];
+  if (citations.length === 0 || !citations.every(a1CitationAdmitted)) {
+    return { ok: false, code: "symbol_target_domain_unsupported" };
+  }
+
+  if (!binding || typeof binding !== "object") {
+    return { ok: false, code: "symbol_target_binding_mismatch" };
+  }
+
+  if (!sameSortedStringArrays(witness.taskPaths, binding.taskPaths)) {
+    return { ok: false, code: "symbol_target_binding_mismatch" };
+  }
+  if (!sameSortedStringArrays(witness.requiredNames, binding.symbols)) {
+    return { ok: false, code: "symbol_target_binding_mismatch" };
+  }
+  if (witness.projectId !== binding.projectId) {
+    return { ok: false, code: "symbol_target_binding_mismatch" };
+  }
+  if (witness.repositoryId !== binding.repositoryId) {
+    return { ok: false, code: "symbol_target_binding_mismatch" };
+  }
+  if (witness.worktreeId !== binding.worktreeId) {
+    return { ok: false, code: "symbol_target_binding_mismatch" };
+  }
+  if (witness.snapshotToken !== binding.snapshotToken) {
+    return { ok: false, code: "symbol_target_binding_mismatch" };
+  }
+
+  if (witness.completenessHolds !== true) {
+    return { ok: false, code: "symbol_target_completeness_not_established" };
+  }
+  if (witness.uniquenessHolds !== true) {
+    return { ok: false, code: "symbol_target_uniqueness_not_established" };
+  }
+
+  return { ok: true, witness };
 }
 
 export { compareStrings };
