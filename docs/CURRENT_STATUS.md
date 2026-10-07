@@ -98,7 +98,7 @@ file deletion intent. Slice 4 is **NOT STARTED**
 (`STEP4_SLICE4_READY_TO_IMPLEMENT = NO`). Step 4 remains
 **incomplete**. This is **not** STEP4_COMPLETE, **not** runtime
 exposure, **not** coordination/enforcement, and **not** a RESERVED
-producer. RESERVED remains `not_evaluated`. Step 5 (Conflict Engine)
+producer. RESERVED is no longer a blanket empty `not_evaluated`: when the merged Track B witness is complete, PR #53 emits one incomplete `RESERVED` item (`consistency_obligation`); a missing witness stays `not_evaluated` / `coupling_evidence_not_supported`. This is not Step 4 complete. Step 5 (Conflict Engine)
 is **not started**. Step 6 (Guard integration) is **not started**.
 WRITE/WATCH classification is not a complete coordination/enforcement
 system. Historical local names (Step 4.0/4.1) identify earlier slices;
@@ -180,7 +180,7 @@ reviewer PASS `t_5ddd7738`) remains candidate evidence, not a
 
 - Step 4 remains **INCOMPLETE**. Not STEP4_COMPLETE. Not
   coordination/enforcement.
-- RESERVED remains `not_evaluated` / `coupling_evidence_not_supported`.
+- RESERVED: PR #53 emits one incomplete `consistency_obligation` item when the Track B witness is complete; a missing witness stays `not_evaluated` / `coupling_evidence_not_supported`. Not Step 4 complete.
 - v2 runtime exposure remains **NO**.
 - Step 5 **NOT STARTED**. Step 6 **NOT STARTED**.
 - **G1 REJECTED**; **R1/R2 OPEN / DEFERRED**.
@@ -206,16 +206,20 @@ No implementation slice was selected because:
    not prove unique resolution inside the explicit task-path domain.
    Partial/truncated ≠ uniqueness.
 
-Future Step 4 implementation requires a **separate upstream
-evidence-contract mission** before selecting another Slice 4
-candidate. Possible tracks (neither chosen nor implemented here):
+The 2026-09-30 Slice 4 selection NO-GO still stands
+(`STEP4_SLICE4_READY_TO_IMPLEMENT = NO`; **SLICE4 = NOT STARTED**).
+Observed later merges on the evidence tracks (not a Slice 4 selection flip):
 
-- A. SYMBOL-RESOLUTION-EVIDENCE-CONTRACT
-- B. DIRECT-COUPLING-EVIDENCE-CONTRACT
+- Track B direct-coupling producer — PR #51 (merged).
+- [Effective task scope HTTP route](effective-task-scope-http-route.md) — PR #52 (merged).
+- [First Step 4 RESERVED item (Track B witness)](step4-reserved-track-b-item.md) — PR #53 (merged).
+- [Track A1 symbol resolution](track-a1-symbol-resolution.md) — PR #54 (merged).
 
-`NEXT_PREREQUISITE = producer-backed evidence contract`
+Docs discovery/status follow-up for those records is on open PR #55. This does
+**not** mark Step 4 complete, coordination/enforcement, or Slice 4 selected.
 
-The [DIRECT-COUPLING-EVIDENCE-CONTRACT record in the active plan](../.hermes/plans/2026-09-17_002050-project-intelligence-service-active.md#direct-coupling-evidence-contract--accepted-definition) is ACCEPTED AS DEFINITION / NOT IMPLEMENTATION.
+`NEXT_PREREQUISITE` at the NO-GO date was producer-backed evidence contract; A/B
+producers have since merged as named above. The [DIRECT-COUPLING-EVIDENCE-CONTRACT record in the active plan](../.hermes/plans/2026-09-17_002050-project-intelligence-service-active.md#direct-coupling-evidence-contract--accepted-definition) remains historical definition text in the plan.
 
 ### Accepted Option B — deferred Hermes runtime dependency
 
@@ -262,7 +266,7 @@ at `5ab214c5a1901a32ffaf4f754edf0ac98e47b470`; feature record:
 [track-a1-symbol-resolution.md](track-a1-symbol-resolution.md). A0/A2 remain
 out of this flag. Slice 4 remains unselected and NOT STARTED. No previous finding or hold is
 closed, including `t_b563da81`, `t_89d07972` and `t_09a34d2b`. Steps 5/6
-remain NOT STARTED, RESERVED remains `not_evaluated`, and v2 runtime
+remain NOT STARTED; RESERVED follows the PR #53 incomplete-item / missing-witness rule above; and v2 runtime
 exposure remains NO. This documentation authorization is not implementation,
 push, publication or merge permission.
 
@@ -559,8 +563,12 @@ candidate verification or plugin lifecycle acceptance.
 | Step 3 — Impact v2 | Bounded file/multi-file reverse-impact evidence and optional affected-test candidates, resolved against persisted project/worktree/revision, with reobservation and independent output caps. | [Impact contract](project-intelligence/06_SCOPE_IMPACT_CONFLICTS.md), [HTTP route](../src/routes/project-impact.routes.js), [service tests](../tests/project-impact-service.test.js) |
 | Step 4 foundation (pure domain) | First Roadmap Step 4 foundation slice implemented on this checkout (`b3026dcc…`): `analysisVersion` `effective-task-scope-v2`, `policyVersion` `step4-foundation-1`. Pure `composeEffectiveTaskScope` in `src/lib/` with isolated tests. No HTTP, tool, or plugin wiring. RESERVED producer not implemented. Step 4 remains incomplete. | [policy](../src/lib/effective-task-scope-policy.js), [composer](../src/lib/effective-task-scope.js) |
 | Step 4 Slice 2 (data-only adapter) | Merged data-only envelope adapter `composeEffectiveTaskScopeFromEnvelopes`. Implementation `02d5784701c4c0cbc1688e04a38b8a73dd238b38`; merge `c6be8caf436405924d22b812e3aa84b12f64f725`. Not runtime exposure; not coordination/enforcement. | [adapter](../src/lib/effective-task-scope-adapter.js), [adapter tests](../tests/effective-task-scope-adapter.test.js) |
-| Step 4 Slice 3 (merged deletion intent) | Merged via PR #46: source-bound explicit file deletion intent; `schemaVersion=2` / `effective-task-scope-v2` / `policyVersion` `step4-foundation-2`. Merge `d54315325f37e777bd03b8781ca8b879c9da364d` / tree `76dc7d69ff6d27f16ef84fb6695423699178234b`. Historical code candidate `f4d09cedf374872c865125d4c27fdcc602af523d` remains candidate evidence, not a not-merged claim. Step 4 remains incomplete. RESERVED `not_evaluated`. Runtime exposure NO. | [policy](../src/lib/effective-task-scope-policy.js), [composer](../src/lib/effective-task-scope.js) |
-| Step 4 Slice 4 (NOT STARTED) | Selection evaluated (`t_b563da81` run 730) produced NO-GO. `STEP4_SLICE4_READY_TO_IMPLEMENT = NO`. No slice selected: RESERVED lacks producer-backed strong-coupling evidence; complete symbol-target support lacks uniqueness/completeness evidence. Create/rename/directory expansion not selected. Delete is Slice 3. Next prerequisite: producer-backed evidence contract (tracks A/B recorded, neither chosen). No Slice 4 merge SHA. | [active plan](../.hermes/plans/2026-09-17_002050-project-intelligence-service-active.md) |
+| Step 4 Slice 3 (merged deletion intent) | Merged via PR #46: source-bound explicit file deletion intent; `schemaVersion=2` / `effective-task-scope-v2` / `policyVersion` `step4-foundation-2`. Merge `d54315325f37e777bd03b8781ca8b879c9da364d` / tree `76dc7d69ff6d27f16ef84fb6695423699178234b`. Historical code candidate `f4d09cedf374872c865125d4c27fdcc602af523d` remains candidate evidence, not a not-merged claim. Step 4 remains incomplete. Later PR #53 qualifies RESERVED (one incomplete item when Track B witness complete; missing witness stays `not_evaluated`). Runtime exposure NO. | [policy](../src/lib/effective-task-scope-policy.js), [composer](../src/lib/effective-task-scope.js) |
+| Step 4 Slice 4 (NOT STARTED) | Selection evaluated (`t_b563da81` run 730) produced NO-GO. `STEP4_SLICE4_READY_TO_IMPLEMENT = NO`. **SLICE4 remains NOT STARTED** (no Slice 4 merge SHA). Create/rename/directory expansion not selected; Delete is Slice 3. Later observed evidence-track merges (not a Slice 4 flip): Track B producer PR #51; [ETS HTTP route](effective-task-scope-http-route.md) PR #52; [RESERVED Track B item](step4-reserved-track-b-item.md) PR #53; [Track A1](track-a1-symbol-resolution.md) PR #54. | [active plan](../.hermes/plans/2026-09-17_002050-project-intelligence-service-active.md) |
+| Track B direct-coupling producer (PR #51) | Merged Track B producer-backed coupling evidence used by later RESERVED composition. Not Slice 4 selection; not Step 4 complete. | [step4-reserved-track-b-item.md](step4-reserved-track-b-item.md) (cites the witness) |
+| Effective task scope HTTP route (PR #52) | Merged `POST /api/intelligence/projects/:projectId/effective-task-scope`. Not Step 4 complete; not conflict/guard. | [effective-task-scope-http-route.md](effective-task-scope-http-route.md) |
+| Step 4 first RESERVED item (PR #53) | When the Track B witness is complete, emits one incomplete `RESERVED` item (`consistency_obligation` → `docs/project-icm.md`). Missing witness stays `not_evaluated` / `coupling_evidence_not_supported`. First Step 4 RESERVED slice only — not Step 4 complete. | [step4-reserved-track-b-item.md](step4-reserved-track-b-item.md) |
+| Track A1 symbol resolution (PR #54) | Merged Track A1 declaration-evidence producer/adapter (`resolveTrackA1` / `resolveTypeScriptDeclarationEvidence`). Feature record on docs branch; open PR #55 carries discovery/status docs. Not A0/A2; not Step 4 symbol completeness. | [track-a1-symbol-resolution.md](track-a1-symbol-resolution.md) |
 | Hermes thin plugin | Exactly two tracked read-only tools (`project_task_context`, `project_impact`); `compose_effective_task_scope` exists in plugin at historical `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5`, read-only local, without HTTP tool/route/schemas; labels only WRITE and WATCH; RESERVED/IMPACT `not_emitted`. `feat/legacy-project-map-t_d032c9fe@787f662df941ea8461efeb0db86f51ad569a461c` / adapter 1A do not enter this delta. Two-tool publication is accepted as recorded in the installation contract, not automatic installation or Guard. | [Usage contract](hermes-tool-integration.md#dev-adoption-1--two-tool-usage-contract), [open limitations](KNOWN_ISSUES.md), [composer](../integrations/hermes-nexus/effective_task_scope.py) |
 | Gated ETS caller | `project_effective_task_scope` (local compose from accepted pack+impact) exists at ancestor `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb`. Hidden via `register_tool` omission unless `scope_enabled` is exactly true. `provides_tools` lists exactly the two core tools. Dated 2026-09-28 six-profile install handoff: independent copies with `scope_enabled: true`; `default` and `workspace-manager` excluded from install/config/exposure (not a ban on the workspace-manager role). Canonical Git `tools.py` overlay is on main at `643eb3ab` and remains at checkpoint `050540d0`; that is not byte equality of every installed file, and the `6152cea` `schemas.py` text is in this revision and is **not copied into local installations**. Read-only classification, not Step 4 coordination/enforcement. | [ETS profile exposure](ETS_PROFILE_EXPOSURE.md); [effective_task_scope](../integrations/hermes-nexus/effective_task_scope.py) |
 | Request-preflight helper CLI | Present in the code baseline (`4d6a78632e772e7ca43fadf37b287213d6f9ea93`) via PR #39 merge `07845ba0fc86440a080f81ffe4ad3fe125ec726d`. Invoke `python3 -B -m scripts.nexus_request_preflight`. Syntax-only local helper; not a Hermes tool; not pending merge; not Step 4. Helper classification is a documentation delta, not content of that baseline commit. | [request-preflight](development/request-preflight.md), [`scripts/nexus_request_preflight/__main__.py`](../scripts/nexus_request_preflight/__main__.py) |
@@ -635,7 +643,7 @@ Following the [active implementation plan](../.hermes/plans/2026-09-17_002050-pr
 **Effective Task Scope (Step 4: Slice 1 v2 pure domain implemented;
 Slice 2 data-only adapter merged; Slice 3 merged via PR #46; Slice 4
 NOT STARTED / NO-GO; Step 4 remains incomplete and is not
-coordination/enforcement; RESERVED remains `not_evaluated`; no v2
+coordination/enforcement; RESERVED follows PR #53 incomplete-item / missing-witness rule (not Step 4 complete); no v2
 runtime exposure)** →
 Conflict Engine (Step 5, **not started**) →
 Hermes Guard integration (Step 6, **not started**) → Telemetry / validated project history → Project Expert
