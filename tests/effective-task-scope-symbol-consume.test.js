@@ -112,7 +112,7 @@ function produceBoundWitness({ requiredNames = ["composeEffectiveTaskScope"], ov
   return { witness, live, etsText, snapshotToken: live.snapshotToken };
 }
 
-function buildPackImpactRequest({ symbols, snapshotToken, paths = [ETS_PATH] }) {
+function buildPackImpactRequest({ symbols, snapshotToken, paths = [ETS_PATH], sourceHashes = null }) {
   const sortedPaths = [...paths].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   const sortedSymbols = [...new Set(symbols)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   const request = {
@@ -135,6 +135,17 @@ function buildPackImpactRequest({ symbols, snapshotToken, paths = [ETS_PATH] }) 
     },
     includeTests: false
   };
+
+  const fileItems = sourceHashes
+    ? sortedPaths.map((p) => ({
+      path: p,
+      provenance: {
+        trust: "canonical_fact",
+        reason: "task_path",
+        source: { path: p, sha256: sourceHashes[p] }
+      }
+    }))
+    : [];
 
   const pack = {
     schemaVersion: 1,
@@ -175,7 +186,9 @@ function buildPackImpactRequest({ symbols, snapshotToken, paths = [ETS_PATH] }) 
       workspaces: { items: [], status: "empty" },
       documents: { items: [], status: "empty" },
       constraints: { items: [], status: "empty" },
-      files: { items: [], status: "empty" },
+      files: sourceHashes
+        ? { items: fileItems, status: "available" }
+        : { items: [], status: "empty" },
       symbols: { items: [], status: "partial" },
       references: { items: [], status: "partial" },
       tests: { items: [], status: "empty" },
@@ -185,7 +198,7 @@ function buildPackImpactRequest({ symbols, snapshotToken, paths = [ETS_PATH] }) 
     limits: { maxBytes: 65536 }
   };
 
-  const hash = createHash("sha256").update(ETS_PATH, "utf8").digest("hex");
+  const fallbackHash = createHash("sha256").update(ETS_PATH, "utf8").digest("hex");
   const impact = {
     schemaVersion: 1,
     analysisVersion: "impact-v2",
@@ -193,7 +206,7 @@ function buildPackImpactRequest({ symbols, snapshotToken, paths = [ETS_PATH] }) 
     project: { rootId: ROOT_ID, relativePath: RELATIVE_PATH },
     targets: sortedPaths.map((p) => ({
       originPath: p,
-      targetSource: { path: p, hash },
+      targetSource: { path: p, hash: (sourceHashes && sourceHashes[p]) || fallbackHash },
       status: "partial",
       findingState: "evidence_found",
       completeness: { source: ["source_limit"], provider: ["provider_partial"] }
@@ -240,8 +253,14 @@ test("T1 success: real producer+A1 witness lifts symbol gate; WRITEsubseteq expl
 
   const { request, pack, impact } = buildPackImpactRequest({
     symbols: ["composeEffectiveTaskScope"],
-    snapshotToken
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
   });
+  assert.equal(
+    pack.sections.files.items[0].provenance.source.sha256,
+    witness.sourceHashes[ETS_PATH]
+  );
+  assert.equal(impact.targets[0].targetSource.hash, witness.sourceHashes[ETS_PATH]);
   const res = composeEffectiveTaskScope(request, {
     pack,
     impact,
@@ -271,7 +290,8 @@ test("T2 refuse incomplete: completenessHolds=false", () => {
   bad.completenessHolds = false;
   const { request, pack, impact } = buildPackImpactRequest({
     symbols: ["composeEffectiveTaskScope"],
-    snapshotToken
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
   });
   const res = composeEffectiveTaskScope(request, {
     pack,
@@ -289,7 +309,8 @@ test("T3 refuse non-unique: uniquenessHolds=false", () => {
   bad.uniquenessHolds = false;
   const { request, pack, impact } = buildPackImpactRequest({
     symbols: ["composeEffectiveTaskScope"],
-    snapshotToken
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
   });
   const res = composeEffectiveTaskScope(request, {
     pack,
@@ -305,7 +326,8 @@ test("T4 refuse binding mismatch: paths/symbols/ids/snapshot diverge", () => {
   const { witness, snapshotToken } = produceBoundWitness();
   const { request, pack, impact } = buildPackImpactRequest({
     symbols: ["composeEffectiveTaskScope"],
-    snapshotToken
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
   });
 
   const cases = [
@@ -338,7 +360,8 @@ test("T5 refuse wrong identity/version / out-of-domain", () => {
   const { witness, snapshotToken } = produceBoundWitness();
   const { request, pack, impact } = buildPackImpactRequest({
     symbols: ["composeEffectiveTaskScope"],
-    snapshotToken
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
   });
 
   const identityCases = [
@@ -374,10 +397,11 @@ test("T5 refuse wrong identity/version / out-of-domain", () => {
 });
 
 test("T6 missing witness + symbols -> not_evaluated symbol_target_evidence_missing", () => {
-  const { snapshotToken } = produceBoundWitness();
+  const { witness, snapshotToken } = produceBoundWitness();
   const { request, pack, impact } = buildPackImpactRequest({
     symbols: ["composeEffectiveTaskScope"],
-    snapshotToken
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
   });
   const res = composeEffectiveTaskScope(request, { pack, impact });
   assert.equal(res.status, "not_evaluated");
@@ -417,4 +441,187 @@ test("T7 empty symbols regression + composer purity (data-only witness)", () => 
   assert.equal(evalMissing.ok, false);
   assert.equal(evalMissing.code, "symbol_target_evidence_missing");
   assert.equal(normalizeSymbolTargetCompletenessWitness(undefined), null);
+});
+
+
+test("F1-H1: requiredNames renamed to unbound name while evals stay on original -> refuse no WRITE", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  const bad = cloneWitness(witness);
+  bad.requiredNames = ["bar"];
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["bar"],
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
+  });
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: bad
+  });
+  assert.equal(res.status, "not_evaluated");
+  assert.ok(
+    res.reasons.some((r) =>
+      r.code === "symbol_target_binding_mismatch"
+      || r.code === "symbol_target_evidence_inconsistent"
+    ),
+    JSON.stringify(res.reasons)
+  );
+  assert.ok(!("write" in res));
+});
+
+test("F1-H2: delete evaluations / pathCoverage / sourceHashes with holds true -> each refuse no WRITE", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
+  });
+  for (const field of ["evaluations", "pathCoverage", "sourceHashes"]) {
+    const bad = cloneWitness(witness);
+    delete bad[field];
+    assert.equal(bad.completenessHolds, true);
+    assert.equal(bad.uniquenessHolds, true);
+    const res = composeEffectiveTaskScope(request, {
+      pack,
+      impact,
+      symbolTargetCompletenessWitness: bad
+    });
+    assert.equal(res.status, "not_evaluated", field);
+    assert.ok(
+      res.reasons.some((r) =>
+        r.code === "symbol_target_evidence_inconsistent"
+        || r.code === "symbol_target_binding_mismatch"
+      ),
+      field + " " + JSON.stringify(res.reasons)
+    );
+    assert.ok(!("write" in res), field);
+  }
+});
+
+test("F1-H3: outcome unevaluated and/or evidenceComplete false while holds true -> inconsistent no WRITE", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
+  });
+
+  const cases = [
+    {
+      label: "outcome-unevaluated",
+      mutate: (w) => {
+        w.evaluations[0].outcome = "unevaluated";
+      }
+    },
+    {
+      label: "evidenceComplete-false",
+      mutate: (w) => {
+        w.evaluations[0].a1Citation.evidenceComplete = false;
+        w.a1Citations[0].evidenceComplete = false;
+      }
+    }
+  ];
+
+  for (const c of cases) {
+    const bad = cloneWitness(witness);
+    c.mutate(bad);
+    assert.equal(bad.completenessHolds, true);
+    assert.equal(bad.uniquenessHolds, true);
+    const res = composeEffectiveTaskScope(request, {
+      pack,
+      impact,
+      symbolTargetCompletenessWitness: bad
+    });
+    assert.equal(res.status, "not_evaluated", c.label);
+    assert.ok(
+      res.reasons.some((r) => r.code === "symbol_target_evidence_inconsistent"),
+      c.label + " " + JSON.stringify(res.reasons)
+    );
+    assert.ok(!("write" in res), c.label);
+  }
+});
+
+test("F1-H4: mutate sourceHashes away from retained pack/impact -> binding_mismatch no WRITE", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
+  });
+  const bad = cloneWitness(witness);
+  const other = createHash("sha256").update("mutated-content-for-f1-h4", "utf8").digest("hex");
+  assert.notEqual(other, witness.sourceHashes[ETS_PATH]);
+  bad.sourceHashes[ETS_PATH] = other;
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: bad
+  });
+  assert.equal(res.status, "not_evaluated");
+  assert.ok(res.reasons.some((r) => r.code === "symbol_target_binding_mismatch"));
+  assert.ok(!("write" in res));
+});
+
+test("F2-B1: inflated consistent witness exceeds total input budget -> scope_budget_exceeded", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  const inflated = cloneWitness(witness);
+  // Pad until JSON.stringify({request,pack,impact,witness}) > MAX_COMPACT_INPUT while pack/impact each <= 131072
+  inflated.budgetPadding = "x".repeat(330000);
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
+  });
+  const packBytes = Buffer.byteLength(JSON.stringify(pack), "utf8");
+  const impactBytes = Buffer.byteLength(JSON.stringify(impact), "utf8");
+  assert.ok(packBytes <= 131072, "pack " + packBytes);
+  assert.ok(impactBytes <= 131072, "impact " + impactBytes);
+  const total = Buffer.byteLength(
+    JSON.stringify({
+      request,
+      pack,
+      impact,
+      symbolTargetCompletenessWitness: inflated
+    }),
+    "utf8"
+  );
+  assert.ok(total > 327680, "total " + total);
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: inflated
+  });
+  assert.equal(res.status, "rejected");
+  assert.ok(res.reasons.some((r) => r.code === "scope_budget_exceeded"));
+});
+
+test("F2-B2: compact live witness under budget is not budget-rejected", () => {
+  const { witness, snapshotToken } = produceBoundWitness();
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: ["composeEffectiveTaskScope"],
+    snapshotToken,
+    sourceHashes: witness.sourceHashes
+  });
+  const res = composeEffectiveTaskScope(request, {
+    pack,
+    impact,
+    symbolTargetCompletenessWitness: witness
+  });
+  assert.ok(!res.reasons.some((r) => r.code === "scope_budget_exceeded"));
+  assert.ok(res.status === "incomplete" || res.status === "available");
+  assert.ok(res.write);
+});
+
+test("F2-B3: empty symbols omit witness; oversized pack still rejected", () => {
+  const { snapshotToken } = produceBoundWitness();
+  const { request, pack, impact } = buildPackImpactRequest({
+    symbols: [],
+    snapshotToken
+  });
+  pack.sections.diagnostics.items = [{ pad: "y".repeat(140000) }];
+  const packBytes = Buffer.byteLength(JSON.stringify(pack), "utf8");
+  assert.ok(packBytes > 131072, "pack " + packBytes);
+  const res = composeEffectiveTaskScope(request, { pack, impact });
+  assert.equal(res.status, "rejected");
+  assert.ok(res.reasons.some((r) => r.code === "scope_budget_exceeded"));
 });

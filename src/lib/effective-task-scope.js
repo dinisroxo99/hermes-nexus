@@ -270,6 +270,7 @@ export function composeEffectiveTaskScope(request, evidence) {
   }
 
   // symbols nonempty: lift gate only when already-produced completeness witness binds + holds
+  let passedSymbolWitness;
   if (normalizedRequest.task.symbols && normalizedRequest.task.symbols.length > 0) {
     let symbolWitness;
     try {
@@ -286,11 +287,13 @@ export function composeEffectiveTaskScope(request, evidence) {
       repositoryId: er.repositoryId,
       worktreeId: er.worktreeId,
       snapshotToken: pack.analysis.snapshotToken
-    });
+    }, { pack, impact });
     if (!symbolEval.ok) {
       return buildNotEvaluatedNoContainers(symbolEval.code);
     }
     // bound holds established — continue existing pack/impact classification (no WRITE widen)
+    // Fix 2: carry witness into total input budget so oversized witness cannot bypass
+    passedSymbolWitness = symbolEval.witness;
   }
 
   // global unevaluated Impact -> not_evaluated with no classification containers
@@ -303,9 +306,14 @@ export function composeEffectiveTaskScope(request, evidence) {
     return buildNotEvaluatedNoContainers("impact_not_evaluated");
   }
 
-  // budget check (now enforces pack/impact <=131072 too)
+  // budget check (now enforces pack/impact <=131072 too; Fix 2 includes witness when present)
   try {
-    checkInputBudget(normalizedRequest.operationIntent ? request : normalizedRequest, pack, impact);
+    checkInputBudget(
+      normalizedRequest.operationIntent ? request : normalizedRequest,
+      pack,
+      impact,
+      passedSymbolWitness
+    );
   } catch (e) {
     return buildRejected("scope_budget_exceeded");
   }

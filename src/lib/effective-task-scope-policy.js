@@ -453,11 +453,14 @@ export const MAX_VISITED_VALUES = 20000;
 export const MAX_COMPACT_INPUT = 327680;
 export const MAX_COMPACT_OUTPUT = 131072;
 
-export function checkInputBudget(request, pack, impact) {
+export function checkInputBudget(request, pack, impact, symbolTargetCompletenessWitness) {
   // Callers pass materialized data. Reapply the same boundary for direct callers.
-  const inputObj = { request, pack, impact };
+  // Optional 4th arg: when !== undefined, include witness in total compact input budget.
+  const inputObj = symbolTargetCompletenessWitness !== undefined
+    ? { request, pack, impact, symbolTargetCompletenessWitness }
+    : { request, pack, impact };
   const safe = materializeBoundedJsonData(inputObj);
-  // pack and impact each <=131072
+  // pack and impact each <=131072 (no separate witness sub-cap)
   const packBytes = Buffer.byteLength(JSON.stringify(safe.pack), "utf8");
   const impactBytes = Buffer.byteLength(JSON.stringify(safe.impact), "utf8");
   if (packBytes > 131072 || impactBytes > 131072) {
@@ -551,6 +554,284 @@ function a1CitationAdmitted(citation) {
     && citation.policyVersion === SYMBOL_TARGET_A1_POLICY_VERSION;
 }
 
+const SYMBOL_TARGET_EFFECTIVE_OUTCOMES = new Set(["unique", "not_found", "ambiguous"]);
+const SYMBOL_TARGET_PATH_COVERAGE_STATUSES = new Set(["covered", "uncovered_language", "unevaluated"]);
+const SYMBOL_TARGET_SHA256_HEX = /^[a-f0-9]{64}$/;
+
+/** Consume-side effectivelyEvaluated (data-only; no A1 call). */
+export function isSymbolTargetEffectivelyEvaluated(evaluation) {
+  return isWitnessPlainObject(evaluation)
+    && SYMBOL_TARGET_EFFECTIVE_OUTCOMES.has(evaluation.outcome)
+    && isWitnessPlainObject(evaluation.a1Citation)
+    && evaluation.a1Citation.evidenceComplete === true;
+}
+
+function sortedStringMultisetEqual(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right)) return false;
+  if (left.length !== right.length) return false;
+  const a = [...left].sort(compareStrings);
+  const b = [...right].sort(compareStrings);
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function citationFieldsAgree(evalCitation, topCitation) {
+  if (!isWitnessPlainObject(evalCitation) || !isWitnessPlainObject(topCitation)) return false;
+  const required = [
+    "entryPoint",
+    "schemaVersion",
+    "analysisVersion",
+    "policyVersion",
+    "name",
+    "runStatus",
+    "evidenceComplete"
+  ];
+  for (const field of required) {
+    if (evalCitation[field] !== topCitation[field]) return false;
+  }
+  for (const field of ["declarationId", "symbolId"]) {
+    if (Object.prototype.hasOwnProperty.call(evalCitation, field)
+      || Object.prototype.hasOwnProperty.call(topCitation, field)) {
+      if (evalCitation[field] !== topCitation[field]) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Required structure (B). Missing/invalid → symbol_target_evidence_inconsistent.
+ * @returns {string|null} reason code or null if OK
+ */
+export function checkSymbolTargetWitnessStructure(witness) {
+  if (!Array.isArray(witness.evaluations) || witness.evaluations.length === 0) {
+    return "symbol_target_evidence_inconsistent";
+  }
+  if (!witness.evaluations.every(isWitnessPlainObject)) {
+    return "symbol_target_evidence_inconsistent";
+  }
+  if (!Array.isArray(witness.pathCoverage) || witness.pathCoverage.length === 0) {
+    return "symbol_target_evidence_inconsistent";
+  }
+  if (!witness.pathCoverage.every(isWitnessPlainObject)) {
+    return "symbol_target_evidence_inconsistent";
+  }
+  if (!isWitnessPlainObject(witness.sourceHashes)) {
+    return "symbol_target_evidence_inconsistent";
+  }
+  const taskPaths = Array.isArray(witness.taskPaths) ? witness.taskPaths : null;
+  if (!taskPaths) return "symbol_target_evidence_inconsistent";
+  for (const p of taskPaths) {
+    const h = witness.sourceHashes[p];
+    if (typeof h !== "string" || !SYMBOL_TARGET_SHA256_HEX.test(h)) {
+      return "symbol_target_evidence_inconsistent";
+    }
+  }
+  if (!Array.isArray(witness.a1Citations) || witness.a1Citations.length === 0) {
+    return "symbol_target_evidence_inconsistent";
+  }
+  return null;
+}
+
+/**
+ * Name/eval/citation correspondence (C). Fail → binding_mismatch.
+ * @returns {string|null}
+ */
+export function checkSymbolTargetNameEvalCitationCorrespondence(witness) {
+  const requiredNames = witness.requiredNames;
+  const evaluations = witness.evaluations;
+  const citations = witness.a1Citations;
+  const taskPaths = witness.taskPaths;
+  if (!Array.isArray(requiredNames) || !Array.isArray(evaluations) || !Array.isArray(citations)) {
+    return "symbol_target_binding_mismatch";
+  }
+  if (evaluations.length !== requiredNames.length) {
+    return "symbol_target_binding_mismatch";
+  }
+  if (citations.length !== requiredNames.length) {
+    return "symbol_target_binding_mismatch";
+  }
+  const evalNames = evaluations.map((e) => e && e.name);
+  const citeNames = citations.map((c) => c && c.name);
+  if (!sortedStringMultisetEqual(requiredNames, evalNames)) {
+    return "symbol_target_binding_mismatch";
+  }
+  if (!sortedStringMultisetEqual(requiredNames, citeNames)) {
+    return "symbol_target_binding_mismatch";
+  }
+  // exactly one eval per required name (multiset equality + length already implies this
+  // when requiredNames has unique entries; still reject duplicate-eval collisions)
+  const seenEval = new Set();
+  for (const e of evaluations) {
+    if (typeof e.name !== "string" || seenEval.has(e.name)) {
+      return "symbol_target_binding_mismatch";
+    }
+    seenEval.add(e.name);
+  }
+  const citeByName = new Map();
+  for (const c of citations) {
+    if (typeof c.name !== "string" || citeByName.has(c.name)) {
+      return "symbol_target_binding_mismatch";
+    }
+    citeByName.set(c.name, c);
+  }
+  const taskPathSet = new Set(Array.isArray(taskPaths) ? taskPaths : []);
+  for (const e of evaluations) {
+    const top = citeByName.get(e.name);
+    if (!citationFieldsAgree(e.a1Citation, top)) {
+      return "symbol_target_binding_mismatch";
+    }
+    const pathScope = e.pathScope;
+    if (!Array.isArray(pathScope)) {
+      return "symbol_target_binding_mismatch";
+    }
+    for (const p of pathScope) {
+      if (typeof p !== "string" || !taskPathSet.has(p)) {
+        return "symbol_target_binding_mismatch";
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Path coverage correspondence (D). Path multiset fail → binding_mismatch;
+ * invalid status vocabulary → evidence_inconsistent.
+ * @returns {string|null}
+ */
+export function checkSymbolTargetPathCoverageCorrespondence(witness) {
+  const taskPaths = witness.taskPaths;
+  const pathCoverage = witness.pathCoverage;
+  if (!Array.isArray(taskPaths) || !Array.isArray(pathCoverage)) {
+    return "symbol_target_binding_mismatch";
+  }
+  if (pathCoverage.length !== taskPaths.length) {
+    return "symbol_target_binding_mismatch";
+  }
+  const covPaths = pathCoverage.map((e) => e && e.path);
+  if (!sortedStringMultisetEqual(taskPaths, covPaths)) {
+    return "symbol_target_binding_mismatch";
+  }
+  const seen = new Set();
+  for (const entry of pathCoverage) {
+    if (typeof entry.path !== "string" || seen.has(entry.path)) {
+      return "symbol_target_binding_mismatch";
+    }
+    seen.add(entry.path);
+    if (!SYMBOL_TARGET_PATH_COVERAGE_STATUSES.has(entry.status)) {
+      return "symbol_target_evidence_inconsistent";
+    }
+  }
+  return null;
+}
+
+/**
+ * Source hashes vs retained pack/impact (E). Mismatch → binding_mismatch.
+ * @param {object} witness
+ * @param {{ pack?: object, impact?: object }|null|undefined} retained
+ * @returns {string|null}
+ */
+export function checkSymbolTargetSourceHashesAgainstRetained(witness, retained) {
+  const taskPaths = Array.isArray(witness.taskPaths) ? witness.taskPaths : [];
+  const hashes = witness.sourceHashes;
+  if (!isWitnessPlainObject(hashes)) {
+    return "symbol_target_binding_mismatch";
+  }
+  const packItems = retained && retained.pack
+    && retained.pack.sections
+    && retained.pack.sections.files
+    && Array.isArray(retained.pack.sections.files.items)
+    ? retained.pack.sections.files.items
+    : null;
+  const impactTargets = retained && retained.impact
+    && Array.isArray(retained.impact.targets)
+    ? retained.impact.targets
+    : null;
+
+  for (const P of taskPaths) {
+    const witnessHash = hashes[P];
+    if (typeof witnessHash !== "string" || !SYMBOL_TARGET_SHA256_HEX.test(witnessHash)) {
+      return "symbol_target_binding_mismatch";
+    }
+
+    let packHash;
+    if (packItems) {
+      const file = packItems.find((f) => f && f.path === P);
+      if (file && isWitnessPlainObject(file.provenance)
+        && isWitnessPlainObject(file.provenance.source)
+        && typeof file.provenance.source.sha256 === "string") {
+        packHash = file.provenance.source.sha256;
+      }
+    }
+
+    let impactHash;
+    if (impactTargets) {
+      const target = impactTargets.find((t) => t && t.originPath === P);
+      if (target && isWitnessPlainObject(target.targetSource)
+        && typeof target.targetSource.hash === "string") {
+        impactHash = target.targetSource.hash;
+      }
+    }
+
+    if (packHash !== undefined && impactHash !== undefined && packHash !== impactHash) {
+      return "symbol_target_binding_mismatch";
+    }
+    if (packHash !== undefined && witnessHash !== packHash) {
+      return "symbol_target_binding_mismatch";
+    }
+    if (impactHash !== undefined && witnessHash !== impactHash) {
+      return "symbol_target_binding_mismatch";
+    }
+  }
+  return null;
+}
+
+/**
+ * Boolean↔details consistency when holds===true (F).
+ * @returns {string|null} evidence_inconsistent or null
+ */
+export function checkSymbolTargetHoldsDetailsConsistency(witness) {
+  const evaluations = witness.evaluations;
+  const pathCoverage = witness.pathCoverage;
+  const requiredNames = witness.requiredNames;
+
+  if (witness.completenessHolds === true) {
+    if (!Array.isArray(requiredNames) || !Array.isArray(evaluations)) {
+      return "symbol_target_evidence_inconsistent";
+    }
+    for (const name of requiredNames) {
+      const matches = evaluations.filter((e) => e && e.name === name);
+      if (matches.length !== 1 || !isSymbolTargetEffectivelyEvaluated(matches[0])) {
+        return "symbol_target_evidence_inconsistent";
+      }
+    }
+    if (Array.isArray(pathCoverage)) {
+      for (const entry of pathCoverage) {
+        if (entry && (entry.status === "uncovered_language" || entry.status === "unevaluated")) {
+          return "symbol_target_evidence_inconsistent";
+        }
+      }
+    }
+    if (witness.nameListTruncated === true) {
+      return "symbol_target_evidence_inconsistent";
+    }
+  }
+
+  if (witness.uniquenessHolds === true) {
+    if (!Array.isArray(evaluations) || evaluations.length === 0) {
+      return "symbol_target_evidence_inconsistent";
+    }
+    for (const e of evaluations) {
+      if (!e || e.outcome !== "unique" || !isSymbolTargetEffectivelyEvaluated(e)) {
+        return "symbol_target_evidence_inconsistent";
+      }
+    }
+  }
+
+  return null;
+}
+
 /**
  * Normalize optional symbol-target completeness witness for ETS consume.
  * Returns null when absent; otherwise a materialized plain object.
@@ -569,11 +850,15 @@ export function normalizeSymbolTargetCompletenessWitness(raw) {
  * Pure bind+consume check for already-produced symbol-target completeness witness.
  * Does not call producer, A1, analyzers, Git, FS, or HTTP.
  *
+ * Structure/correspondence/hash consistency are checked BEFORE lift (Fix 1).
+ * Binding/consistency failure → refuse codes (not honest not_established).
+ *
  * @param {object|null|undefined} witness
  * @param {{ taskPaths: string[], symbols: string[], projectId: string, repositoryId: string, worktreeId: string, snapshotToken: string }} binding
+ * @param {{ pack?: object, impact?: object }|null|undefined} [retained] optional retained pack/impact for sourceHashes cross-check
  * @returns {{ ok: true, witness: object } | { ok: false, code: string }}
  */
-export function evaluateSymbolTargetCompletenessWitness(witness, binding) {
+export function evaluateSymbolTargetCompletenessWitness(witness, binding, retained) {
   if (witness === undefined || witness === null) {
     return { ok: false, code: "symbol_target_evidence_missing" };
   }
@@ -620,6 +905,22 @@ export function evaluateSymbolTargetCompletenessWitness(witness, binding) {
   if (witness.snapshotToken !== binding.snapshotToken) {
     return { ok: false, code: "symbol_target_binding_mismatch" };
   }
+
+  // Fix 1: structure + correspondence BEFORE holds (refuse outranks honest not_established)
+  const structureCode = checkSymbolTargetWitnessStructure(witness);
+  if (structureCode) return { ok: false, code: structureCode };
+
+  const nameCode = checkSymbolTargetNameEvalCitationCorrespondence(witness);
+  if (nameCode) return { ok: false, code: nameCode };
+
+  const pathCode = checkSymbolTargetPathCoverageCorrespondence(witness);
+  if (pathCode) return { ok: false, code: pathCode };
+
+  const hashCode = checkSymbolTargetSourceHashesAgainstRetained(witness, retained);
+  if (hashCode) return { ok: false, code: hashCode };
+
+  const holdsDetailsCode = checkSymbolTargetHoldsDetailsConsistency(witness);
+  if (holdsDetailsCode) return { ok: false, code: holdsDetailsCode };
 
   if (witness.completenessHolds !== true) {
     return { ok: false, code: "symbol_target_completeness_not_established" };
