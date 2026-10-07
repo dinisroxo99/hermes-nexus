@@ -21,8 +21,12 @@ exists ([ETS profile exposure](ETS_PROFILE_EXPOSURE.md)) and is not Step 4
 coordination/enforcement; `provides_tools` remains two tools. Slice 1
 foundation is implemented as effective-task-scope-v2 pure domain; Slice 2
 data-only envelope adapter is merged; Slice 3 (source-bound explicit file
-deletion intent) is merged via PR #46; Slice 4 is NOT STARTED (selection
-NO-GO). Step 4 remains INCOMPLETE and is
+deletion intent) is merged via PR #46. Later merged feature records: Track B
+direct-coupling producer (PR #51), [effective task scope HTTP route](effective-task-scope-http-route.md)
+(PR #52), [first Step 4 RESERVED item from Track B](step4-reserved-track-b-item.md)
+(PR #53), and [Track A1 symbol resolution](track-a1-symbol-resolution.md)
+(PR #54). Docs follow-up for those records is on open PR #55. Roadmap Slice 4
+selection remains NOT STARTED (selection NO-GO). Step 4 remains INCOMPLETE and is
 **not** coordination/enforcement; v2 runtime exposure is NO. Step 5
 (Conflict Engine) and Step 6 (Guard) are NOT STARTED;
 scope/conflicts, runtime guard integration and project knowledge remain planned.
@@ -50,6 +54,9 @@ unchanged. This acceptance is not full technical validation or Step 4 authorizat
 - [Hermes plugin setup guide](hermes-plugin-installation.md) — DEV-ADOPTION-1,
   revision-pinned configuration/rollback, legacy deferral and INFRA-1 status.
 - [Project ICM](project-icm.md) — canonical manifest and index contracts.
+- [Effective task scope HTTP route](effective-task-scope-http-route.md) — `POST .../effective-task-scope` feature record.
+- [Step 4 first RESERVED item (Track B)](step4-reserved-track-b-item.md) — first nonempty `RESERVED` item from the Track B witness.
+- [Track A1 symbol resolution](track-a1-symbol-resolution.md) — Track A1 declaration-evidence producer/adapter feature record.
 
 The tracked plugin is delivered in source, not automatically installed into the
 approved fleet. Legacy examples are archived, not the current procedure. For Hermes
