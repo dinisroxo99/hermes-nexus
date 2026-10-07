@@ -12,7 +12,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 const ETS_PATH = "src/lib/effective-task-scope.js";
 const ETS_SHA256 =
-  "d4f2a531bf5fd356ea1c88af097f304914541bfb3a480e83381c731978f0271b";
+  "9e23b43898732bbb52b24138104bfdad796434b9c95e9ba8da7e5a1d8580651a";
 const ADMITTED_COMMIT = "b76dc68ebed71c7d09f3a7ccd53a6c2938a87bc6";
 const PROJECT_ID = "prj_synthetic";
 const REPOSITORY_ID = "ab".repeat(32);
