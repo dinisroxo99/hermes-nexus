@@ -9,7 +9,7 @@ import { TASK_CONTEXT_LIMITS } from "./task-context-policy.js";
 
 export const EFFECTIVE_TASK_SCOPE_SCHEMA_VERSION = 2;
 export const EFFECTIVE_TASK_SCOPE_ANALYSIS_VERSION = "effective-task-scope-v2";
-export const EFFECTIVE_TASK_SCOPE_POLICY_VERSION = "step4-foundation-2";
+export const EFFECTIVE_TASK_SCOPE_POLICY_VERSION = "step4-foundation-3";
 
 export const ETS_STATUSES = Object.freeze([
   "available",
@@ -453,11 +453,14 @@ export const MAX_VISITED_VALUES = 20000;
 export const MAX_COMPACT_INPUT = 327680;
 export const MAX_COMPACT_OUTPUT = 131072;
 
-export function checkInputBudget(request, pack, impact) {
+export function checkInputBudget(request, pack, impact, symbolTargetCompletenessWitness) {
   // Callers pass materialized data. Reapply the same boundary for direct callers.
-  const inputObj = { request, pack, impact };
+  // Optional 4th arg: when !== undefined, include witness in total compact input budget.
+  const inputObj = symbolTargetCompletenessWitness !== undefined
+    ? { request, pack, impact, symbolTargetCompletenessWitness }
+    : { request, pack, impact };
   const safe = materializeBoundedJsonData(inputObj);
-  // pack and impact each <=131072
+  // pack and impact each <=131072 (no separate witness sub-cap)
   const packBytes = Buffer.byteLength(JSON.stringify(safe.pack), "utf8");
   const impactBytes = Buffer.byteLength(JSON.stringify(safe.impact), "utf8");
   if (packBytes > 131072 || impactBytes > 131072) {
@@ -513,6 +516,522 @@ export function materializeBoundedJsonData(root) {
 
 export function buildEmptyCategory(status = "not_evaluated", reasons = []) {
   return { status, items: [], reasons: reasons.length ? [...reasons].sort(compareStrings) : [], truncated: false };
+}
+
+
+/** Admitted symbol-target completeness witness identity (consume-only; no producer call). */
+export const SYMBOL_TARGET_COMPLETENESS_WITNESS_KIND = "symbol-target-completeness-witness";
+export const SYMBOL_TARGET_COMPLETENESS_WITNESS_PRODUCER_IDENTITY =
+  "hermes-nexus-in-repo-symbol-target-completeness-witness";
+export const SYMBOL_TARGET_COMPLETENESS_WITNESS_VERSION = "symbol-target-completeness-witness-v1";
+export const SYMBOL_TARGET_ADMITTED_DOMAIN =
+  "typescript-javascript-direct-declarations-tsjs-direct-declarations-1";
+export const SYMBOL_TARGET_A1_ENTRY_POINT = "resolveTypeScriptDeclarationEvidence";
+export const SYMBOL_TARGET_A1_SCHEMA_VERSION = 1;
+export const SYMBOL_TARGET_A1_ANALYSIS_VERSION = "symbol-resolution-evidence-v1";
+export const SYMBOL_TARGET_A1_POLICY_VERSION = "tsjs-direct-declarations-1";
+
+function isWitnessPlainObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function sameSortedStringArrays(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right)) return false;
+  if (left.length !== right.length) return false;
+  const a = [...left].sort(compareStrings);
+  const b = [...right].sort(compareStrings);
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function a1CitationAdmitted(citation) {
+  return isWitnessPlainObject(citation)
+    && citation.entryPoint === SYMBOL_TARGET_A1_ENTRY_POINT
+    && citation.schemaVersion === SYMBOL_TARGET_A1_SCHEMA_VERSION
+    && citation.analysisVersion === SYMBOL_TARGET_A1_ANALYSIS_VERSION
+    && citation.policyVersion === SYMBOL_TARGET_A1_POLICY_VERSION;
+}
+
+const SYMBOL_TARGET_EFFECTIVE_OUTCOMES = new Set(["unique", "not_found", "ambiguous"]);
+const SYMBOL_TARGET_EFFECTIVE_A1_STATUSES = new Set(["resolved_unique", "not_found", "ambiguous"]);
+const SYMBOL_TARGET_OUTCOME_TO_RUN_STATUS = Object.freeze({
+  unique: "resolved_unique",
+  not_found: "not_found",
+  ambiguous: "ambiguous"
+});
+const SYMBOL_TARGET_PATH_COVERAGE_STATUSES = new Set(["covered", "uncovered_language", "unevaluated"]);
+const SYMBOL_TARGET_SHA256_HEX = /^[a-f0-9]{64}$/;
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.length > 0;
+}
+
+/**
+ * Consume-side effectivelyEvaluated (data-only; no A1 call).
+ * r2 Hole 3: evidenceComplete===true must cohere with runStatus, outcome↔runStatus,
+ * and completeness.{source,parse,enumeration} when completeness is a plain object.
+ * r3 Hole 2: if completeness is PRESENT and not a plain object → fail (do not skip).
+ */
+export function isSymbolTargetEffectivelyEvaluated(evaluation) {
+  if (!isWitnessPlainObject(evaluation)) return false;
+  if (!SYMBOL_TARGET_EFFECTIVE_OUTCOMES.has(evaluation.outcome)) return false;
+  const citation = evaluation.a1Citation;
+  if (!isWitnessPlainObject(citation) || citation.evidenceComplete !== true) return false;
+  if (!SYMBOL_TARGET_EFFECTIVE_A1_STATUSES.has(citation.runStatus)) return false;
+  if (SYMBOL_TARGET_OUTCOME_TO_RUN_STATUS[evaluation.outcome] !== citation.runStatus) return false;
+  if (Object.prototype.hasOwnProperty.call(citation, "completeness")) {
+    if (!isWitnessPlainObject(citation.completeness)) return false;
+    if (
+      citation.completeness.source !== "complete"
+      || citation.completeness.parse !== "complete"
+      || citation.completeness.enumeration !== "complete"
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sortedStringMultisetEqual(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right)) return false;
+  if (left.length !== right.length) return false;
+  const a = [...left].sort(compareStrings);
+  const b = [...right].sort(compareStrings);
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function citationFieldsAgree(evalCitation, topCitation) {
+  if (!isWitnessPlainObject(evalCitation) || !isWitnessPlainObject(topCitation)) return false;
+  const required = [
+    "entryPoint",
+    "schemaVersion",
+    "analysisVersion",
+    "policyVersion",
+    "name",
+    "runStatus",
+    "evidenceComplete"
+  ];
+  for (const field of required) {
+    if (evalCitation[field] !== topCitation[field]) return false;
+  }
+  // Presence-symmetric: declarationId / symbolId (Fix 1)
+  for (const field of ["declarationId", "symbolId"]) {
+    if (Object.prototype.hasOwnProperty.call(evalCitation, field)
+      || Object.prototype.hasOwnProperty.call(topCitation, field)) {
+      if (evalCitation[field] !== topCitation[field]) return false;
+    }
+  }
+  // r3 Hole 1: snapshotToken NOT presence-symmetric — compare only when BOTH carry
+  const evalHasToken = Object.prototype.hasOwnProperty.call(evalCitation, "snapshotToken");
+  const topHasToken = Object.prototype.hasOwnProperty.call(topCitation, "snapshotToken");
+  if (evalHasToken && topHasToken && evalCitation.snapshotToken !== topCitation.snapshotToken) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * r2/r3 citation snapshotToken ↔ exterior witness.snapshotToken.
+ * - Any layer that CARRIES snapshotToken must equal exterior (r2 strength).
+ * - When holds===true: detailed evaluations[].a1Citation MUST present nonempty
+ *   snapshotToken === exterior (r3 Hole 1).
+ * - Summary a1Citations[] MAY omit snapshotToken; if it carries, must === exterior.
+ * @returns {string|null} symbol_target_binding_mismatch or null
+ */
+export function checkSymbolTargetCitationSnapshotReconcile(witness) {
+  const exterior = witness.snapshotToken;
+  const holdsTrue = witness.completenessHolds === true || witness.uniquenessHolds === true;
+
+  // Detailed eval citations
+  if (Array.isArray(witness.evaluations)) {
+    for (const evaluation of witness.evaluations) {
+      if (!evaluation || !isWitnessPlainObject(evaluation.a1Citation)) {
+        if (holdsTrue) return "symbol_target_binding_mismatch";
+        continue;
+      }
+      const citation = evaluation.a1Citation;
+      const carries = Object.prototype.hasOwnProperty.call(citation, "snapshotToken");
+      if (holdsTrue) {
+        if (!isNonEmptyString(citation.snapshotToken) || citation.snapshotToken !== exterior) {
+          return "symbol_target_binding_mismatch";
+        }
+      } else if (carries && citation.snapshotToken !== exterior) {
+        return "symbol_target_binding_mismatch";
+      }
+    }
+  }
+
+  // Summary a1Citations — omission OK; carrying layer must equal exterior
+  if (Array.isArray(witness.a1Citations)) {
+    for (const citation of witness.a1Citations) {
+      if (!isWitnessPlainObject(citation)) continue;
+      const carries = Object.prototype.hasOwnProperty.call(citation, "snapshotToken");
+      if (!carries) continue;
+      if (!isNonEmptyString(citation.snapshotToken) || citation.snapshotToken !== exterior) {
+        return "symbol_target_binding_mismatch";
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Required structure (B). Missing/invalid → symbol_target_evidence_inconsistent.
+ * @returns {string|null} reason code or null if OK
+ */
+export function checkSymbolTargetWitnessStructure(witness) {
+  if (!Array.isArray(witness.evaluations) || witness.evaluations.length === 0) {
+    return "symbol_target_evidence_inconsistent";
+  }
+  if (!witness.evaluations.every(isWitnessPlainObject)) {
+    return "symbol_target_evidence_inconsistent";
+  }
+  if (!Array.isArray(witness.pathCoverage) || witness.pathCoverage.length === 0) {
+    return "symbol_target_evidence_inconsistent";
+  }
+  if (!witness.pathCoverage.every(isWitnessPlainObject)) {
+    return "symbol_target_evidence_inconsistent";
+  }
+  if (!isWitnessPlainObject(witness.sourceHashes)) {
+    return "symbol_target_evidence_inconsistent";
+  }
+  const taskPaths = Array.isArray(witness.taskPaths) ? witness.taskPaths : null;
+  if (!taskPaths) return "symbol_target_evidence_inconsistent";
+  for (const p of taskPaths) {
+    const h = witness.sourceHashes[p];
+    if (typeof h !== "string" || !SYMBOL_TARGET_SHA256_HEX.test(h)) {
+      return "symbol_target_evidence_inconsistent";
+    }
+  }
+  if (!Array.isArray(witness.a1Citations) || witness.a1Citations.length === 0) {
+    return "symbol_target_evidence_inconsistent";
+  }
+  return null;
+}
+
+/**
+ * Name/eval/citation correspondence (C). Fail → binding_mismatch.
+ * @returns {string|null}
+ */
+export function checkSymbolTargetNameEvalCitationCorrespondence(witness) {
+  const requiredNames = witness.requiredNames;
+  const evaluations = witness.evaluations;
+  const citations = witness.a1Citations;
+  const taskPaths = witness.taskPaths;
+  if (!Array.isArray(requiredNames) || !Array.isArray(evaluations) || !Array.isArray(citations)) {
+    return "symbol_target_binding_mismatch";
+  }
+  if (evaluations.length !== requiredNames.length) {
+    return "symbol_target_binding_mismatch";
+  }
+  if (citations.length !== requiredNames.length) {
+    return "symbol_target_binding_mismatch";
+  }
+  const evalNames = evaluations.map((e) => e && e.name);
+  const citeNames = citations.map((c) => c && c.name);
+  if (!sortedStringMultisetEqual(requiredNames, evalNames)) {
+    return "symbol_target_binding_mismatch";
+  }
+  if (!sortedStringMultisetEqual(requiredNames, citeNames)) {
+    return "symbol_target_binding_mismatch";
+  }
+  // exactly one eval per required name (multiset equality + length already implies this
+  // when requiredNames has unique entries; still reject duplicate-eval collisions)
+  const seenEval = new Set();
+  for (const e of evaluations) {
+    if (typeof e.name !== "string" || seenEval.has(e.name)) {
+      return "symbol_target_binding_mismatch";
+    }
+    seenEval.add(e.name);
+  }
+  const citeByName = new Map();
+  for (const c of citations) {
+    if (typeof c.name !== "string" || citeByName.has(c.name)) {
+      return "symbol_target_binding_mismatch";
+    }
+    citeByName.set(c.name, c);
+  }
+  const taskPathSet = new Set(Array.isArray(taskPaths) ? taskPaths : []);
+  for (const e of evaluations) {
+    const top = citeByName.get(e.name);
+    if (!citationFieldsAgree(e.a1Citation, top)) {
+      return "symbol_target_binding_mismatch";
+    }
+    const pathScope = e.pathScope;
+    if (!Array.isArray(pathScope)) {
+      return "symbol_target_binding_mismatch";
+    }
+    for (const p of pathScope) {
+      if (typeof p !== "string" || !taskPathSet.has(p)) {
+        return "symbol_target_binding_mismatch";
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Path coverage correspondence (D). Path multiset fail → binding_mismatch;
+ * invalid status vocabulary → evidence_inconsistent.
+ * @returns {string|null}
+ */
+export function checkSymbolTargetPathCoverageCorrespondence(witness) {
+  const taskPaths = witness.taskPaths;
+  const pathCoverage = witness.pathCoverage;
+  if (!Array.isArray(taskPaths) || !Array.isArray(pathCoverage)) {
+    return "symbol_target_binding_mismatch";
+  }
+  if (pathCoverage.length !== taskPaths.length) {
+    return "symbol_target_binding_mismatch";
+  }
+  const covPaths = pathCoverage.map((e) => e && e.path);
+  if (!sortedStringMultisetEqual(taskPaths, covPaths)) {
+    return "symbol_target_binding_mismatch";
+  }
+  const seen = new Set();
+  for (const entry of pathCoverage) {
+    if (typeof entry.path !== "string" || seen.has(entry.path)) {
+      return "symbol_target_binding_mismatch";
+    }
+    seen.add(entry.path);
+    if (!SYMBOL_TARGET_PATH_COVERAGE_STATUSES.has(entry.status)) {
+      return "symbol_target_evidence_inconsistent";
+    }
+  }
+  return null;
+}
+
+/**
+ * Source hashes vs retained pack/impact (E). Mismatch → binding_mismatch.
+ * @param {object} witness
+ * @param {{ pack?: object, impact?: object }|null|undefined} retained
+ * @returns {string|null}
+ */
+export function checkSymbolTargetSourceHashesAgainstRetained(witness, retained) {
+  const taskPaths = Array.isArray(witness.taskPaths) ? witness.taskPaths : [];
+  const hashes = witness.sourceHashes;
+  if (!isWitnessPlainObject(hashes)) {
+    return "symbol_target_binding_mismatch";
+  }
+  const packItems = retained && retained.pack
+    && retained.pack.sections
+    && retained.pack.sections.files
+    && Array.isArray(retained.pack.sections.files.items)
+    ? retained.pack.sections.files.items
+    : null;
+  const impactTargets = retained && retained.impact
+    && Array.isArray(retained.impact.targets)
+    ? retained.impact.targets
+    : null;
+
+  for (const P of taskPaths) {
+    const witnessHash = hashes[P];
+    if (typeof witnessHash !== "string" || !SYMBOL_TARGET_SHA256_HEX.test(witnessHash)) {
+      return "symbol_target_binding_mismatch";
+    }
+
+    let packHash;
+    if (packItems) {
+      const file = packItems.find((f) => f && f.path === P);
+      if (file && isWitnessPlainObject(file.provenance)
+        && isWitnessPlainObject(file.provenance.source)
+        && typeof file.provenance.source.sha256 === "string") {
+        packHash = file.provenance.source.sha256;
+      }
+    }
+
+    let impactHash;
+    if (impactTargets) {
+      const target = impactTargets.find((t) => t && t.originPath === P);
+      if (target && isWitnessPlainObject(target.targetSource)
+        && typeof target.targetSource.hash === "string") {
+        impactHash = target.targetSource.hash;
+      }
+    }
+
+    if (packHash !== undefined && impactHash !== undefined && packHash !== impactHash) {
+      return "symbol_target_binding_mismatch";
+    }
+    if (packHash !== undefined && witnessHash !== packHash) {
+      return "symbol_target_binding_mismatch";
+    }
+    if (impactHash !== undefined && witnessHash !== impactHash) {
+      return "symbol_target_binding_mismatch";
+    }
+  }
+  return null;
+}
+
+/**
+ * Boolean↔details consistency when holds===true (F).
+ * Hole 1: when holds true, each evaluation pathScope must sorted-multiset-equal
+ * witness.taskPaths (full required domain; subset or [] refuse inconsistent).
+ * Hole 3: effectivelyEvaluated coherence applied via isSymbolTargetEffectivelyEvaluated.
+ * @returns {string|null} evidence_inconsistent or null
+ */
+export function checkSymbolTargetHoldsDetailsConsistency(witness) {
+  const evaluations = witness.evaluations;
+  const pathCoverage = witness.pathCoverage;
+  const requiredNames = witness.requiredNames;
+  const taskPaths = witness.taskPaths;
+  const holdsTrue = witness.completenessHolds === true || witness.uniquenessHolds === true;
+
+  // Hole 1: full-domain pathScope when either hold is claimed true
+  if (holdsTrue) {
+    if (!Array.isArray(evaluations) || !Array.isArray(taskPaths)) {
+      return "symbol_target_evidence_inconsistent";
+    }
+    for (const evaluation of evaluations) {
+      if (!evaluation || !sortedStringMultisetEqual(evaluation.pathScope, taskPaths)) {
+        return "symbol_target_evidence_inconsistent";
+      }
+    }
+  }
+
+  if (witness.completenessHolds === true) {
+    if (!Array.isArray(requiredNames) || !Array.isArray(evaluations)) {
+      return "symbol_target_evidence_inconsistent";
+    }
+    for (const name of requiredNames) {
+      const matches = evaluations.filter((e) => e && e.name === name);
+      if (matches.length !== 1 || !isSymbolTargetEffectivelyEvaluated(matches[0])) {
+        return "symbol_target_evidence_inconsistent";
+      }
+    }
+    if (Array.isArray(pathCoverage)) {
+      for (const entry of pathCoverage) {
+        if (entry && (entry.status === "uncovered_language" || entry.status === "unevaluated")) {
+          return "symbol_target_evidence_inconsistent";
+        }
+      }
+    }
+    if (witness.nameListTruncated === true) {
+      return "symbol_target_evidence_inconsistent";
+    }
+  }
+
+  if (witness.uniquenessHolds === true) {
+    if (!Array.isArray(evaluations) || evaluations.length === 0) {
+      return "symbol_target_evidence_inconsistent";
+    }
+    for (const e of evaluations) {
+      if (!e || e.outcome !== "unique" || !isSymbolTargetEffectivelyEvaluated(e)) {
+        return "symbol_target_evidence_inconsistent";
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Normalize optional symbol-target completeness witness for ETS consume.
+ * Returns null when absent; otherwise a materialized plain object.
+ * Identity/binding/holds evaluation is separate (evaluateSymbolTargetCompletenessWitness).
+ */
+export function normalizeSymbolTargetCompletenessWitness(raw) {
+  if (raw === undefined || raw === null) return null;
+  const witness = materializeBoundedJsonData(raw);
+  if (!isWitnessPlainObject(witness)) {
+    throw effectiveTaskScopeError("symbol_target_evidence_missing", "symbolTargetCompletenessWitness must be a plain object.");
+  }
+  return witness;
+}
+
+/**
+ * Pure bind+consume check for already-produced symbol-target completeness witness.
+ * Does not call producer, A1, analyzers, Git, FS, or HTTP.
+ *
+ * Structure/correspondence/hash consistency are checked BEFORE lift (Fix 1).
+ * Binding/consistency failure → refuse codes (not honest not_established).
+ *
+ * @param {object|null|undefined} witness
+ * @param {{ taskPaths: string[], symbols: string[], projectId: string, repositoryId: string, worktreeId: string, snapshotToken: string }} binding
+ * @param {{ pack?: object, impact?: object }|null|undefined} [retained] optional retained pack/impact for sourceHashes cross-check
+ * @returns {{ ok: true, witness: object } | { ok: false, code: string }}
+ */
+export function evaluateSymbolTargetCompletenessWitness(witness, binding, retained) {
+  if (witness === undefined || witness === null) {
+    return { ok: false, code: "symbol_target_evidence_missing" };
+  }
+  if (!isWitnessPlainObject(witness)) {
+    return { ok: false, code: "symbol_target_evidence_missing" };
+  }
+  if (
+    witness.kind !== SYMBOL_TARGET_COMPLETENESS_WITNESS_KIND
+    || witness.producerIdentity !== SYMBOL_TARGET_COMPLETENESS_WITNESS_PRODUCER_IDENTITY
+    || witness.version !== SYMBOL_TARGET_COMPLETENESS_WITNESS_VERSION
+  ) {
+    return { ok: false, code: "symbol_target_evidence_missing" };
+  }
+
+  const domains = witness.claimedDomains;
+  if (!Array.isArray(domains) || !domains.includes(SYMBOL_TARGET_ADMITTED_DOMAIN)) {
+    return { ok: false, code: "symbol_target_domain_unsupported" };
+  }
+
+  const citations = Array.isArray(witness.a1Citations) ? witness.a1Citations : [];
+  if (citations.length === 0 || !citations.every(a1CitationAdmitted)) {
+    return { ok: false, code: "symbol_target_domain_unsupported" };
+  }
+
+  if (!binding || typeof binding !== "object") {
+    return { ok: false, code: "symbol_target_binding_mismatch" };
+  }
+
+  if (!sameSortedStringArrays(witness.taskPaths, binding.taskPaths)) {
+    return { ok: false, code: "symbol_target_binding_mismatch" };
+  }
+  if (!sameSortedStringArrays(witness.requiredNames, binding.symbols)) {
+    return { ok: false, code: "symbol_target_binding_mismatch" };
+  }
+  if (witness.projectId !== binding.projectId) {
+    return { ok: false, code: "symbol_target_binding_mismatch" };
+  }
+  if (witness.repositoryId !== binding.repositoryId) {
+    return { ok: false, code: "symbol_target_binding_mismatch" };
+  }
+  if (witness.worktreeId !== binding.worktreeId) {
+    return { ok: false, code: "symbol_target_binding_mismatch" };
+  }
+  if (witness.snapshotToken !== binding.snapshotToken) {
+    return { ok: false, code: "symbol_target_binding_mismatch" };
+  }
+
+  // Fix 1: structure + correspondence BEFORE holds (refuse outranks honest not_established)
+  const structureCode = checkSymbolTargetWitnessStructure(witness);
+  if (structureCode) return { ok: false, code: structureCode };
+
+  const nameCode = checkSymbolTargetNameEvalCitationCorrespondence(witness);
+  if (nameCode) return { ok: false, code: nameCode };
+
+  const pathCode = checkSymbolTargetPathCoverageCorrespondence(witness);
+  if (pathCode) return { ok: false, code: pathCode };
+
+  const hashCode = checkSymbolTargetSourceHashesAgainstRetained(witness, retained);
+  if (hashCode) return { ok: false, code: hashCode };
+
+  // Hole 2: citation snapshotToken ↔ exterior (binding_mismatch outranks holds-details)
+  const snapshotCode = checkSymbolTargetCitationSnapshotReconcile(witness);
+  if (snapshotCode) return { ok: false, code: snapshotCode };
+
+  const holdsDetailsCode = checkSymbolTargetHoldsDetailsConsistency(witness);
+  if (holdsDetailsCode) return { ok: false, code: holdsDetailsCode };
+
+  if (witness.completenessHolds !== true) {
+    return { ok: false, code: "symbol_target_completeness_not_established" };
+  }
+  if (witness.uniquenessHolds !== true) {
+    return { ok: false, code: "symbol_target_uniqueness_not_established" };
+  }
+
+  return { ok: true, witness };
 }
 
 export { compareStrings };
