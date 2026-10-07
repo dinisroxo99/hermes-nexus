@@ -705,3 +705,164 @@ test("arch matrix 6: complete not_found and complete ambiguous hold completeness
   assert.equal(byName.bar.a1Citation.runStatus, "not_found");
   assertHardFlagsUnchanged(witness);
 });
+
+test("pathStatusOverrides unknown partial refuse: two-file ambiguous must not become unique", () => {
+  const pathA = "src/lib/override-partial-a.js";
+  const pathB = "src/lib/override-partial-b.js";
+  const fileContents = {
+    [pathA]: FIXTURE_SINGLE_FOO,
+    [pathB]: FIXTURE_SINGLE_FOO
+  };
+  const taskPaths = [pathA, pathB];
+  const live = buildLiveGoldenBinding(fileContents, taskPaths);
+  const baseRequest = {
+    taskPaths,
+    requiredNames: ["foo"],
+    projectId: PROJECT_ID,
+    repositoryId: REPOSITORY_ID,
+    worktreeId: WORKTREE_ID,
+    snapshotToken: live.snapshotToken,
+    sourceHashes: live.sourceHashes,
+    admittedCommit: ADMITTED_COMMIT,
+    fileContents,
+    revision: live.revision,
+    worktree: { rootId: ROOT_ID, relativePath: RELATIVE_PATH }
+  };
+
+  const control = produceSymbolTargetCompletenessWitness(baseRequest);
+  assert.equal(control.completenessHolds, true);
+  assert.equal(control.uniquenessHolds, false);
+  assert.equal(control.evaluations[0].outcome, "ambiguous");
+  assert.equal(control.evaluations[0].a1Citation.runStatus, "ambiguous");
+  assert.equal(control.version, "symbol-target-completeness-witness-v1");
+  assertHardFlagsUnchanged(control);
+
+  const treatment = produceSymbolTargetCompletenessWitness({
+    ...baseRequest,
+    pathStatusOverrides: { [pathB]: "partial" }
+  });
+  assert.equal(treatment.completenessHolds, false);
+  assert.equal(treatment.uniquenessHolds, false);
+  assert.notEqual(treatment.evaluations[0].outcome, "unique");
+  assert.equal(treatment.evaluations[0].outcome, "unevaluated");
+  assert.equal(
+    treatment.provenance?.bindingMismatchReason,
+    `invalid_path_status_override:${pathB}:partial`
+  );
+  assert.equal(treatment.evaluations[0].reason, `invalid_path_status_override:${pathB}:partial`);
+  const byPath = Object.fromEntries(treatment.pathCoverage.map((e) => [e.path, e.status]));
+  assert.equal(byPath[pathA], "covered");
+  assert.equal(byPath[pathB], "unevaluated");
+  assert.equal(Object.values(byPath).includes("partial"), false);
+  assert.equal(treatment.version, "symbol-target-completeness-witness-v1");
+  assertHardFlagsUnchanged(treatment);
+});
+
+test("pathStatusOverrides known-good unevaluated fails closed without invalid-override reason", () => {
+  const pathA = "src/lib/override-unevaluated-a.js";
+  const pathB = "src/lib/override-unevaluated-b.js";
+  const fileContents = {
+    [pathA]: FIXTURE_SINGLE_FOO,
+    [pathB]: FIXTURE_SINGLE_FOO
+  };
+  const taskPaths = [pathA, pathB];
+  const live = buildLiveGoldenBinding(fileContents, taskPaths);
+  const witness = produceSymbolTargetCompletenessWitness({
+    taskPaths,
+    requiredNames: ["foo"],
+    projectId: PROJECT_ID,
+    repositoryId: REPOSITORY_ID,
+    worktreeId: WORKTREE_ID,
+    snapshotToken: live.snapshotToken,
+    sourceHashes: live.sourceHashes,
+    admittedCommit: ADMITTED_COMMIT,
+    fileContents,
+    revision: live.revision,
+    worktree: { rootId: ROOT_ID, relativePath: RELATIVE_PATH },
+    pathStatusOverrides: { [pathB]: "unevaluated" }
+  });
+  assert.equal(witness.completenessHolds, false);
+  assert.equal(witness.uniquenessHolds, false);
+  assert.equal(witness.evaluations[0].outcome, "unevaluated");
+  assert.equal(witness.evaluations[0].reason, "path_unevaluated");
+  assert.notEqual(
+    witness.provenance?.bindingMismatchReason?.startsWith("invalid_path_status_override:"),
+    true
+  );
+  assert.equal(
+    witness.pathCoverage.find((e) => e.path === pathB)?.status,
+    "unevaluated"
+  );
+  assertHardFlagsUnchanged(witness);
+});
+
+test("pathStatusOverrides known-good uncovered_language fails closed", () => {
+  const pathA = "src/lib/override-uncovered-a.js";
+  const pathB = "src/lib/override-uncovered-b.js";
+  const fileContents = {
+    [pathA]: FIXTURE_SINGLE_FOO,
+    [pathB]: FIXTURE_SINGLE_FOO
+  };
+  const taskPaths = [pathA, pathB];
+  const live = buildLiveGoldenBinding(fileContents, taskPaths);
+  const witness = produceSymbolTargetCompletenessWitness({
+    taskPaths,
+    requiredNames: ["foo"],
+    projectId: PROJECT_ID,
+    repositoryId: REPOSITORY_ID,
+    worktreeId: WORKTREE_ID,
+    snapshotToken: live.snapshotToken,
+    sourceHashes: live.sourceHashes,
+    admittedCommit: ADMITTED_COMMIT,
+    fileContents,
+    revision: live.revision,
+    worktree: { rootId: ROOT_ID, relativePath: RELATIVE_PATH },
+    pathStatusOverrides: { [pathB]: "uncovered_language" }
+  });
+  assert.equal(witness.completenessHolds, false);
+  assert.equal(witness.uniquenessHolds, false);
+  assert.equal(witness.evaluations[0].outcome, "unevaluated");
+  assert.equal(witness.evaluations[0].reason, "uncovered_language");
+  assert.equal(
+    witness.pathCoverage.find((e) => e.path === pathB)?.status,
+    "uncovered_language"
+  );
+  assertHardFlagsUnchanged(witness);
+});
+
+test("pathStatusOverrides non-string value refuses like unknown string", () => {
+  const pathA = "src/lib/override-nonstr-a.js";
+  const pathB = "src/lib/override-nonstr-b.js";
+  const fileContents = {
+    [pathA]: FIXTURE_SINGLE_FOO,
+    [pathB]: FIXTURE_SINGLE_FOO
+  };
+  const taskPaths = [pathA, pathB];
+  const live = buildLiveGoldenBinding(fileContents, taskPaths);
+  const witness = produceSymbolTargetCompletenessWitness({
+    taskPaths,
+    requiredNames: ["foo"],
+    projectId: PROJECT_ID,
+    repositoryId: REPOSITORY_ID,
+    worktreeId: WORKTREE_ID,
+    snapshotToken: live.snapshotToken,
+    sourceHashes: live.sourceHashes,
+    admittedCommit: ADMITTED_COMMIT,
+    fileContents,
+    revision: live.revision,
+    worktree: { rootId: ROOT_ID, relativePath: RELATIVE_PATH },
+    pathStatusOverrides: { [pathB]: 1 }
+  });
+  assert.equal(witness.completenessHolds, false);
+  assert.equal(witness.uniquenessHolds, false);
+  assert.notEqual(witness.evaluations[0].outcome, "unique");
+  assert.equal(
+    witness.provenance?.bindingMismatchReason,
+    `invalid_path_status_override:${pathB}:1`
+  );
+  assert.equal(
+    witness.pathCoverage.find((e) => e.path === pathB)?.status,
+    "unevaluated"
+  );
+  assertHardFlagsUnchanged(witness);
+});

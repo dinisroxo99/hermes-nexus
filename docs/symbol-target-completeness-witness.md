@@ -61,7 +61,7 @@ Optional / supporting fields used by the producer:
 
 - `revision`, `worktree`, `taskId`, `createdAt`
 - `nameListTruncated` — when `true`, completeness fails closed
-- `pathStatusOverrides` — per-path coverage status override
+- `pathStatusOverrides` — per-path coverage status override; allowed values only `covered` | `uncovered_language` | `unevaluated`. Unknown or non-string values fail closed (binding mismatch / refuse; do not shrink the A1 covered set into a false unique).
 - `forceCompletenessHolds` / `claimCompletenessDespiteFailClosed` — attempted upgrades; still fail closed
 
 ### Witness identity
@@ -94,7 +94,7 @@ Always stamped on the witness:
 | `uncoveredLanguageImpliesCompletenessFalse` | Non-TS/JS path coverage ⇒ `completenessHolds=false` |
 | `bindingMismatchImpliesCompletenessFalse` | Snapshot / hash / revision / identity binding mismatch ⇒ `completenessHolds=false` |
 
-Path coverage statuses: `covered` (TS/JS extensions), `uncovered_language`, or `unevaluated`.
+Path coverage statuses: `covered` (TS/JS extensions), `uncovered_language`, or `unevaluated`. `pathStatusOverrides` may only use that same enum; unknown ⇒ fail-closed.
 
 Per-name evaluation outcomes: `unique`, `not_found`, `ambiguous`, `unevaluated`.
 

@@ -97,9 +97,45 @@ function extensionOf(relPath) {
   return base.slice(idx).toLowerCase();
 }
 
+const ALLOWED_PATH_STATUS_OVERRIDES = new Set([
+  "covered",
+  "uncovered_language",
+  "unevaluated"
+]);
+
+function formatPathStatusOverrideValue(value) {
+  if (typeof value === "string") return value;
+  if (value === null) return "null";
+  if (typeof value === "undefined") return "undefined";
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
+/** First invalid pathStatusOverrides entry, or null when absent/non-object/all allowed. */
+function findInvalidPathStatusOverride(overrides) {
+  if (!isPlainObject(overrides)) return null;
+  for (const [pathKey, value] of Object.entries(overrides)) {
+    if (typeof value !== "string" || !ALLOWED_PATH_STATUS_OVERRIDES.has(value)) {
+      return { path: pathKey, value };
+    }
+  }
+  return null;
+}
+
 function pathCoverageStatusFor(relPath, overrides) {
-  if (isPlainObject(overrides) && typeof overrides[relPath] === "string") {
-    return overrides[relPath];
+  if (isPlainObject(overrides) && Object.prototype.hasOwnProperty.call(overrides, relPath)) {
+    const value = overrides[relPath];
+    if (typeof value === "string" && ALLOWED_PATH_STATUS_OVERRIDES.has(value)) {
+      return value;
+    }
+    // Invalid override: never emit raw unknown into ArchW pathCoverage[].status
+    return "unevaluated";
   }
   return TSJS_EXTENSIONS.has(extensionOf(relPath)) ? "covered" : "uncovered_language";
 }
@@ -475,6 +511,15 @@ export function produceSymbolTargetCompletenessWitness(request) {
   let revision = null;
   let worktree = null;
   let collectionTruncated = false;
+
+  // Refuse unknown / non-string pathStatusOverrides before coveredPaths / A1 set construction.
+  const invalidPathStatusOverride = findInvalidPathStatusOverride(request.pathStatusOverrides);
+  if (invalidPathStatusOverride) {
+    bindingMismatch = true;
+    bindingMismatchReason =
+      `invalid_path_status_override:${invalidPathStatusOverride.path}:`
+      + formatPathStatusOverrideValue(invalidPathStatusOverride.value);
+  }
 
   const coveredPaths = pathCoverage
     .filter((entry) => entry.status === "covered")
