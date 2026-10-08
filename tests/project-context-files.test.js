@@ -102,3 +102,37 @@ test("rejected binary reads still consume the source I/O byte budget", async (t)
   assert.equal(result.files.length, 0);
   assert.equal(result.truncated, true);
 });
+
+// PA-26 (absence-witness contract r3.4, D0): the collector's secret clause is moved verbatim into
+// src/lib/context-path-secret-policy.js; isContextPathAllowed behaviour is byte-for-byte unchanged.
+const SECRET_LITERAL_55F606C_SOURCE = String.raw`^(?:\.env(?:\..*)?|\.ssh|\.aws|\.azure|\.npmrc|\.pypirc|credentials?(?:\..*)?|secrets?(?:\..*)?|service[-_]account(?:\..*)?|id_rsa|id_ed25519)$`;
+
+test("PA-26: D0 secret predicate is the 55f606c literal and isContextPathAllowed is unchanged", async () => {
+  const policy = await import("../src/lib/context-path-secret-policy.js").catch(() => ({}));
+  const { isContextPathAllowed } = await api();
+  const { validateRelativeProjectPath } = await import("../src/lib/project-roots.js");
+  const { isIgnoredProjectScanDir } = await import("../src/lib/project-scan-policy.js");
+  assert.ok(policy.CONTEXT_SECRET_SEGMENT_PATTERN instanceof RegExp);
+  assert.equal(policy.CONTEXT_SECRET_SEGMENT_PATTERN.source, SECRET_LITERAL_55F606C_SOURCE);
+  assert.equal(policy.CONTEXT_SECRET_SEGMENT_PATTERN.flags, "i");
+  assert.equal(typeof policy.isContextSecretSegment, "function");
+  // Frozen copy of isContextPathAllowed exactly as at 55f606c (project-context-files.js:13–19).
+  const frozen = (value) => {
+    if (typeof value !== "string" || value.length > 1024 || /[\u0000-\u001f\u007f]/.test(value) || /^[A-Za-z]:/.test(value)) return false;
+    const valid = validateRelativeProjectPath(value);
+    if (!valid.valid || valid.relativePath !== value) return false;
+    return value.split("/").every((part) => !isIgnoredProjectScanDir(part)
+      && !/^(?:\.env(?:\..*)?|\.ssh|\.aws|\.azure|\.npmrc|\.pypirc|credentials?(?:\..*)?|secrets?(?:\..*)?|service[-_]account(?:\..*)?|id_rsa|id_ed25519)$/i.test(part));
+  };
+  const secret = ["credential.json", "Secrets.json", "secrets.json", "ID_RSA", ".ENV.local", "secrets. "];
+  const notSecret = ["secretsfoo.js", "secretary.md", "credentialsHelper.ts", "service_accounts.json", "\u017Fecrets.json", "id_rsa."];
+  for (const name of secret) assert.equal(policy.isContextSecretSegment(name), true, name);
+  for (const name of notSecret) assert.equal(policy.isContextSecretSegment(name), false, name);
+  // stateless (no g/y flag): repeated calls give the same answer
+  for (let i = 0; i < 3; i++) assert.equal(policy.isContextSecretSegment("secrets.json"), true);
+  const corpus = [...secret, ...notSecret, "src/a.js", "src/.env", "src/.env/x.js", "a/credentials/b.ts", "a/b/id_ed25519",
+    "deep/nested/Secrets.json", "deep/service-account.json", "deep/service_account", ".ssh/config", "x/.aws", "x/.azure/y",
+    ".npmrc", ".pypirc", "node_modules/x.js", ".git/config", "../x.js", "/abs.js", "C:x.js", "a//b.js", "./a.js", "a\u0000b",
+    "", " ", "x".repeat(1025), "ok/\u017Fecrets.json", "src/id_rsa.", "src/secrets. ", null, 42, undefined];
+  for (const value of corpus) assert.equal(isContextPathAllowed(value), frozen(value), JSON.stringify(value));
+});
