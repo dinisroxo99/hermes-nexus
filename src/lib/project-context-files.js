@@ -3,6 +3,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { validateRelativeProjectPath, isPathInsideRoot } from "./project-roots.js";
 import { isIgnoredProjectScanDir } from "./project-scan-policy.js";
+import { isContextSecretSegment } from "./context-path-secret-policy.js";
 
 export const CONTEXT_SOURCE_LIMITS = Object.freeze({ maxDepth: 8, maxEntries: 10000, maxFiles: 500, maxFileBytes: 128 * 1024, maxTotalBytes: 4 * 1024 * 1024 });
 const EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".cs", ".csproj", ".sln", ".slnx", ".py", ".go", ".rs", ".java", ".sh", ".bash", ".ps1", ".psm1", ".psd1", ".md", ".json", ".yaml", ".yml", ".txt"]);
@@ -15,7 +16,7 @@ export function isContextPathAllowed(value) {
   const valid = validateRelativeProjectPath(value);
   if (!valid.valid || valid.relativePath !== value) return false;
   return value.split("/").every((part) => !isIgnoredProjectScanDir(part)
-    && !/^(?:\.env(?:\..*)?|\.ssh|\.aws|\.azure|\.npmrc|\.pypirc|credentials?(?:\..*)?|secrets?(?:\..*)?|service[-_]account(?:\..*)?|id_rsa|id_ed25519)$/i.test(part));
+    && !isContextSecretSegment(part));
 }
 
 export function normalizeContextSources(sourceFiles) {
