@@ -2,11 +2,14 @@ import { composeEffectiveTaskScope } from "./effective-task-scope.js";
 import {
   materializeBoundedJsonData,
   checkInputBudget,
+  checkCreateAbsenceInputBudget,
   MAX_COMPACT_INPUT,
   effectiveTaskScopeError
 } from "./effective-task-scope-policy.js";
 
 const WITNESS_ENVELOPE_KEY = "symbolTargetCompletenessWitness";
+const CREATE_ABSENCE_WITNESS_ENVELOPE_KEY = "createDestinationAbsenceWitness";
+const OPTIONAL_ENVELOPE_KEYS = [WITNESS_ENVELOPE_KEY, CREATE_ABSENCE_WITNESS_ENVELOPE_KEY];
 
 const invalidEnvelope = () => effectiveTaskScopeError(
   "invalid_effective_task_scope_envelope", "invalid_effective_task_scope_envelope"
@@ -28,26 +31,21 @@ function validateEnvelope(envelope) {
   }
 }
 
-/** Exact allow-list: pack+impact required; optional symbolTargetCompletenessWitness only. */
+/**
+ * Exact allow-list: pack+impact required; optional symbolTargetCompletenessWitness and/or
+ * createDestinationAbsenceWitness. Exactly 2, 3 or 4 keys matching the keys present; any other key refuses.
+ */
 function assertAllowedEnvelopeKeys(envelopes) {
   if (!isRecord(envelopes)) throw invalidEnvelope();
   if (!Object.hasOwn(envelopes, "pack") || !Object.hasOwn(envelopes, "impact")) {
     throw invalidEnvelope();
   }
   const keys = Object.keys(envelopes);
-  const hasWitness = Object.hasOwn(envelopes, WITNESS_ENVELOPE_KEY);
-  if (hasWitness) {
-    if (keys.length !== 3) throw invalidEnvelope();
-    for (const key of keys) {
-      if (key !== "pack" && key !== "impact" && key !== WITNESS_ENVELOPE_KEY) {
-        throw invalidEnvelope();
-      }
-    }
-  } else if (keys.length !== 2) {
-    throw invalidEnvelope();
-  } else {
-    for (const key of keys) {
-      if (key !== "pack" && key !== "impact") throw invalidEnvelope();
+  const optionalPresent = OPTIONAL_ENVELOPE_KEYS.filter(key => Object.hasOwn(envelopes, key)).length;
+  if (keys.length !== 2 + optionalPresent) throw invalidEnvelope();
+  for (const key of keys) {
+    if (key !== "pack" && key !== "impact" && !OPTIONAL_ENVELOPE_KEYS.includes(key)) {
+      throw invalidEnvelope();
     }
   }
 }
@@ -58,10 +56,13 @@ function assertAllowedEnvelopeKeys(envelopes) {
  * Request, binding, version and classification rules remain in the composer.
  * Optional already-produced symbolTargetCompletenessWitness envelope is forwarded
  * unchanged into composeEffectiveTaskScope (no producer/A1/IO here).
+ * Optional already-produced createDestinationAbsenceWitness envelope is forwarded unchanged
+ * as well; only its envelope is checked here, never the witness content (no producer/IO here).
  */
 export function composeEffectiveTaskScopeFromEnvelopes(request, envelopes) {
   let safe;
   let witnessData;
+  let absenceWitnessData;
   try {
     // Materialize both complete arguments before reading any supplied member.
     safe = materializeBoundedJsonData({ request, envelopes });
@@ -75,9 +76,22 @@ export function composeEffectiveTaskScopeFromEnvelopes(request, envelopes) {
       validateEnvelope(safe.envelopes[WITNESS_ENVELOPE_KEY]);
       witnessData = safe.envelopes[WITNESS_ENVELOPE_KEY].data;
     }
+    if (Object.hasOwn(safe.envelopes, CREATE_ABSENCE_WITNESS_ENVELOPE_KEY)) {
+      validateEnvelope(safe.envelopes[CREATE_ABSENCE_WITNESS_ENVELOPE_KEY]);
+      absenceWitnessData = safe.envelopes[CREATE_ABSENCE_WITNESS_ENVELOPE_KEY].data;
+    }
     // Wrapper overhead never enlarges either inner domain budget.
+    // N-9: with the absence witness present, one 327680 total covers request, pack, impact and both witnesses.
+    if (absenceWitnessData !== undefined) {
+      checkCreateAbsenceInputBudget(
+        safe.request,
+        safe.envelopes.pack.data,
+        safe.envelopes.impact.data,
+        witnessData,
+        absenceWitnessData
+      );
     // Fix 2 / C1: include witness in total compact budget when present.
-    if (witnessData !== undefined) {
+    } else if (witnessData !== undefined) {
       checkInputBudget(
         safe.request,
         safe.envelopes.pack.data,
@@ -101,6 +115,9 @@ export function composeEffectiveTaskScopeFromEnvelopes(request, envelopes) {
     };
     if (witnessData !== undefined) {
       evidence.symbolTargetCompletenessWitness = witnessData;
+    }
+    if (absenceWitnessData !== undefined) {
+      evidence.createDestinationAbsenceWitness = absenceWitnessData;
     }
     return composeEffectiveTaskScope(safe.request, evidence);
   } catch {
