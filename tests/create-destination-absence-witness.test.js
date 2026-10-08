@@ -9,7 +9,8 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { buildCreateDestinationAbsenceWitness } from "../src/lib/create-destination-absence-witness.js";
+import * as producer from "../src/lib/create-destination-absence-witness.js";
+const { buildCreateDestinationAbsenceWitness } = producer;
 import {
   CREATE_ABSENCE_INCOMPLETE_REASONS, CREATE_ABSENCE_WITNESS_HARD_FLAGS, canonicalByteLength, canonicalJson
 } from "../src/lib/create-destination-absence-witness-constants.js";
@@ -901,4 +902,64 @@ test("reason priority (PIN-2): listing_changed outranks a token mismatch; DVU ou
   const spy = spyFs({ readlinkSync: (real, p) => (resolveProc(p) === path.join(root, "src") ? "/x" : real(p)) });
   const r2 = rec(assertWitness(build(root, ["src/new.js"], { fs: spy.fs, live })), "src/new.js");
   assert.equal(r2.incompleteReason, "descriptor_verification_unavailable");
+});
+
+// ------------------------------------------------------------------------- fix round (B-1, G-a, N-2, R-N2)
+
+test("B-1 / G-a(a): a BOM-prefixed sibling is listed faithfully and uniquely (dup/y.js)", { skip: GATE }, (t) => {
+  const root = project(t, { "dup/\uFEFFx.js": "bom", "dup/x.js": "plain", "dup/b.js": "b" });
+  assert.deepEqual(fs.readdirSync(path.join(root, "dup"), { encoding: "buffer" }).map((b) => b.toString("hex")).sort(),
+    ["622e6a73", "782e6a73", "efbbbf782e6a73"]);
+  const r = rec(assertWitness(build(root, ["dup/y.js"])), "dup/y.js");
+  assert.equal(r.complete, true); assert.equal(r.incompleteReason, null); assert.equal(r.nativeLookup, "ENOENT");
+  assert.deepEqual(r.enumeration.entries, ["b.js", "x.js", "\uFEFFx.js"]);
+  assert.equal(r.enumeration.entryCount, 3); assert.equal(r.enumeration.redactedSecretEntryCount, 0);
+  assert.equal(new Set(r.enumeration.entries).size, 3);
+  assert.equal(r.verdict, "absent");
+});
+
+test("B-1 / G-a(b): a target colliding with a BOM-prefixed sibling is unknown (collision), not exists (src/x.js)", { skip: GATE }, (t) => {
+  const root = project(t, { "src/\uFEFFx.js": "bom", "src/a.js": "a" });
+  const r = rec(assertWitness(build(root, ["src/x.js"])), "src/x.js");
+  assert.equal(r.nativeLookup, "ENOENT"); assert.equal(r.complete, true); assert.equal(r.incompleteReason, null);
+  assert.deepEqual(r.enumeration.entries, ["a.js", "\uFEFFx.js"]);
+  assert.equal(r.enumeration.entries.includes("x.js"), false);
+  assert.equal(r.verdict, "unknown");
+});
+
+test("N-2 (white-box): the S2a rule fires on SECRET(Kk) alone and on SECRET(K) alone; the producer uses it", () => {
+  const rule = producer.s2aSecretRuleRequiresUnknown;
+  assert.equal(typeof rule, "function");
+  const keys = (k, kk) => ({ nameKey: () => k, kernelModelNameKey: () => kk });
+  assert.equal(rule(1, "anything", keys("plain.js", ".env")), true, "SECRET(Kk) alone must give unknown");
+  assert.equal(rule(1, "anything", keys(".env", "plain.js")), true, "SECRET(K) alone must give unknown");
+  assert.equal(rule(1, "anything", keys("plain.js", "plain.js")), false);
+  assert.equal(rule(0, "anything", keys(".env", ".env")), false, "n = 0: the rule does not apply");
+  assert.equal(rule(2, ".ENV"), true); assert.equal(rule(2, "readme.md"), false);
+  const source = fs.readFileSync(PRODUCER_SOURCE, "utf8");
+  assert.match(source, /s2aSecretRuleRequiresUnknown\(enumeration\.redactedSecretEntryCount, record\.basename\)/);
+});
+
+test("R-N2 / G-b: a project root whose realpath is not valid UTF-8 is unreadable; a U+FFFD look-alike is never walked", { skip: GATE }, (t) => {
+  const root = project(t, { "\uFFFD/src/a.js": "decoy" });
+  const rawDir = Buffer.concat([Buffer.from(`${root}/`, "utf8"), Buffer.from([0xff])]);
+  fs.mkdirSync(rawDir);
+  fs.mkdirSync(Buffer.concat([rawDir, Buffer.from("/src", "utf8")]));
+  fs.writeFileSync(Buffer.concat([rawDir, Buffer.from("/src/new.js", "utf8")]), "real");
+  fs.symlinkSync(Buffer.from([0xff]), path.join(root, "link"));
+  assert.equal(fs.realpathSync(path.join(root, "link")), `${root}/\uFFFD`);
+  const r = rec(assertWitness(build(path.join(root, "link"), ["src/new.js"])), "src/new.js");
+  assert.deepEqual(r.ancestors, [{ path: "", state: "unreadable", fsType: null, devIno: null }]);
+  assert.equal(r.complete, false); assert.equal(r.incompleteReason, "unreadable"); assert.equal(r.enumeration, null);
+  assert.equal(r.verdict, "unknown");
+});
+
+test("R-N2 / P-3: the native root realpath is never called on a Unicode mismatch", (t) => {
+  const native = t.mock.method(fs.realpathSync, "native");
+  const w = buildCreateDestinationAbsenceWitness({
+    projectRoot: "/nonexistent-root", request: { paths: ["src/a.js"] }, expected: structuredClone(EXPECTED), nestedProjectPaths: [],
+    options: { runtimeUnicodeVersion: "16.0", testSeam: { liveObservation: liveOk } }
+  });
+  assert.equal(native.mock.callCount(), 0);
+  assert.equal(rec(w, "src/a.js").incompleteReason, "unicode_version_mismatch");
 });

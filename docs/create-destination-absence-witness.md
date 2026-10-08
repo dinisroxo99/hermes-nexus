@@ -11,7 +11,7 @@ composer. Nothing here lifts a create, flips a hard flag or exposes anything ove
 | File | Role |
 |---|---|
 | `src/lib/context-path-secret-policy.js` | D0: the collector's secret clause, moved verbatim from `project-context-files.js:18`; exports `CONTEXT_SECRET_SEGMENT_PATTERN` and `isContextSecretSegment`. `isContextPathAllowed` is unchanged (PA-26). |
-| `src/lib/create-destination-absence-witness.js` | D1: `buildCreateDestinationAbsenceWitness({ projectRoot, request, expected, nestedProjectPaths, options })`, the read-only producer. |
+| `src/lib/create-destination-absence-witness.js` | D1: `buildCreateDestinationAbsenceWitness({ projectRoot, request, expected, nestedProjectPaths, options })`, the read-only producer; also the pure `s2aSecretRuleRequiresUnknown` (the §3.3 S2a rule, exported for the N-2 white-box test). |
 | `src/lib/create-destination-absence-witness-constants.js` | Pure constants (`CREATE_ABSENCE_WITNESS_HARD_FLAGS`, limits, G12 allow-list, vocabulary, reason priority) and `canonicalJson` (§2.6 P-7). No imports; the later composer evaluator imports this instead of the fs-using producer. |
 | `src/lib/create-name-key.js` | The dual key `hn-create-name-key-v3`: `nameKey` (`K`), `kernelModelNameKey` (`Kk`), `namesCollide` (`K` equal or `Kk` equal), `kernelModelCodePoints` (`KM`). Pure. |
 | `src/lib/unicode-data/` | Generated tables (`casefold-17.0.0.js`, `kernel-nfdicf-12.1.0.js`) and the Unicode License v3 notice. |
@@ -21,8 +21,9 @@ composer. Nothing here lifts a create, flips a hard flag or exposes anything ove
 ## What the producer does (and does not do)
 
 - **Syscalls (G1/G2).** Directory opens only (`O_RDONLY | O_DIRECTORY | O_NOFOLLOW`): the root by its
-  realpath, every later component as `/proc/self/fd/<parentFd>/<segment>`, each verified with
-  `readlink("/proc/self/fd/<fd>")` against the expected absolute path. `fstat(fd, { bigint: true })` gives
+  realpath (`fs.realpathSync.native`, raw bytes), every later component as
+  `/proc/self/fd/<parentFd>/<segment>`, each verified with `readlink("/proc/self/fd/<fd>")` (raw bytes)
+  against the UTF-8 bytes of the expected absolute path. `fstat(fd, { bigint: true })` gives
   `devIno` as exact decimal `dev:ino`; `statfs` gives `fsType` (`"0x" + (f_type >>> 0).toString(16)`);
   `lstat` is used for the native lookup of the basename, the `.git` probe of `a_1 … a_(k−1)` (never the
   root) and the ELOOP/ENOTDIR follow-up; `opendir`/`readdir` reads one parent listing per target with
@@ -95,6 +96,18 @@ composer. Nothing here lifts a create, flips a hard flag or exposes anything ove
   is kept), consistent with the empty chain P-1 prescribes for an unverifiable root; a readlink **errno**
   is `unreadable` (§1.2).
 - When the root path cannot be resolved by `realpath`, the root element is `unreadable`.
+- **Name decoding (R-N3).** Every name read from the filesystem (listing entries, the root realpath) is
+  decoded from its raw bytes with a fatal, BOM-preserving UTF-8 decoder
+  (`new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })`). A leading U+FEFF is kept, so a sibling
+  `EF BB BF 78 2E 6A 73` is listed as `"\uFEFFx.js"`, distinct from `x.js` (§1.5, §2.1 case (d), §2.4); a
+  target `x.js` next to it is a `K`/`Kk` collision, so `unknown`. Invalid UTF-8 is `non_utf8_name` (listing)
+  or an `unreadable` root (realpath).
+- **Byte-exact path verification (R-N2).** The root realpath is taken with `fs.realpathSync.native` in
+  `buffer` encoding (the JS `fs.realpathSync` decodes each component lossily and can resolve to a
+  different directory whose name is literally U+FFFD); a realpath that is not valid UTF-8 makes the root
+  element `unreadable`. Every `readlink("/proc/self/fd/<fd>")` result is compared with the expected
+  absolute path as raw bytes, never as a decoded string, so a lossy decode can only give
+  `descriptor_verification_unavailable`, never a match.
 
 ## Witness byte cap (§2.4, G9)
 
@@ -103,7 +116,8 @@ After both passes every record is built in full. With `F_i` the canonical size o
 `S0 = size(witness with targets: []) + Σ m_i + (n − 1)`. If `S0 > 49152` the producer throws
 `create_absence_witness_byte_cap_exceeded` and returns no witness. Otherwise, in `targets[]` order, a
 record stays full iff `S0 + Σ(Δ kept) + Δ_i ≤ 49152` with `Δ_i = F_i − m_i`; else it is replaced by the
-minimal form. Records with `F_i ≤ M_i` (empty-chain `segment_cap` / path `non_utf8_name`) are never
+minimal form. The S0 pre-throw and the post-selection re-check of the emitted size are redundant with
+each other (either alone meets §2.4; R-N1, Tester N-1) and are both kept as defence in depth. Records with `F_i ≤ M_i` (empty-chain `segment_cap` / path `non_utf8_name`) are never
 capped. The emitted canonical JSON is always ≤ 49152 UTF-8 bytes. The only other throw is
 `invalid_create_absence_witness_request` (exact input, §2.6 P-8). Neither is a composer reason code.
 
@@ -155,7 +169,10 @@ mismatch); no test mutates `process.versions`.
 ## Tests
 
 - `tests/create-destination-absence-witness.test.js`: PA-1 … PA-38 with the sub-lettered ids (PA-10b,
-  PA-11b, PA-12b, PA-17b, PA-18b … PA-18f, PA-21b, PA-21c, PA-26b). Only S2a is implemented: the S1,
+  PA-11b, PA-12b, PA-17b, PA-18b … PA-18f, PA-21b, PA-21c, PA-26b), plus the fix-round tests: B-1 / G-a(a)
+  and G-a(b) (real-FS BOM-prefixed siblings), N-2 (white-box: the exported pure
+  `s2aSecretRuleRequiresUnknown` fires on `SECRET(Kk)` alone and on `SECRET(K)` alone), and R-N2 (a
+  non-UTF-8 root realpath with a U+FFFD look-alike directory; no native realpath on a Unicode mismatch). Only S2a is implemented: the S1,
   S2b, S3 and S4 rows of PA-18/PA-19 are N/A, and PA-37/PA-38 run under S2a. Real-FS tests run on tmpfs
   (`/dev/shm`) or another allow-listed `os.tmpdir()`.
 - `tests/create-name-key.test.js`: KM-1, KM-1b, KM-1c, KM-2 (the ten v6.17 `nfdicf_test_data` vectors as

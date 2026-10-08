@@ -35,7 +35,10 @@ const LIMITS = CREATE_ABSENCE_WITNESS_LIMITS;
 const SEAM_FS_KEYS = ["openSync", "readlinkSync", "fstatSync", "statfsSync", "lstatSync", "opendirSync", "closeSync"];
 const BOUNDARY = new Set(CREATE_ABSENCE_BOUNDARY_STATES);
 const ALLOWED_FS = new Set(CREATE_ABSENCE_WITNESS_FS_ALLOWLIST);
-const utf8 = new TextDecoder("utf-8", { fatal: true });
+// Fatal and BOM-preserving (B-1): with the WHATWG default ignoreBOM:false a leading U+FEFF would be
+// stripped, making a name decode lossy (§1.5, §2.1 case (d), §2.4). Every name decode uses this decoder.
+const utf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+const DEFAULT_KEYS = Object.freeze({ nameKey, kernelModelNameKey });
 
 function requestError() {
   return Object.assign(new Error("Invalid create-destination absence witness request."), { code: "invalid_create_absence_witness_request" });
@@ -100,6 +103,18 @@ const fsTypeHex = (type) => `0x${(Number(type) >>> 0).toString(16)}`;
 const element = (path, state, fsType = null, devIno = null) => ({ path, state, fsType, devIno });
 const procPath = (fd, name) => (name === undefined ? `/proc/self/fd/${fd}` : `/proc/self/fd/${fd}/${name}`);
 const joinAbsolute = (root, relative) => (root === "/" ? `/${relative}` : `${root}/${relative}`);
+/** R-N2: compare a readlink result with the expected absolute path as raw bytes, never as a lossy string. */
+const sameLinkBytes = (link, expectedPath) =>
+  Buffer.compare(Buffer.isBuffer(link) ? link : Buffer.from(String(link), "utf8"), Buffer.from(expectedPath, "utf8")) === 0;
+/** R-N2: the root realpath(3) as raw bytes (native; the JS realpath decodes components lossily), decoded with the fatal BOM-preserving decoder; null when not representable. */
+function rootRealpathOf(projectRoot) {
+  try {
+    const bytes = fs.realpathSync.native(projectRoot, { encoding: "buffer" });
+    return utf8.decode(Buffer.isBuffer(bytes) ? bytes : Buffer.from(String(bytes), "utf8"));
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Open and verify the root once per pass (G2, §2.6 P-1). Returns `{ dvu }`, `{ unreadable }` or the
@@ -110,8 +125,8 @@ function openRoot(io, rootRealpath, flags) {
   try { fd = io.openSync(rootRealpath, flags); } catch { return { unreadable: true }; }
   try {
     let link;
-    try { link = io.readlinkSync(procPath(fd)); } catch { return close(io, fd, { unreadable: true }); }
-    if (link !== rootRealpath) return close(io, fd, { dvu: true });
+    try { link = io.readlinkSync(procPath(fd), { encoding: "buffer" }); } catch { return close(io, fd, { unreadable: true }); }
+    if (!sameLinkBytes(link, rootRealpath)) return close(io, fd, { dvu: true });
     let stat; let statfs;
     try { stat = io.fstatSync(fd, { bigint: true }); statfs = io.statfsSync(procPath(fd)); } catch { return close(io, fd, { unreadable: true }); }
     const fsType = fsTypeHex(statfs.type);
@@ -191,8 +206,8 @@ function observeTarget(io, root, target, nested, flags) {
       opened.push(childFd);
       const unreadable = () => { obs.chain.push(element(relative, "unreadable")); obs.reasons.add("unreadable"); stopped = true; };
       let link;
-      try { link = io.readlinkSync(procPath(childFd)); } catch { unreadable(); break; }
-      if (link !== joinAbsolute(root.realpath, relative)) { obs.reasons.add("descriptor_verification_unavailable"); stopped = true; break; }
+      try { link = io.readlinkSync(procPath(childFd), { encoding: "buffer" }); } catch { unreadable(); break; }
+      if (!sameLinkBytes(link, joinAbsolute(root.realpath, relative))) { obs.reasons.add("descriptor_verification_unavailable"); stopped = true; break; }
       let stat; let statfs;
       try { stat = io.fstatSync(childFd, { bigint: true }); statfs = io.statfsSync(procPath(childFd)); } catch { unreadable(); break; }
       let gitFound = false;
@@ -277,6 +292,15 @@ function s2aEnumeration(names) {
   return { ...body, listingDigest: createHash("sha256").update(canonicalJson(body), "utf8").digest("hex") };
 }
 
+/**
+ * §3.3 S2a rule (pure): with n > 0 redacted secret-pattern names, a basename whose K or Kk is itself a
+ * secret-pattern name is unknown. `keys` is injectable only so a test can exercise each branch alone (N-2).
+ */
+export function s2aSecretRuleRequiresUnknown(redactedSecretEntryCount, basename, keys = DEFAULT_KEYS) {
+  if (!(redactedSecretEntryCount > 0)) return false;
+  return isContextSecretSegment(keys.nameKey(basename)) || isContextSecretSegment(keys.kernelModelNameKey(basename));
+}
+
 /** Producer-side mirror of the composer's R8 recomputation (§2.5), S2a rule and shape rule included. */
 function recomputeVerdict(record) {
   const chain = record.ancestors;
@@ -291,7 +315,7 @@ function recomputeVerdict(record) {
   if (enumeration.entries.some((entry) => namesCollide(entry, record.basename))) return "unknown";
   const k = nameKey(record.basename);
   const kk = kernelModelNameKey(record.basename);
-  if (enumeration.redactedSecretEntryCount > 0 && (isContextSecretSegment(k) || isContextSecretSegment(kk))) return "unknown";
+  if (s2aSecretRuleRequiresUnknown(enumeration.redactedSecretEntryCount, record.basename)) return "unknown";
   if (k === "" || kk === "" || /~[0-9]/.test(record.basename)) return "unknown";
   return "absent";
 }
@@ -340,8 +364,7 @@ export function buildCreateDestinationAbsenceWitness(input) {
     if (platformOk) {
       try { platformOk = io.lstatSync("/proc/self/fd").isDirectory() === true; } catch { platformOk = false; }
     }
-    let rootRealpath = null;
-    try { rootRealpath = fs.realpathSync(projectRoot); } catch { rootRealpath = null; }
+    const rootRealpath = rootRealpathOf(projectRoot);
     const live1 = liveObservation(seam, rootRealpath, expected, nestedProjectPaths, 1);
     let pass1 = null;
     let pass2 = null;
