@@ -649,6 +649,28 @@ export function checkInputBudget(request, pack, impact, symbolTargetCompleteness
   }
 }
 
+/**
+ * Sibling of checkInputBudget for inputs that carry createDestinationAbsenceWitness
+ * (absence-witness evidence contract r3.4 D2/D3, N-9, N32-1). Materializes request, pack, impact,
+ * symbolTargetCompletenessWitness (only when !== undefined) and createDestinationAbsenceWitness once,
+ * applies the same 131072 pack and impact caps and one total against MAX_COMPACT_INPUT.
+ * No separate witness sub-cap and no witness semantics. checkInputBudget is unchanged.
+ */
+export function checkCreateAbsenceInputBudget(request, pack, impact, symbolTargetCompletenessWitness, createDestinationAbsenceWitness) {
+  const inputObj = symbolTargetCompletenessWitness !== undefined
+    ? { request, pack, impact, symbolTargetCompletenessWitness, createDestinationAbsenceWitness }
+    : { request, pack, impact, createDestinationAbsenceWitness };
+  const safe = materializeBoundedJsonData(inputObj);
+  const packBytes = Buffer.byteLength(JSON.stringify(safe.pack), "utf8");
+  const impactBytes = Buffer.byteLength(JSON.stringify(safe.impact), "utf8");
+  if (packBytes > 131072 || impactBytes > 131072) {
+    throw effectiveTaskScopeError("scope_budget_exceeded", "Pack or Impact exceeds 131072 compact bytes.");
+  }
+  if (Buffer.byteLength(JSON.stringify(safe), "utf8") > MAX_COMPACT_INPUT) {
+    throw effectiveTaskScopeError("scope_budget_exceeded", "Input exceeds compactBytes budget.");
+  }
+}
+
 export function materializeBoundedJsonData(root) {
   let count = 0;
   const ancestors = new Set();
