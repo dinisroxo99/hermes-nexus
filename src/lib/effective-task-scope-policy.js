@@ -6,10 +6,20 @@ import {
   normalizeImpactCompleteness, IMPACT_COMPLETENESS_DIMENSIONS, IMPACT_COMPLETENESS_REASONS, IMPACT_LIMITS
 } from "./impact-policy.js";
 import { TASK_CONTEXT_LIMITS } from "./task-context-policy.js";
+import { createHash } from "node:crypto";
+import {
+  CREATE_ABSENCE_WITNESS_HARD_FLAGS, CREATE_ABSENCE_WITNESS_KIND, CREATE_ABSENCE_WITNESS_PRODUCER_IDENTITY,
+  CREATE_ABSENCE_WITNESS_VERSION, CREATE_ABSENCE_WITNESS_METHOD, CREATE_ABSENCE_WITNESS_SECRET_NAME_POLICY,
+  CREATE_ABSENCE_WITNESS_SYMLINK_POLICY, CREATE_ABSENCE_WITNESS_FS_POLICY_ID, CREATE_ABSENCE_WITNESS_LIMITS,
+  CREATE_ABSENCE_WITNESS_FS_ALLOWLIST, CREATE_ABSENCE_WITNESS_FAIL_CLOSED_MATRIX, CREATE_ABSENCE_WITNESS_NON_AUTHORIZATION,
+  CREATE_ABSENCE_INCOMPLETE_REASONS, CREATE_ABSENCE_BOUNDARY_STATES, canonicalJson
+} from "./create-destination-absence-witness-constants.js";
+import { CREATE_NAME_KEY_ID, UNICODE_VERSION, KERNEL_MODEL_KEY_DESCRIPTOR, nameKey, kernelModelNameKey, namesCollide } from "./create-name-key.js";
+import { isContextSecretSegment } from "./context-path-secret-policy.js";
 
 export const EFFECTIVE_TASK_SCOPE_SCHEMA_VERSION = 2;
 export const EFFECTIVE_TASK_SCOPE_ANALYSIS_VERSION = "effective-task-scope-v2";
-export const EFFECTIVE_TASK_SCOPE_POLICY_VERSION = "step4-foundation-4";
+export const EFFECTIVE_TASK_SCOPE_POLICY_VERSION = "step4-foundation-5";
 
 export const ETS_STATUSES = Object.freeze([
   "available",
@@ -431,15 +441,18 @@ export function bindDeleteIntent(intent, paths, pack, impact) {
 }
 
 /**
- * Validate create-intent proof and return a fail-closed verdict (policy step4-foundation-4).
- * Per declared newPath: any positive byte observation (Context files item or non-null Impact
- * targetSource) is EXISTS; otherwise UNKNOWN. PROVEN-ABSENT needs a positive absence witness
- * that no current pure input supplies, so it is unreachable and create never yields WRITE or
- * operationIntent. Whole-proof structural/budget validation runs before any verdict.
- * Precedence: bind-stage rejection, then any EXISTS => create_destination_exists, then any
- * UNKNOWN => create_destination_absence_not_proven.
+ * Validate create-intent proof and return a fail-closed verdict (policy step4-foundation-5).
+ * Whole-proof structural/budget validation runs before any verdict. Per declared newPath: any
+ * positive byte observation (Context files item or non-null Impact targetSource) is EXISTS.
+ * Without an absence witness (`absence === undefined`) everything else is UNKNOWN, exactly as
+ * under the previous policy version. With the evaluated absence witness (5th parameter, from
+ * evaluateCreateDestinationAbsenceWitness): R9 retained cross-check first (returned refuse
+ * create_absence_binding_mismatch), then EXISTS › parent_absent › ancestor_boundary › UNKNOWN
+ * (incl. declared-target dual-key collision and composer Unicode mismatch) › lift
+ * `{ notEvaluated: null, lift: { reason: "create_destination_proven_absent" } }`, only when
+ * every declared target is PROVEN-ABSENT (absence-witness evidence contract r3.4 §1.4 steps 8–9).
  */
-export function bindCreateIntent(intent, paths, pack, impact) {
+export function bindCreateIntent(intent, paths, pack, impact, absence) {
   const mismatch = () => effectiveTaskScopeError("create_source_binding_mismatch");
   const record = value => value && typeof value === "object" && !Array.isArray(value);
   const text = value => typeof value === "string" && value.length > 0 && value.length <= 128 && !CONTROL.test(value);
@@ -554,9 +567,10 @@ export function bindCreateIntent(intent, paths, pack, impact) {
     coverage(pack.analysis.coverage);
     coverage(impact.coverage);
     normalizeImpactStatus(pack.analysis.status);
+    if (absence !== undefined) return createAbsenceVerdict(absence, paths, sourcesByPath, targetsByPath);
     if (exists) return { notEvaluated: "create_destination_exists" };
     if (unknown) return { notEvaluated: "create_destination_absence_not_proven" };
-    // PROVEN-ABSENT is unreachable under step4-foundation-4 (no absence witness input).
+    // Without an absence witness PROVEN-ABSENT stays unreachable (no lift).
     return { notEvaluated: "create_destination_absence_not_proven" };
   } catch (error) {
     if (["scope_budget_exceeded", "create_intent_target_mismatch"].includes(error.code)) throw error;
@@ -1231,6 +1245,360 @@ export function evaluateSymbolTargetCompletenessWitness(witness, binding, retain
   }
 
   return { ok: true, witness };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Create-destination absence witness consume (absence-witness evidence contract r3.4, D3; §2.5
+// R1–R8, §1.4 steps 5–6). Pure: no fs, no network, no clock. The fs-using producer is never imported;
+// only the D1 pure constants module, the key helper and the D0 secret predicate are (§2.6 P-9).
+// Every function below returns results and never throws for witness content.
+// ---------------------------------------------------------------------------------------------
+const ABSENCE_INVALID = "create_absence_evidence_invalid";
+const ABSENCE_BINDING = "create_absence_binding_mismatch";
+const ABSENCE_INCONSISTENT = "create_absence_evidence_inconsistent";
+const ABSENCE_TOP_KEYS = Object.freeze([
+  "kind", "producerIdentity", "version", "method", "secretNamePolicy", "projectId", "repositoryId", "worktreeId",
+  "project", "revision", "snapshotToken", "generatedAt", "requiresReobservation", "observation", "nameComparison",
+  "filesystem", "symlinkPolicy", "filtersApplied", "limits", "targets", "failClosedMatrix", "hardFlags",
+  "nonAuthorization", "provenance"
+]);
+const ABSENCE_REVISION_KEYS = Object.freeze(["status", "commitSha", "branch", "dirty", "isLinkedWorktree"]);
+const ABSENCE_RECORD_KEYS = Object.freeze(["newPath", "parentPath", "basename", "ancestors", "nativeLookup", "enumeration", "complete", "incompleteReason", "verdict"]);
+const ABSENCE_ANCESTOR_KEYS = Object.freeze(["path", "state", "fsType", "devIno"]);
+// Only S2a is admitted (A2): any other enumeration shape fails R1.
+const ABSENCE_S2A_ENUMERATION_KEYS = Object.freeze(["entryCount", "entries", "redactedSecretEntryCount", "listingDigest"]);
+const ABSENCE_NAME_COMPARISON_KEYS = Object.freeze(["keyId", "unicodeVersion", "caseFolding", "turkicPostFold", "stripDefaultIgnorable", "trimTrailingDotSpace", "collisionRule", "kernelModelKey"]);
+const ABSENCE_ANCESTOR_STATES = Object.freeze(["directory", "absent", "symlink", "not_directory", "repository_boundary", "nested_project", "device_boundary", "unreadable"]);
+const ABSENCE_NATIVE_LOOKUPS = Object.freeze(["ENOENT", "present", "error"]);
+const ABSENCE_VERDICTS = Object.freeze(["absent", "exists", "unknown", "parent_absent", "ancestor_boundary"]);
+const ABSENCE_EMPTY_CHAIN_REASONS = Object.freeze(["segment_cap", "unicode_version_mismatch", "non_utf8_name", "descriptor_verification_unavailable", "witness_byte_cap"]);
+const CREATE_RELAX_COMPLETENESS_KEYS = Object.freeze(["source", "provider", "traversal", "output"]);
+
+const absenceRecord = value => value !== null && typeof value === "object" && !Array.isArray(value);
+const absenceExactKeys = (value, keys) => absenceRecord(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
+const absenceString = value => typeof value === "string";
+const absenceStringOrNull = value => value === null || typeof value === "string";
+const absenceBooleanOrNull = value => value === null || typeof value === "boolean";
+const absenceCount = value => Number.isSafeInteger(value) && value >= 0;
+const absenceRevisionShape = value => absenceExactKeys(value, ABSENCE_REVISION_KEYS) && absenceString(value.status) &&
+  absenceStringOrNull(value.commitSha) && absenceStringOrNull(value.branch) && absenceBooleanOrNull(value.dirty) && absenceBooleanOrNull(value.isLinkedWorktree);
+const absenceSegments = newPath => newPath.split("/");
+const absenceParentPath = newPath => absenceSegments(newPath).slice(0, -1).join("/");
+const absenceBasename = newPath => { const segments = absenceSegments(newPath); return segments[segments.length - 1]; };
+function absenceDerivedChain(newPath) {
+  const segments = absenceSegments(newPath);
+  const chain = [""];
+  for (let i = 1; i < segments.length; i++) chain.push(segments.slice(0, i).join("/"));
+  return chain;
+}
+
+/** R1: exact keys at every level and JSON types (S2a enumeration schema only). */
+function absenceShapeHolds(w) {
+  if (!absenceExactKeys(w, ABSENCE_TOP_KEYS)) return false;
+  for (const key of ["kind", "producerIdentity", "version", "method", "secretNamePolicy", "projectId", "repositoryId", "worktreeId", "snapshotToken", "symlinkPolicy"]) {
+    if (!absenceString(w[key])) return false;
+  }
+  if (!absenceExactKeys(w.project, ["rootId", "relativePath"]) || !absenceString(w.project.rootId) || !absenceString(w.project.relativePath)) return false;
+  if (!absenceRevisionShape(w.revision)) return false;
+  if (typeof w.requiresReobservation !== "boolean") return false;
+  const o = w.observation;
+  if (!absenceExactKeys(o, ["basis", "bracket", "revisionStable", "tokenStable"]) || !absenceString(o.basis) || !absenceString(o.bracket) ||
+      typeof o.revisionStable !== "boolean" || typeof o.tokenStable !== "boolean") return false;
+  if (!absenceExactKeys(w.nameComparison, ABSENCE_NAME_COMPARISON_KEYS) ||
+      !absenceExactKeys(w.nameComparison.kernelModelKey, Object.keys(KERNEL_MODEL_KEY_DESCRIPTOR))) return false;
+  if (!absenceExactKeys(w.filesystem, ["policyId", "rootFsType"]) || !absenceString(w.filesystem.policyId) || !absenceStringOrNull(w.filesystem.rootFsType)) return false;
+  if (!Array.isArray(w.filtersApplied) || !w.filtersApplied.every(absenceString)) return false;
+  if (!absenceExactKeys(w.limits, Object.keys(CREATE_ABSENCE_WITNESS_LIMITS)) || !Object.values(w.limits).every(absenceCount)) return false;
+  if (!absenceExactKeys(w.failClosedMatrix, Object.keys(CREATE_ABSENCE_WITNESS_FAIL_CLOSED_MATRIX)) ||
+      !Object.values(w.failClosedMatrix).every(value => typeof value === "boolean")) return false;
+  if (!absenceExactKeys(w.hardFlags, Object.keys(CREATE_ABSENCE_WITNESS_HARD_FLAGS)) ||
+      !Object.values(w.hardFlags).every(value => typeof value === "string" || typeof value === "boolean")) return false;
+  if (!Array.isArray(w.nonAuthorization) || !w.nonAuthorization.every(absenceString)) return false;
+  const p = w.provenance;
+  if (p !== null && (!absenceExactKeys(p, ["bindingMismatchReason", "liveSnapshotToken", "liveRevision"]) || !absenceString(p.bindingMismatchReason) ||
+      !absenceStringOrNull(p.liveSnapshotToken) || (p.liveRevision !== null && !absenceRevisionShape(p.liveRevision)))) return false;
+  if (!Array.isArray(w.targets)) return false;
+  for (const t of w.targets) {
+    if (!absenceExactKeys(t, ABSENCE_RECORD_KEYS) || !absenceString(t.newPath) || !absenceString(t.parentPath) || !absenceString(t.basename) ||
+        typeof t.complete !== "boolean" || !absenceStringOrNull(t.incompleteReason) || !ABSENCE_VERDICTS.includes(t.verdict) ||
+        (t.nativeLookup !== null && !ABSENCE_NATIVE_LOOKUPS.includes(t.nativeLookup)) || !Array.isArray(t.ancestors)) return false;
+    for (const a of t.ancestors) {
+      if (!absenceExactKeys(a, ABSENCE_ANCESTOR_KEYS) || !absenceString(a.path) || !ABSENCE_ANCESTOR_STATES.includes(a.state) ||
+          !absenceStringOrNull(a.fsType) || !absenceStringOrNull(a.devIno)) return false;
+    }
+    const e = t.enumeration;
+    if (e !== null && (!absenceExactKeys(e, ABSENCE_S2A_ENUMERATION_KEYS) || !absenceCount(e.entryCount) || !Array.isArray(e.entries) ||
+        !e.entries.every(absenceString) || !absenceCount(e.redactedSecretEntryCount) || !absenceString(e.listingDigest))) return false;
+  }
+  return true;
+}
+
+/** R2: constants fixed by the admitted option (S2a) and key bundle hn-create-name-key-v3. */
+function absenceConstantsHold(w) {
+  const nc = w.nameComparison;
+  return w.kind === CREATE_ABSENCE_WITNESS_KIND &&
+    w.producerIdentity === CREATE_ABSENCE_WITNESS_PRODUCER_IDENTITY &&
+    w.version === CREATE_ABSENCE_WITNESS_VERSION &&
+    w.method === CREATE_ABSENCE_WITNESS_METHOD &&
+    w.secretNamePolicy === CREATE_ABSENCE_WITNESS_SECRET_NAME_POLICY &&
+    w.symlinkPolicy === CREATE_ABSENCE_WITNESS_SYMLINK_POLICY &&
+    w.observation.basis === "working_tree" && w.observation.bracket === "before_after_rewalk" &&
+    nc.keyId === CREATE_NAME_KEY_ID && nc.unicodeVersion === UNICODE_VERSION && nc.caseFolding === "full_CF" &&
+    nc.turkicPostFold === true && nc.stripDefaultIgnorable === true && nc.trimTrailingDotSpace === true && nc.collisionRule === "K_or_Kk" &&
+    Object.keys(KERNEL_MODEL_KEY_DESCRIPTOR).every(key => nc.kernelModelKey[key] === KERNEL_MODEL_KEY_DESCRIPTOR[key]) &&
+    w.filesystem.policyId === CREATE_ABSENCE_WITNESS_FS_POLICY_ID;
+}
+
+/**
+ * R1 + R2 on a materialized createDestinationAbsenceWitness. Returns `{ ok: true, witness }` or
+ * `{ ok: false, code: "create_absence_evidence_invalid" }`; never throws for content.
+ */
+export function normalizeCreateDestinationAbsenceWitness(value) {
+  try {
+    if (!absenceShapeHolds(value) || !absenceConstantsHold(value)) return { ok: false, code: ABSENCE_INVALID };
+    return { ok: true, witness: value };
+  } catch {
+    return { ok: false, code: ABSENCE_INVALID };
+  }
+}
+
+/** R3: binding to the composer's exterior values (after gates 1–4). */
+function absenceBindingHolds(w, exterior) {
+  if (w.projectId !== exterior.projectId || w.repositoryId !== exterior.repositoryId || w.worktreeId !== exterior.worktreeId) return false;
+  if (w.project.rootId !== exterior.worktree.rootId || w.project.relativePath !== exterior.worktree.relativePath) return false;
+  if (ABSENCE_REVISION_KEYS.some(key => w.revision[key] !== exterior.revision[key])) return false;
+  if (w.snapshotToken !== exterior.snapshotToken) return false;
+  const declared = new Set(exterior.taskPaths);
+  if (declared.size !== exterior.taskPaths.length || w.targets.length !== declared.size) return false;
+  for (let i = 0; i < w.targets.length; i++) {
+    const t = w.targets[i];
+    if (!declared.has(t.newPath) || (i > 0 && compareStrings(w.targets[i - 1].newPath, t.newPath) >= 0)) return false;
+    if (t.parentPath !== absenceParentPath(t.newPath) || t.basename !== absenceBasename(t.newPath)) return false;
+    const chain = absenceDerivedChain(t.newPath);
+    if (t.ancestors.length > chain.length || t.ancestors.some((a, j) => a.path !== chain[j])) return false;
+  }
+  return true;
+}
+
+/** R4: global metadata. */
+function absenceMetadataConsistent(w) {
+  if (w.filtersApplied.length !== 0) return false;
+  if (Object.keys(CREATE_ABSENCE_WITNESS_LIMITS).some(key => w.limits[key] !== CREATE_ABSENCE_WITNESS_LIMITS[key])) return false;
+  if (w.generatedAt !== null || w.requiresReobservation !== true) return false;
+  if (Object.keys(CREATE_ABSENCE_WITNESS_FAIL_CLOSED_MATRIX).some(key => w.failClosedMatrix[key] !== true)) return false;
+  if (Object.keys(CREATE_ABSENCE_WITNESS_HARD_FLAGS).some(key => w.hardFlags[key] !== CREATE_ABSENCE_WITNESS_HARD_FLAGS[key])) return false;
+  if (w.nonAuthorization.length !== CREATE_ABSENCE_WITNESS_NON_AUTHORIZATION.length ||
+      CREATE_ABSENCE_WITNESS_NON_AUTHORIZATION.some((text, i) => w.nonAuthorization[i] !== text)) return false;
+  const anyComplete = w.targets.some(t => t.complete === true);
+  if (anyComplete && (w.observation.revisionStable !== true || w.observation.tokenStable !== true)) return false;
+  if (anyComplete && w.provenance !== null) return false;
+  return Buffer.byteLength(canonicalJson(w), "utf8") <= CREATE_ABSENCE_WITNESS_LIMITS.maxWitnessBytes;
+}
+
+/** R5: per-target structure. */
+function absenceRecordConsistent(t) {
+  if (t.complete === true && t.incompleteReason !== null) return false;
+  if (t.complete === false && (t.incompleteReason === null || !CREATE_ABSENCE_INCOMPLETE_REASONS.includes(t.incompleteReason))) return false;
+  if (t.complete === true && (t.enumeration === null || !["ENOENT", "present"].includes(t.nativeLookup))) return false;
+  const chain = t.ancestors;
+  for (let i = 0; i < chain.length; i++) {
+    const a = chain[i];
+    if (i > 0 && chain[i - 1].state !== "directory") return false;
+    if ((a.state === "directory") !== (a.fsType !== null) || (a.state === "directory") !== (a.devIno !== null)) return false;
+  }
+  if (chain.length > 0 && !["directory", "unreadable"].includes(chain[0].state)) return false;
+  if (chain.length === 0) {
+    if (t.complete !== false || !ABSENCE_EMPTY_CHAIN_REASONS.includes(t.incompleteReason)) return false;
+    if (t.nativeLookup !== null || t.enumeration !== null || t.verdict !== "unknown") return false;
+  }
+  if (t.incompleteReason === "witness_byte_cap" && (chain.length !== 0 || t.nativeLookup !== null || t.enumeration !== null ||
+      t.complete !== false || t.verdict !== "unknown")) return false;
+  const e = t.enumeration;
+  if (e !== null) {
+    for (let i = 0; i < e.entries.length; i++) {
+      const entry = e.entries[i];
+      if (i > 0 && compareStrings(e.entries[i - 1], entry) >= 0) return false;
+      if (Buffer.byteLength(entry, "utf8") > CREATE_ABSENCE_WITNESS_LIMITS.maxNameBytes || entry.includes("/") || entry.includes("\u0000")) return false;
+      if (isContextSecretSegment(entry)) return false;
+    }
+    if (e.entryCount !== e.entries.length + e.redactedSecretEntryCount) return false;
+    if (e.entryCount > CREATE_ABSENCE_WITNESS_LIMITS.maxEntriesPerParent) return false;
+    const body = { entryCount: e.entryCount, entries: e.entries, redactedSecretEntryCount: e.redactedSecretEntryCount };
+    if (createHash("sha256").update(canonicalJson(body), "utf8").digest("hex") !== e.listingDigest) return false;
+    if (t.nativeLookup === "ENOENT" && e.entries.includes(t.basename)) return false;
+    if (t.nativeLookup === "present" && e.entryCount === 0) return false;
+  }
+  return true;
+}
+
+/** R6: a complete record needs the root and every ancestor on the G12 allow-list. */
+function absenceFilesystemConsistent(w, t) {
+  if (t.complete !== true) return true;
+  if (!CREATE_ABSENCE_WITNESS_FS_ALLOWLIST.includes(w.filesystem.rootFsType)) return false;
+  return t.ancestors.every(a => CREATE_ABSENCE_WITNESS_FS_ALLOWLIST.includes(a.fsType));
+}
+
+/** §3.3 S2a rule, re-implemented here (never imported from the producer; parity test D3-S2a). */
+function absenceS2aRequiresUnknown(redactedSecretEntryCount, basename) {
+  if (!(redactedSecretEntryCount > 0)) return false;
+  return isContextSecretSegment(nameKey(basename)) || isContextSecretSegment(kernelModelNameKey(basename));
+}
+
+/** R8 recompute order (a)–(j). Only reached on a matching runtime Unicode version (R7). */
+function absenceRecomputedVerdict(t) {
+  const chain = t.ancestors;
+  if (chain.some(a => CREATE_ABSENCE_BOUNDARY_STATES.includes(a.state))) return "ancestor_boundary";
+  if (chain.length > 0 && chain[chain.length - 1].state === "absent") return "parent_absent";
+  if (chain.some(a => a.state === "unreadable")) return "unknown";
+  if (t.complete !== true) return "unknown";
+  const e = t.enumeration;
+  if (e.entryCount === 0) return "unknown";
+  if (t.nativeLookup === "present") return "exists";
+  if (e.entries.includes(t.basename)) return "exists";
+  if (e.entries.some(entry => namesCollide(entry, t.basename))) return "unknown";
+  if (absenceS2aRequiresUnknown(e.redactedSecretEntryCount, t.basename)) return "unknown";
+  if (nameKey(t.basename) === "" || kernelModelNameKey(t.basename) === "" || /~[0-9]/.test(t.basename)) return "unknown";
+  return "absent";
+}
+
+/**
+ * R1–R8 (§2.5, first failure wins). `exterior` = { taskPaths, projectId, repositoryId, worktreeId,
+ * worktree: { rootId, relativePath }, revision, snapshotToken }. Optional internal third argument
+ * `{ runtimeUnicodeVersion }` (§1.5; NF-4, N-b, N3-5): absent (fewer than three arguments) → the
+ * runtime value; present → it must be a non-null, non-array object, and `Object.hasOwn` decides
+ * whether its value (even `undefined`) replaces the default. Anything else is a mismatch. The
+ * composer never passes it. Returns a refuse `{ ok: false, code }` or the candidate
+ * `{ ok: true, unicodeMismatch, targets: [{ newPath, parentPath, verdict, witnessVerdict, entries }] }`.
+ */
+export function evaluateCreateDestinationAbsenceWitness(witness, exterior) {
+  try {
+    const normalized = normalizeCreateDestinationAbsenceWitness(witness);
+    if (!normalized.ok) return normalized;
+    const w = normalized.witness;
+    if (!absenceBindingHolds(w, exterior)) return { ok: false, code: ABSENCE_BINDING };
+    if (!absenceMetadataConsistent(w)) return { ok: false, code: ABSENCE_INCONSISTENT };
+    if (!w.targets.every(absenceRecordConsistent)) return { ok: false, code: ABSENCE_INCONSISTENT };
+    if (!w.targets.every(t => absenceFilesystemConsistent(w, t))) return { ok: false, code: ABSENCE_INCONSISTENT };
+    let runtimeUnicodeVersion = process.versions.unicode;
+    let unicodeMismatch = false;
+    if (arguments.length >= 3) {
+      const seam = arguments[2];
+      if (!absenceRecord(seam)) unicodeMismatch = true;
+      else if (Object.hasOwn(seam, "runtimeUnicodeVersion")) runtimeUnicodeVersion = seam.runtimeUnicodeVersion;
+    }
+    if (runtimeUnicodeVersion !== UNICODE_VERSION) unicodeMismatch = true;
+    const targets = [];
+    for (const t of w.targets) {
+      let verdict = "unknown";
+      if (!unicodeMismatch) {
+        verdict = absenceRecomputedVerdict(t);
+        if (verdict !== t.verdict) return { ok: false, code: ABSENCE_INCONSISTENT };
+      }
+      targets.push({ newPath: t.newPath, parentPath: t.parentPath, verdict, witnessVerdict: t.verdict,
+        entries: t.enumeration === null ? null : [...t.enumeration.entries] });
+    }
+    return { ok: true, unicodeMismatch, targets };
+  } catch {
+    return { ok: false, code: ABSENCE_INVALID };
+  }
+}
+
+function createRelaxCompleteness(value) {
+  return absenceExactKeys(value, CREATE_RELAX_COMPLETENESS_KEYS) &&
+    Array.isArray(value.source) && value.source.length === 1 && value.source[0] === "source_unavailable" &&
+    Array.isArray(value.provider) && value.provider.length === 0 &&
+    Array.isArray(value.traversal) && value.traversal.length === 0 &&
+    Array.isArray(value.output) && value.output.length === 0;
+}
+
+/**
+ * D3-c (contract r3.4 l.768–777): true only for a create whose every declared target has a step-5
+ * candidate verdict "absent" (R7 clean) and whose Impact is the real-shaped new-path form.
+ * Condition 1 (kind "create") is checked first. Total: odd shapes return false; never throws.
+ */
+export function isCreateGateRelaxed(normalizedRequest, impact, absenceCandidate) {
+  try {
+    if (!absenceRecord(normalizedRequest) || !Object.hasOwn(normalizedRequest, "operationIntent")) return false;
+    const intent = normalizedRequest.operationIntent;
+    if (!absenceRecord(intent) || intent.kind !== "create") return false;
+    if (!Array.isArray(intent.targets) || intent.targets.length === 0) return false;
+    const declared = new Set();
+    for (const target of intent.targets) {
+      if (!absenceRecord(target) || typeof target.newPath !== "string") return false;
+      declared.add(target.newPath);
+    }
+    if (!absenceRecord(absenceCandidate) || absenceCandidate.ok !== true || absenceCandidate.unicodeMismatch !== false ||
+        !Array.isArray(absenceCandidate.targets)) return false;
+    let absent = 0;
+    for (const path of declared) {
+      const candidate = absenceCandidate.targets.find(t => absenceRecord(t) && t.newPath === path);
+      if (!candidate || candidate.verdict !== "absent") return false;
+      absent++;
+    }
+    if (absent !== declared.size || absent < 1) return false;
+    if (!absenceRecord(impact) || impact.status !== "partial" || !Array.isArray(impact.affectedFiles) ||
+        !createRelaxCompleteness(impact.completeness) || !Array.isArray(impact.targets)) return false;
+    for (const target of impact.targets) {
+      if (!absenceRecord(target)) return false;
+      if (target.findingState === "not_evaluated") {
+        if (!declared.has(target.originPath) || !Object.hasOwn(target, "targetSource") || target.targetSource !== null ||
+            target.status !== "partial" || !createRelaxCompleteness(target.completeness)) return false;
+      } else if (target.findingState !== "evidence_found" && target.findingState !== "no_evidence_found") {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * bindCreateIntent steps 8 (R9 retained cross-check) and 9 (aggregation) when an evaluated absence
+ * witness is supplied (§1.4, §2.2, §1.1 ix). Every outcome is returned, never thrown. Lift needs an
+ * explicit "absent" for each declared path (count === paths.length ≥ 1); anything else is UNKNOWN.
+ */
+function createAbsenceVerdict(absence, paths, sourcesByPath, targetsByPath) {
+  const notProven = { notEvaluated: "create_destination_absence_not_proven" };
+  const valid = absenceRecord(absence) && absence.ok === true && Array.isArray(absence.targets);
+  const records = valid ? absence.targets.filter(absenceRecord) : [];
+  const recordFor = path => records.find(t => t.newPath === path);
+  // R9 (first clause): retained basenames must appear in every non-null entries list of their parent.
+  const retained = [...sourcesByPath.keys(), ...[...targetsByPath].filter(([, target]) => target.targetSource != null).map(([path]) => path)];
+  for (const record of records) {
+    if (!Array.isArray(record.entries)) continue;
+    for (const path of retained) {
+      if (absenceParentPath(path) === record.parentPath && !record.entries.includes(absenceBasename(path))) {
+        return { notEvaluated: ABSENCE_BINDING };
+      }
+    }
+  }
+  // R9 (second clause): a retained observation of p itself with a witness verdict "absent".
+  for (const path of paths) {
+    const record = recordFor(path);
+    const observed = sourcesByPath.has(path) || targetsByPath.get(path)?.targetSource != null;
+    if (observed && record && record.witnessVerdict === "absent") return { notEvaluated: ABSENCE_BINDING };
+  }
+  if (!valid) return notProven;
+  const verdicts = paths.map(path => {
+    if (sourcesByPath.has(path) || targetsByPath.get(path)?.targetSource != null) return "exists";
+    const record = recordFor(path);
+    if (!record || absence.unicodeMismatch !== false) return "unknown";
+    if (record.verdict !== "absent") return ["exists", "parent_absent", "ancestor_boundary"].includes(record.verdict) ? record.verdict : "unknown";
+    const segments = absenceSegments(path);
+    const collides = paths.some(other => {
+      if (other === path) return false;
+      const otherSegments = absenceSegments(other);
+      return otherSegments.length === segments.length && segments.every((segment, i) => namesCollide(segment, otherSegments[i]));
+    });
+    return collides ? "unknown" : "absent";
+  });
+  if (verdicts.includes("exists")) return { notEvaluated: "create_destination_exists" };
+  if (verdicts.includes("parent_absent")) return { notEvaluated: "create_parent_directory_absent" };
+  if (verdicts.includes("ancestor_boundary")) return { notEvaluated: "create_ancestor_boundary" };
+  const absentCount = verdicts.filter(verdict => verdict === "absent").length;
+  if (paths.length >= 1 && absentCount === paths.length) return { notEvaluated: null, lift: { reason: "create_destination_proven_absent" } };
+  return notProven;
 }
 
 export { compareStrings };

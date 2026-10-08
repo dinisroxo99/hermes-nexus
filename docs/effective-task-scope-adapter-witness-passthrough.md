@@ -2,7 +2,7 @@
 
 **Slice:** Slice 4 (bounded) — ETS adapter completeness-witness pass-through (C1)
 **Date:** 2026-10-07 (PT)
-**policyVersion:** `step4-foundation-4` (unchanged by this seam; the earlier `step4-foundation-3` here was stale)
+**policyVersion:** `step4-foundation-5` (bumped by D3, the absence-witness lift; unchanged by this seam itself; the earlier `step4-foundation-3` / `-4` values here are historical)
 **schemaVersion / analysisVersion:** unchanged (`2` / `effective-task-scope-v2`)
 
 ## Contract
@@ -28,9 +28,12 @@ instead of `checkInputBudget`: pack and impact stay ≤ 131072 compact bytes eac
 request + pack + impact + [symbol witness] + absence witness must stay ≤ 327680 (`MAX_COMPACT_INPUT`).
 There is **no** separate witness sub-cap; the 49152-byte `maxWitnessBytes` is enforced only by the
 producer and, later, the composer (N32-1). Without the absence key, `checkInputBudget` runs exactly as
-before and is unchanged. At `step4-foundation-4` the composer does not consume the absence witness:
-create stays refused (`not_evaluated`, no WRITE, no `operationIntent`), and every outcome is
-byte-identical to the same request without the key. The HTTP route never sends this key.
+before and is unchanged. From `step4-foundation-5` (D3) the composer consumes the absence witness:
+for a create intent it validates, binds and evaluates it (refuse codes `create_absence_evidence_invalid`,
+`create_absence_binding_mismatch`, `create_absence_evidence_inconsistent`) and lifts only when every
+target is proven absent (see [create intent](effective-task-scope-create-intent.md)); on a READ or
+delete request the key gives `rejected` / `create_absence_witness_unexpected`. The adapter itself is
+unchanged. The HTTP route never sends this key.
 
 The adapter stays **data-only**: no producer, A1, analyzer, Git, FS, HTTP, or Hermes calls.
 Callers/tests produce either witness outside the adapter. Empty-symbols behavior is unchanged.

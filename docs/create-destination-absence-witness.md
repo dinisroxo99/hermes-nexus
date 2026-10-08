@@ -180,3 +180,9 @@ mismatch); no test mutates `process.versions`.
   misses in both model variants).
 - `tests/project-context-files.test.js`: PA-26 (D0 identity and `isContextPathAllowed` parity with a
   frozen 55f606c copy).
+
+## Composer (D3)
+
+From `step4-foundation-5` the composer consumes this witness for create intents (the policy imports
+only the pure constants module, `create-name-key.js` and the D0 secret predicate, never this producer):
+see [create intent](effective-task-scope-create-intent.md). The producer text above is unchanged.

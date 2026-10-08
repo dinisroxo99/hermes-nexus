@@ -6,13 +6,26 @@ import {
   bindCreateIntent,
   normalizeEffectiveTaskScopeRequest
 } from "../src/lib/effective-task-scope-policy.js";
+import * as policy from "../src/lib/effective-task-scope-policy.js";
+import { registerHooks } from "node:module";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import {
+  CREATE_ABSENCE_WITNESS_KIND, CREATE_ABSENCE_WITNESS_PRODUCER_IDENTITY, CREATE_ABSENCE_WITNESS_VERSION, CREATE_ABSENCE_WITNESS_METHOD,
+  CREATE_ABSENCE_WITNESS_SECRET_NAME_POLICY, CREATE_ABSENCE_WITNESS_SYMLINK_POLICY, CREATE_ABSENCE_WITNESS_FS_POLICY_ID,
+  CREATE_ABSENCE_WITNESS_LIMITS, CREATE_ABSENCE_WITNESS_FAIL_CLOSED_MATRIX, CREATE_ABSENCE_WITNESS_HARD_FLAGS,
+  CREATE_ABSENCE_WITNESS_NON_AUTHORIZATION, canonicalJson, canonicalByteLength
+} from "../src/lib/create-destination-absence-witness-constants.js";
+import { KERNEL_MODEL_KEY_DESCRIPTOR } from "../src/lib/create-name-key.js";
+// D3-S2a only: the producer is imported by this test, never by the composer or policy.
+import { s2aSecretRuleRequiresUnknown } from "../src/lib/create-destination-absence-witness.js";
 
 // Synthetic consistency fixtures only; not authenticated/live observations.
-// step4-foundation-4: create is recognized and refused fail-closed. A positively
-// observed destination is EXISTS (create_destination_exists); anything else is
-// UNKNOWN (create_destination_absence_not_proven). PROVEN-ABSENT needs a positive
-// absence witness that no current pure input supplies, so create never emits
-// WRITE, WATCH or operationIntent.
+// step4-foundation-5: without a createDestinationAbsenceWitness, create is refused fail-closed exactly
+// as under the previous policy version: a positively observed destination is EXISTS
+// (create_destination_exists); anything else is UNKNOWN (create_destination_absence_not_proven), so
+// none of the REACHABLE fixtures below emits WRITE, WATCH or operationIntent. The witness-carrying
+// D3 tests (B-*, C-*) are appended after the existing tests and never registered in REACHABLE.
 function fixture(paths = ["src/a.js", "src/z.js"]) {
   const revision = { status: "available", commitSha: "a".repeat(40), branch: "fixture",
     dirty: false, isLinkedWorktree: true, repositoryId: "b".repeat(64), worktreeId: "c".repeat(64) };
@@ -188,11 +201,11 @@ test("create: A2 no reachable create fixture emits WRITE, WATCH or operationInte
   }
 });
 
-test("create: V1 policyVersion step4-foundation-4 on create outcomes", () => {
-  assert.equal(EFFECTIVE_TASK_SCOPE_POLICY_VERSION, "step4-foundation-4");
-  assert.equal(run(fixture()).policyVersion, "step4-foundation-4");
+test("create: V1 policyVersion step4-foundation-5 on create outcomes", () => {
+  assert.equal(EFFECTIVE_TASK_SCOPE_POLICY_VERSION, "step4-foundation-5");
+  assert.equal(run(fixture()).policyVersion, "step4-foundation-5");
   const f = fixture(["src/new.js"]); unobserve(f, "src/new.js");
-  assert.equal(run(f).policyVersion, "step4-foundation-4");
+  assert.equal(run(f).policyVersion, "step4-foundation-5");
 });
 
 test("create: P1 purity, no fixture mutation and no filesystem side effects", () => {
@@ -222,4 +235,806 @@ test("create: R4 shared normalizer denies create unless allowCreateIntent === tr
   const del = { ...createReq, operationIntent: { kind: "delete", targets: [{ oldPath: "src/a.js", newPath: null }] } };
   assert.equal(normalizeEffectiveTaskScopeRequest(del).operationIntent.kind, "delete");
   assert.equal(normalizeEffectiveTaskScopeRequest(del, { allowCreateIntent: true }).operationIntent.kind, "delete");
+});
+
+// =============================================================================================
+// D3: create-destination absence witness consume (absence-witness evidence contract r3.4 §1.4,
+// §2.5 R1–R9, §5.2 B-*, §5.3 C-*; Architect D3 pins). Labelled synthetic witnesses only: built
+// here, never produced from a filesystem, not authenticated. Binder/evaluator calls go through the
+// policy namespace import so a missing export fails only the test that needs it. Lift fixtures
+// are never registered through pin()/REACHABLE (RN-8). Version checks use the imported constant.
+// =============================================================================================
+const UNICODE_17 = process.versions.unicode === "17.0";
+const U17 = UNICODE_17 ? {} : { skip: 'requires a runtime reporting Unicode 17.0 (process.versions.unicode === "17.0")' };
+const sha256 = text => createHash("sha256").update(text, "utf8").digest("hex");
+const FS_TYPE = "0x1021994";
+const LIFT = "create_destination_proven_absent";
+const NOT_PROVEN = "create_destination_absence_not_proven";
+const INVALID = "create_absence_evidence_invalid";
+const BINDING = "create_absence_binding_mismatch";
+const INCONSISTENT = "create_absence_evidence_inconsistent";
+const byCodeUnit = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
+function listing(entries, redacted = 0) {
+  const body = { entryCount: entries.length + redacted, entries: [...entries], redactedSecretEntryCount: redacted };
+  return { ...body, listingDigest: sha256(canonicalJson(body)) };
+}
+function chainFor(newPath) {
+  const segments = newPath.split("/");
+  const paths = [""];
+  for (let i = 1; i < segments.length; i++) paths.push(segments.slice(0, i).join("/"));
+  return paths.map((path, i) => ({ path, state: "directory", fsType: FS_TYPE, devIno: `2049:${1000 + i}` }));
+}
+function describe(newPath) {
+  const segments = newPath.split("/");
+  return { newPath, parentPath: segments.slice(0, -1).join("/"), basename: segments[segments.length - 1] };
+}
+function absentRecord(newPath, { entries = ["README.md"], redacted = 0, ...overrides } = {}) {
+  return { ...describe(newPath), ancestors: chainFor(newPath), nativeLookup: "ENOENT", enumeration: listing(entries, redacted),
+    complete: true, incompleteReason: null, verdict: "absent", ...overrides };
+}
+function emptyChainRecord(newPath, incompleteReason) {
+  return { ...describe(newPath), ancestors: [], nativeLookup: null, enumeration: null, complete: false, incompleteReason, verdict: "unknown" };
+}
+function scopeOutRecord(newPath, state) {
+  const ancestors = chainFor(newPath);
+  ancestors[ancestors.length - 1] = { path: ancestors[ancestors.length - 1].path, state, fsType: null, devIno: null };
+  return { ...describe(newPath), ancestors, nativeLookup: null, enumeration: null, complete: false,
+    incompleteReason: state === "unreadable" ? "unreadable" : "ancestor_scope_out",
+    verdict: state === "absent" ? "parent_absent" : state === "unreadable" ? "unknown" : "ancestor_boundary" };
+}
+function absenceWitness(f, records, overrides = {}) {
+  const er = f.request.expectedRevision;
+  return {
+    kind: CREATE_ABSENCE_WITNESS_KIND, producerIdentity: CREATE_ABSENCE_WITNESS_PRODUCER_IDENTITY, version: CREATE_ABSENCE_WITNESS_VERSION,
+    method: CREATE_ABSENCE_WITNESS_METHOD, secretNamePolicy: CREATE_ABSENCE_WITNESS_SECRET_NAME_POLICY,
+    projectId: f.request.projectId, repositoryId: er.repositoryId, worktreeId: er.worktreeId,
+    project: { rootId: f.request.worktree.rootId, relativePath: f.request.worktree.relativePath },
+    revision: { status: er.status, commitSha: er.commitSha, branch: er.branch, dirty: er.dirty, isLinkedWorktree: er.isLinkedWorktree },
+    snapshotToken: f.evidence.pack.analysis.snapshotToken, generatedAt: null, requiresReobservation: true,
+    observation: { basis: "working_tree", bracket: "before_after_rewalk", revisionStable: true, tokenStable: true },
+    nameComparison: { keyId: "hn-create-name-key-v3", unicodeVersion: "17.0", caseFolding: "full_CF", turkicPostFold: true,
+      stripDefaultIgnorable: true, trimTrailingDotSpace: true, collisionRule: "K_or_Kk", kernelModelKey: { ...KERNEL_MODEL_KEY_DESCRIPTOR } },
+    filesystem: { policyId: CREATE_ABSENCE_WITNESS_FS_POLICY_ID, rootFsType: FS_TYPE },
+    symlinkPolicy: CREATE_ABSENCE_WITNESS_SYMLINK_POLICY, filtersApplied: [], limits: { ...CREATE_ABSENCE_WITNESS_LIMITS },
+    targets: [...records].sort((a, b) => byCodeUnit(a.newPath, b.newPath)),
+    failClosedMatrix: { ...CREATE_ABSENCE_WITNESS_FAIL_CLOSED_MATRIX }, hardFlags: { ...CREATE_ABSENCE_WITNESS_HARD_FLAGS },
+    nonAuthorization: [...CREATE_ABSENCE_WITNESS_NON_AUTHORIZATION], provenance: null, ...overrides
+  };
+}
+/** Create fixture whose declared paths have no positive observation (sorted by code unit). */
+function newFixture(paths) {
+  const sorted = [...paths].sort(byCodeUnit);
+  const f = fixture(sorted);
+  for (const path of sorted) unobserve(f, path);
+  return f;
+}
+function withWitness(f, witness) { f.evidence.createDestinationAbsenceWitness = witness; return f; }
+const allAbsent = (f, options) => absenceWitness(f, f.request.task.paths.map(path => absentRecord(path, options)));
+function assertD3Exports() {
+  for (const name of ["normalizeCreateDestinationAbsenceWitness", "evaluateCreateDestinationAbsenceWitness", "isCreateGateRelaxed"]) {
+    assert.equal(typeof policy[name], "function", `${name} is exported by the policy module`);
+  }
+}
+function exteriorOf(f) {
+  const req = policy.normalizeEffectiveTaskScopeRequest(f.request, { allowCreateIntent: true });
+  const er = req.expectedRevision;
+  return { req, exterior: { taskPaths: req.task.paths, projectId: req.projectId, repositoryId: er.repositoryId, worktreeId: er.worktreeId,
+    worktree: req.worktree, revision: er, snapshotToken: f.evidence.pack.analysis.snapshotToken } };
+}
+/** normalize → evaluate (optional seam) → bindCreateIntent, on materialized data (as the composer sees it). */
+function pipeline(f, ...seam) {
+  assertD3Exports();
+  const { req, exterior } = exteriorOf(f);
+  const data = policy.materializeBoundedJsonData(f.evidence);
+  const normalized = policy.normalizeCreateDestinationAbsenceWitness(data.createDestinationAbsenceWitness);
+  if (!normalized.ok) return { code: normalized.code, candidate: null };
+  const candidate = policy.evaluateCreateDestinationAbsenceWitness(normalized.witness, exterior, ...seam);
+  if (!candidate.ok) return { code: candidate.code, candidate: null };
+  const bound = policy.bindCreateIntent(req.operationIntent, req.task.paths, data.pack, data.impact, candidate);
+  return { code: bound.notEvaluated === null ? bound.lift?.reason : bound.notEvaluated, candidate, bound };
+}
+const verdictsOf = candidate => Object.fromEntries(candidate.targets.map(t => [t.newPath, t.verdict]));
+/** Asserts the composer outcome and the binder/evaluator pipeline outcome; optionally the per-target candidate. */
+function expectOutcome(f, code, candidates) {
+  const viaPipeline = pipeline(f);
+  assert.equal(viaPipeline.code, code, `pipeline: ${JSON.stringify(viaPipeline.code)}`);
+  if (candidates) {
+    assert.ok(viaPipeline.candidate, "evaluator candidate present");
+    assert.deepEqual(verdictsOf(viaPipeline.candidate), candidates);
+  }
+  const r = run(f);
+  if (code === LIFT) {
+    assert.equal(r.status, "incomplete", JSON.stringify(r.reasons));
+    assert.deepEqual(r.write.items.map(item => item.target.path), f.request.task.paths);
+    for (const item of r.write.items) assert.deepEqual(item.ruleIds, ["explicit_create_intent", "explicit_task_path"]);
+    assert.deepEqual(r.operationIntent, { kind: "create", targets: f.request.task.paths.map(newPath => ({ oldPath: null, newPath })) });
+    assert.ok(r.completeness.resolver.includes(LIFT));
+  } else {
+    terminal(f, "not_evaluated", code);
+  }
+  return { r, viaPipeline };
+}
+function mutate(f, edit) { const w = f.evidence.createDestinationAbsenceWitness; edit(w); return f; }
+function relist(record, entries, redacted = record.enumeration.redactedSecretEntryCount) { record.enumeration = listing(entries, redacted); }
+const TWO = ["src/new.js", "src/other.js"];
+
+// ---- B-*: binder / evaluator ----
+test("D3 B-1: two absent targets, ¬C ∧ ¬I -> lift create_destination_proven_absent", U17, () => {
+  const f = newFixture(TWO); withWitness(f, allAbsent(f));
+  expectOutcome(f, LIFT, { "src/new.js": "absent", "src/other.js": "absent" });
+});
+test("D3 B-2: as B-1 but C(p) true for one (witness consistent) -> create_destination_exists", U17, () => {
+  const f = fixture(["src/a.js", "src/new.js"]); unobserve(f, "src/new.js");
+  withWitness(f, absenceWitness(f, [absentRecord("src/a.js", { entries: ["README.md", "a.js"], nativeLookup: "present", verdict: "exists" }),
+    absentRecord("src/new.js", { entries: ["README.md", "a.js"] })]));
+  expectOutcome(f, "create_destination_exists", { "src/a.js": "exists", "src/new.js": "absent" });
+});
+test("D3 B-3: byte-equal entry (native lookup present) -> create_destination_exists", U17, () => {
+  const f = newFixture(TWO);
+  withWitness(f, absenceWitness(f, [absentRecord("src/new.js", { entries: ["README.md", "new.js"], nativeLookup: "present", verdict: "exists" }), absentRecord("src/other.js")]));
+  expectOutcome(f, "create_destination_exists", { "src/new.js": "exists", "src/other.js": "absent" });
+});
+for (const [id, target, entry] of [
+  ["B-4 case-only variant", "src/new.js", "New.js"],
+  ["B-5 NFC target vs NFD entry", "src/caf\u00e9.js", "cafe\u0301.js"],
+  ["B-5b NFC É vs NFD é", "src/\u00c9new.js", "e\u0301new.js"],
+  ["B-5c dotless ı entry", "src/inew.js", "\u0131new.js"],
+  ["B-5d ZWSP entry", "src/new.js", "new\u200b.js"],
+  ["B-5e trailing dot", "src/new.js", "new.js."],
+  ["B-5e trailing space", "src/new.js", "new.js "],
+  ["B-5f İ vs i+U+0307", "src/\u0130new.js", "i\u0307new.js"],
+  ["B-46a αί.txt vs ᾳ+U+0301 (Kk only)", "src/\u1fb3\u0301.txt", "\u03b1\u03af.txt"],
+  ["B-47a αί vs α+U+0345+U+0301", "src/\u03b1\u0345\u0301", "\u03b1\u03af"],
+  ["B-48a ϊ.md vs U+0345+U+0308", "src/\u0345\u0308.md", "\u03ca.md"],
+  ["B-49a ᾴ.txt vs ᾳ+U+0301 (K only)", "src/\u1fb3\u0301.txt", "\u1fb4.txt"],
+  ["B-52 (S2a analogue; literal B-52 is S2b, not admitted: A2 = S2a; the Kk disjunct is held by D3-S2a + D3-S2a-Kk) ſecrets.ᾳ+U+0301 with a redacted secrets.αί", "src/\u017fecrets.\u1fb3\u0301", null]
+]) {
+  test(`D3 ${id}: collision -> ${NOT_PROVEN}`, U17, () => {
+    const f = newFixture([target, "src/zz.js"]);
+    const entries = entry === null ? ["README.md"] : ["README.md", entry].sort(byCodeUnit);
+    const redacted = entry === null ? 1 : 0;
+    withWitness(f, absenceWitness(f, [absentRecord(target, { entries, redacted, verdict: "unknown" }), absentRecord("src/zz.js", { entries, redacted })]));
+    expectOutcome(f, NOT_PROVEN, { [target]: "unknown", "src/zz.js": "absent" });
+  });
+}
+for (const [id, paths] of [
+  ["B-21 src/A.js + src/a.js", ["src/A.js", "src/a.js"]],
+  ["B-21b src/İ.js + src/i+U+0307.js", ["src/\u0130.js", "src/i\u0307.js"]],
+  ["B-46b src/ᾳ+U+0301.txt + src/αί.txt", ["src/\u1fb3\u0301.txt", "src/\u03b1\u03af.txt"]],
+  ["B-47b src/α+U+0345+U+0301.js + src/αί.js", ["src/\u03b1\u0345\u0301.js", "src/\u03b1\u03af.js"]],
+  ["B-48b src/U+0345+U+0308.md + src/ϊ.md", ["src/\u0345\u0308.md", "src/\u03ca.md"]]
+]) {
+  test(`D3 ${id}: declared-target dual-key collision -> ${NOT_PROVEN} (evaluator candidates absent)`, U17, () => {
+    const f = newFixture(paths); withWitness(f, allAbsent(f));
+    expectOutcome(f, NOT_PROVEN, Object.fromEntries(paths.map(path => [path, "absent"])));
+  });
+}
+test("D3 B-49b: precomposed ᾴ vs αί is kernel-distinct; both absent -> lift", U17, () => {
+  const f = newFixture(["src/\u1fb4.txt", "src/x.js"]); withWitness(f, allAbsent(f, { entries: ["\u03b1\u03af.txt"] }));
+  expectOutcome(f, LIFT, { "src/\u1fb4.txt": "absent", "src/x.js": "absent" });
+});
+test("D3 B-6: complete:false (listing_changed) -> not proven", () => {
+  const f = newFixture(TWO);
+  withWitness(f, absenceWitness(f, [absentRecord("src/new.js", { complete: false, incompleteReason: "listing_changed", verdict: "unknown" }), absentRecord("src/other.js")]));
+  const { viaPipeline } = expectOutcome(f, NOT_PROVEN);
+  assert.equal(verdictsOf(viaPipeline.candidate)["src/new.js"], "unknown");
+});
+const refuseRow = (id, code, edit, options = {}) => test(`D3 ${id} -> ${code}`, options, () => {
+  const f = newFixture(TWO); withWitness(f, allAbsent(f)); edit(f.evidence.createDestinationAbsenceWitness, f);
+  expectOutcome(f, code);
+});
+refuseRow("B-7 complete:true with incompleteReason", INCONSISTENT, w => { w.targets[0].incompleteReason = "entry_cap"; });
+refuseRow("B-8 filtersApplied [secret]", INCONSISTENT, w => { w.filtersApplied = ["secret"]; });
+refuseRow("B-9 snapshotToken ≠ exterior", BINDING, w => { w.snapshotToken = "other-snapshot"; });
+refuseRow("B-10 revision.dirty ≠ er", BINDING, w => { w.revision.dirty = true; });
+refuseRow("B-11 a declared target missing", BINDING, w => { w.targets.pop(); });
+refuseRow("B-11 an undeclared extra target", BINDING, w => { w.targets.push(absentRecord("src/zzz.js")); });
+refuseRow("B-11 targets out of code-unit order", BINDING, w => { w.targets.reverse(); });
+for (const key of ["kind", "version", "producerIdentity"]) refuseRow(`B-12 wrong ${key}`, INVALID, w => { w[key] = `${w[key]}-other`; });
+refuseRow("B-13 extra top-level key", INVALID, w => { w.extra = true; });
+refuseRow("B-14 verdict absent with the name listed (ENOENT; R5)", INCONSISTENT, w => { relist(w.targets[0], ["README.md", "new.js"]); });
+refuseRow("B-14 verdict absent with the name listed (present; R8)", INCONSISTENT, w => {
+  relist(w.targets[0], ["README.md", "new.js"]); w.targets[0].nativeLookup = "present";
+}, U17);
+refuseRow("B-15 listingDigest mismatch", INCONSISTENT, w => { w.targets[0].enumeration.listingDigest = "0".repeat(64); });
+test("D3 B-16: retained Context sibling missing from entries -> create_absence_binding_mismatch (R9 in the binder)", () => {
+  const f = newFixture(["src/new.js"]);
+  f.evidence.pack.sections.files.items.push({ path: "src/sibling.js",
+    provenance: { trust: "canonical_fact", reason: "related_path", source: { path: "src/sibling.js", sha256: "e".repeat(64) } } });
+  withWitness(f, allAbsent(f));
+  expectOutcome(f, BINDING);
+});
+test("D3 B-16: Impact targetSource basename missing from entries -> create_absence_binding_mismatch (R9)", () => {
+  const f = fixture(["src/a.js"]); f.evidence.pack.sections.files.items = [];
+  withWitness(f, allAbsent(f));
+  expectOutcome(f, BINDING);
+});
+test("D3 B-16: retained observation of p with witness verdict absent -> binding mismatch even when R8 is skipped (seam 16.0)", () => {
+  const f = fixture(["src/a.js"]); f.evidence.pack.sections.files.items = [];
+  withWitness(f, absenceWitness(f, [absentRecord("src/a.js", { enumeration: null, complete: false, incompleteReason: "entry_cap" })]));
+  assert.equal(pipeline(f, { runtimeUnicodeVersion: "16.0" }).code, BINDING);
+});
+test("D3 B-17: last ancestor absent -> create_parent_directory_absent", U17, () => {
+  const f = newFixture(["src/sub/new.js", "src/z.js"]);
+  withWitness(f, absenceWitness(f, [scopeOutRecord("src/sub/new.js", "absent"), absentRecord("src/z.js")]));
+  expectOutcome(f, "create_parent_directory_absent", { "src/sub/new.js": "parent_absent", "src/z.js": "absent" });
+});
+for (const state of ["symlink", "repository_boundary", "nested_project", "device_boundary", "not_directory"]) {
+  test(`D3 B-18: ancestor ${state} -> create_ancestor_boundary`, U17, () => {
+    const f = newFixture(["src/sub/new.js", "src/z.js"]);
+    withWitness(f, absenceWitness(f, [scopeOutRecord("src/sub/new.js", state), absentRecord("src/z.js")]));
+    expectOutcome(f, "create_ancestor_boundary", { "src/sub/new.js": "ancestor_boundary", "src/z.js": "absent" });
+  });
+}
+test("D3 B-19: one absent, one UNKNOWN -> not proven (all-or-nothing)", U17, () => {
+  const f = newFixture(TWO);
+  withWitness(f, absenceWitness(f, [absentRecord("src/new.js"), absentRecord("src/other.js", { complete: false, incompleteReason: "token_mismatch", verdict: "unknown" })]));
+  expectOutcome(f, NOT_PROVEN, { "src/new.js": "absent", "src/other.js": "unknown" });
+});
+test("D3 B-20: one EXISTS, one scope-out -> create_destination_exists", U17, () => {
+  const f = newFixture(["src/new.js", "src/sub/x.js"]);
+  withWitness(f, absenceWitness(f, [absentRecord("src/new.js", { entries: ["README.md", "new.js"], nativeLookup: "present", verdict: "exists" }), scopeOutRecord("src/sub/x.js", "absent")]));
+  expectOutcome(f, "create_destination_exists", { "src/new.js": "exists", "src/sub/x.js": "parent_absent" });
+});
+refuseRow("B-22 generatedAt non-null", INCONSISTENT, w => { w.generatedAt = "2026-10-08T00:00:00Z"; });
+refuseRow("B-23 requiresReobservation false", INCONSISTENT, w => { w.requiresReobservation = false; });
+refuseRow("B-24 limits ≠ constants", INCONSISTENT, w => { w.limits.maxEntriesPerParent = 2048; });
+refuseRow("B-25 observation.revisionStable false with a complete target", INCONSISTENT, w => { w.observation.revisionStable = false; });
+refuseRow("B-25 observation.tokenStable false with a complete target", INCONSISTENT, w => { w.observation.tokenStable = false; });
+refuseRow("B-26 non-null provenance with a complete target", INCONSISTENT, w => {
+  w.provenance = { bindingMismatchReason: "snapshot_token_mismatch", liveSnapshotToken: "live", liveRevision: null };
+});
+refuseRow("B-27 unsorted entries", INCONSISTENT, w => { relist(w.targets[0], ["b.md", "a.md"]); });
+refuseRow("B-27 duplicate entries", INCONSISTENT, w => { relist(w.targets[0], ["a.md", "a.md"]); });
+refuseRow("B-28 entryCount 1025 with complete:true", INCONSISTENT, w => { relist(w.targets[0], ["README.md"], 1024); });
+// B-29 (S2a): all three arithmetic directions; listingDigest recomputed so the arithmetic is the only defect.
+for (const [direction, body] of [
+  ["entryCount > entries.length + redacted", { entryCount: 5, entries: ["README.md"], redactedSecretEntryCount: 0 }],
+  ["entryCount < entries.length + redacted", { entryCount: 0, entries: ["README.md"], redactedSecretEntryCount: 0 }],
+  ["redactedSecretEntryCount wrong, entryCount === entries.length", { entryCount: 1, entries: ["README.md"], redactedSecretEntryCount: 1 }]
+]) {
+  refuseRow(`B-29 S2a arithmetic mismatch (${direction})`, INCONSISTENT, w => { w.targets[0].enumeration = { ...body, listingDigest: sha256(canonicalJson(body)) }; });
+}
+// B-29 S1 / S2b / S3 legs: not admitted (A2 = S2a): R1. The S3 record shape { entryCount, entries, listingDigest }
+// equals S1's (contract §2.1), so the S1-shaped leg also covers S3; an explicit S3-labelled leg is kept for clarity.
+const shaped = body => ({ ...body, listingDigest: sha256(canonicalJson(body)) });
+refuseRow("B-29 S1-shaped enumeration with an arithmetic mismatch (not admitted (A2 = S2a): R1)", INVALID, w => {
+  w.targets[0].enumeration = shaped({ entryCount: 2, entries: ["README.md"] });
+});
+refuseRow("B-29 S3-shaped enumeration with an arithmetic mismatch (not admitted (A2 = S2a): R1; S3 shape = S1 shape)", INVALID, w => {
+  w.targets[0].enumeration = shaped({ entryCount: 3, entries: ["README.md"] });
+});
+refuseRow("B-29 S3-shaped enumeration under secretNamePolicy S3 (not admitted (A2 = S2a): R1/R2)", INVALID, w => {
+  w.secretNamePolicy = "S3"; w.targets[0].enumeration = shaped({ entryCount: 1, entries: ["README.md"] });
+});
+refuseRow("B-29 S2b-shaped enumeration with an arithmetic mismatch (not admitted (A2 = S2a): R1)", INVALID, w => {
+  w.targets[0].enumeration = shaped({ entryCount: 3, entries: ["README.md"], redactedSecretEntryKeyDigests: [sha256("k")], redactedSecretEntryKernelKeyDigests: [sha256("kk")] });
+});
+refuseRow("B-29 S2b-shaped enumeration with digest lists of different lengths (not admitted (A2 = S2a): R1)", INVALID, w => {
+  w.targets[0].enumeration = shaped({ entryCount: 2, entries: ["README.md"], redactedSecretEntryKeyDigests: [sha256("k")], redactedSecretEntryKernelKeyDigests: [] });
+});
+test(`D3 B-39: literal S2b input (src/ſecrets.json, digest of K("secrets.json")) -> ${INVALID} (not admitted (A2 = S2a): R1); S2a analogue = B-37 (src/ſecrets.json, redactedSecretEntryCount ≥ 1 -> ${NOT_PROVEN})`, () => {
+  const target = "src/\u017fecrets.json";
+  const f = newFixture([target, "src/zz.js"]);
+  const s2b = shaped({ entryCount: 2, entries: ["README.md"], redactedSecretEntryKeyDigests: [sha256("secrets.json")], redactedSecretEntryKernelKeyDigests: [sha256("secrets.json")] });
+  withWitness(f, absenceWitness(f, [absentRecord(target, { enumeration: s2b, verdict: "unknown" }), absentRecord("src/zz.js", { enumeration: s2b })]));
+  expectOutcome(f, INVALID);
+});
+test("D3 B-30: malformed chains -> inconsistent", () => {
+  const cases = [
+    ["element after absent", "src/a/new.js", ancestors => { ancestors[1] = { path: "src", state: "absent", fsType: null, devIno: null }; ancestors[2].state = "absent"; ancestors[2].fsType = ancestors[2].devIno = null; }],
+    ["element after symlink", "src/a/new.js", ancestors => { ancestors[1] = { path: "src", state: "symlink", fsType: null, devIno: null }; }],
+    ["fsType null on a directory", "src/a/new.js", ancestors => { ancestors[1].fsType = null; }]
+  ];
+  for (const [name, path, edit] of cases) {
+    const f = newFixture([path]);
+    const record = scopeOutRecord(path, "absent"); record.ancestors = chainFor(path); edit(record.ancestors);
+    record.verdict = "unknown"; record.incompleteReason = "listing_changed";
+    withWitness(f, absenceWitness(f, [record]));
+    assert.equal(pipeline(f).code, INCONSISTENT, name);
+    terminal(f, "not_evaluated", INCONSISTENT);
+  }
+});
+refuseRow("B-31 verdict exists disagreeing with the data", INCONSISTENT, w => { w.targets[0].verdict = "exists"; }, U17);
+refuseRow("B-31 verdict parent_absent disagreeing with the data", INCONSISTENT, w => { w.targets[0].verdict = "parent_absent"; }, U17);
+test("D3 B-32: nameComparison constants and shapes -> invalid", () => {
+  const edits = [
+    nc => { nc.keyId = "hn-create-name-key-v2"; }, nc => { nc.keyId = "hn-create-name-key-v1"; }, nc => { nc.unicodeVersion = "16.0"; },
+    nc => { nc.caseFolding = "simple"; }, nc => { nc.turkicPostFold = false; }, nc => { nc.collisionRule = "K"; },
+    nc => { nc.kernelModelKey.kernelUcdVersion = "17.0.0"; }, nc => { nc.kernelModelKey.cccSource = "original_character"; },
+    nc => { nc.kernelModelKey.modelId = "other"; }, nc => { nc.kernelModelKey.kernelRef = "v6.12"; },
+    nc => { nc.kernelModelKey.defaultIgnorableAsEmptyStopper = false; }, nc => { nc.kernelModelKey.postSteps = "P4-P6"; },
+    nc => { nc.stripDefaultIgnorable = false; }, nc => { nc.trimTrailingDotSpace = false; },
+    nc => { nc.turkicPremap = true; },
+    nc => { nc.keyId = "hn-create-name-key-v2"; delete nc.collisionRule; delete nc.kernelModelKey; }
+  ];
+  for (const edit of edits) {
+    const f = newFixture(TWO); withWitness(f, allAbsent(f)); edit(f.evidence.createDestinationAbsenceWitness.nameComparison);
+    assert.equal(pipeline(f).code, INVALID, edit.toString());
+    terminal(f, "not_evaluated", INVALID);
+  }
+});
+for (const key of Object.keys(CREATE_ABSENCE_WITNESS_FAIL_CLOSED_MATRIX)) refuseRow(`B-33 failClosedMatrix.${key} false`, INCONSISTENT, w => { w.failClosedMatrix[key] = false; });
+test("D3 B-34: ancestor unreadable -> not proven (not a scope-out)", () => {
+  const f = newFixture(["src/sub/new.js", "src/z.js"]);
+  withWitness(f, absenceWitness(f, [scopeOutRecord("src/sub/new.js", "unreadable"), absentRecord("src/z.js")]));
+  const { viaPipeline } = expectOutcome(f, NOT_PROVEN);
+  assert.equal(verdictsOf(viaPipeline.candidate)["src/sub/new.js"], "unknown");
+});
+test("D3 B-35: three targets in the same parent, all absent -> lift", U17, () => {
+  const f = newFixture(["src/a.js", "src/b.js", "src/c.js"]); withWitness(f, allAbsent(f));
+  expectOutcome(f, LIFT, { "src/a.js": "absent", "src/b.js": "absent", "src/c.js": "absent" });
+});
+test("D3 B-36: an extra key at each nested level, an S4-shaped enumeration and an own __proto__ key -> invalid", () => {
+  const edits = [
+    w => { w.observation.extra = 1; }, w => { w.nameComparison.extra = 1; }, w => { w.nameComparison.kernelModelKey.extra = 1; },
+    w => { w.filesystem.extra = 1; }, w => { w.limits.extra = 1; }, w => { w.targets[0].enumeration.extra = 1; },
+    w => { w.targets[0].ancestors[0].extra = 1; }, w => { w.hardFlags.extra = false; }, w => { w.project.extra = 1; },
+    w => { w.revision.extra = 1; }, w => { w.failClosedMatrix.extra = true; }, w => { w.targets[0].extra = 1; },
+    w => { w.provenance = { bindingMismatchReason: "snapshot_token_mismatch", liveSnapshotToken: null, liveRevision: null, extra: 1 }; },
+    w => { w.targets[0].enumeration = { parentEmpty: false }; },
+    w => { Object.defineProperty(w.targets[0].enumeration, "__proto__", { value: 1, enumerable: true, writable: true, configurable: true }); },
+    w => { Object.defineProperty(w, "__proto__", { value: { x: 1 }, enumerable: true, writable: true, configurable: true }); }
+  ];
+  for (const edit of edits) {
+    const f = newFixture(TWO); withWitness(f, allAbsent(f)); edit(f.evidence.createDestinationAbsenceWitness);
+    assert.equal(pipeline(f).code, INVALID, edit.toString());
+    terminal(f, "not_evaluated", INVALID);
+  }
+});
+for (const [id, name] of [["B-37", "\u017fecrets.json"], ["B-38", "id_rsa."]]) {
+  test(`D3 ${id}: S2a n=1, target src/${name} -> not proven (secret rule)`, U17, () => {
+    const f = newFixture([`src/${name}`, "src/zz.js"]);
+    withWitness(f, absenceWitness(f, [absentRecord(`src/${name}`, { redacted: 1, verdict: "unknown" }), absentRecord("src/zz.js", { redacted: 1 })]));
+    expectOutcome(f, NOT_PROVEN, { [`src/${name}`]: "unknown", "src/zz.js": "absent" });
+  });
+}
+refuseRow("B-40 an entries element satisfying SECRET (R5)", INCONSISTENT, w => { relist(w.targets[0], [".env", "README.md"]); });
+refuseRow("B-41 complete:true with an ancestor fsType 0x1021997 (v9fs; R6)", INCONSISTENT, w => { w.targets[0].ancestors[0].fsType = "0x1021997"; });
+refuseRow("B-41 complete:true with rootFsType 0x1021997 (R6)", INCONSISTENT, w => { w.filesystem.rootFsType = "0x1021997"; });
+for (const [id, target] of [["B-42", "src/\u200b"], ["B-43", "src/LONGFI~1.JS"]]) {
+  test(`D3 ${id}(a): producer verdict unknown -> not proven (shape rule)`, U17, () => {
+    const f = newFixture([target, "src/zz.js"]);
+    withWitness(f, absenceWitness(f, [absentRecord(target, { verdict: "unknown" }), absentRecord("src/zz.js")]));
+    expectOutcome(f, NOT_PROVEN, { [target]: "unknown", "src/zz.js": "absent" });
+  });
+  test(`D3 ${id}(b): producer verdict absent -> inconsistent (R8 i)`, U17, () => {
+    const f = newFixture([target, "src/zz.js"]); withWitness(f, allAbsent(f));
+    expectOutcome(f, INCONSISTENT);
+  });
+}
+test("D3 B-44(a): empty parent, producer verdict unknown -> not proven", U17, () => {
+  const f = newFixture(TWO);
+  withWitness(f, absenceWitness(f, [absentRecord("src/new.js", { entries: [], verdict: "unknown" }), absentRecord("src/other.js")]));
+  expectOutcome(f, NOT_PROVEN, { "src/new.js": "unknown", "src/other.js": "absent" });
+});
+refuseRow("B-44(b) empty parent, producer verdict absent (R8 d2)", INCONSISTENT, w => { relist(w.targets[0], []); }, U17);
+refuseRow("B-45 nativeLookup present with entryCount 0 (R5)", INCONSISTENT, w => { relist(w.targets[0], []); w.targets[0].nativeLookup = "present"; w.targets[0].verdict = "unknown"; });
+test("D3 B-53: one valid absent record + one witness_byte_cap minimal record -> not proven", () => {
+  const f = newFixture(TWO);
+  withWitness(f, absenceWitness(f, [absentRecord("src/new.js"), emptyChainRecord("src/other.js", "witness_byte_cap")]));
+  const { viaPipeline } = expectOutcome(f, NOT_PROVEN);
+  assert.equal(verdictsOf(viaPipeline.candidate)["src/other.js"], "unknown");
+});
+test("D3 B-54: witness_byte_cap record not in the minimal form -> inconsistent (R5)", () => {
+  const edits = [
+    r => { r.enumeration = listing(["README.md"]); }, r => { r.ancestors = chainFor(r.newPath); },
+    r => { r.nativeLookup = "ENOENT"; }, r => { r.verdict = "absent"; }
+  ];
+  for (const edit of edits) {
+    const f = newFixture(TWO); const capped = emptyChainRecord("src/other.js", "witness_byte_cap"); edit(capped);
+    withWitness(f, absenceWitness(f, [absentRecord("src/new.js"), capped]));
+    assert.equal(pipeline(f).code, INCONSISTENT, edit.toString());
+    terminal(f, "not_evaluated", INCONSISTENT);
+  }
+});
+/** One-target witness padded with sorted entries to an exact canonical UTF-8 size. */
+function sizedWitness(f, size) {
+  const names = ["README.md"];
+  const build = () => absenceWitness(f, [absentRecord(f.request.task.paths[0], { entries: names })]);
+  while (size - canonicalByteLength(build()) > 150) names.push(`f${String(names.length).padStart(5, "0")}${"x".repeat(44)}`);
+  names[names.length - 1] += "y".repeat(size - canonicalByteLength(build()));
+  const w = build();
+  assert.equal(canonicalByteLength(w), size);
+  assert.ok(Buffer.byteLength(names[names.length - 1], "utf8") <= 255);
+  return w;
+}
+test("D3 B-55: canonical size 49153 -> inconsistent (R4); exactly 49152 passes R4", () => {
+  const over = newFixture(["src/new.js"]); withWitness(over, sizedWitness(over, 49153));
+  expectOutcome(over, INCONSISTENT);
+  const exact = newFixture(["src/new.js"]); withWitness(exact, sizedWitness(exact, 49152));
+  const { candidate } = pipeline(exact);
+  assert.ok(candidate && candidate.ok === true, "49152 passes R1–R6");
+});
+test("D3 B-56: one capped target, another with a byte-equal entry -> create_destination_exists", U17, () => {
+  const f = newFixture(TWO);
+  withWitness(f, absenceWitness(f, [absentRecord("src/new.js", { entries: ["README.md", "new.js"], nativeLookup: "present", verdict: "exists" }), emptyChainRecord("src/other.js", "witness_byte_cap")]));
+  expectOutcome(f, "create_destination_exists", { "src/new.js": "exists", "src/other.js": "unknown" });
+});
+test("D3 B-57: retained Context sibling with a null-enumeration record (entry_cap; witness_byte_cap) -> not proven, not binding", () => {
+  for (const record of [absentRecord("src/new.js", { enumeration: null, complete: false, incompleteReason: "entry_cap", verdict: "unknown" }),
+    emptyChainRecord("src/new.js", "witness_byte_cap")]) {
+    const f = newFixture(["src/new.js"]);
+    f.evidence.pack.sections.files.items.push({ path: "src/a.js",
+      provenance: { trust: "canonical_fact", reason: "related_path", source: { path: "src/a.js", sha256: "e".repeat(64) } } });
+    withWitness(f, absenceWitness(f, [record]));
+    expectOutcome(f, NOT_PROVEN, { "src/new.js": "unknown" });
+  }
+});
+refuseRow("B-58 ancestors without the root element (R3)", BINDING, w => { w.targets[0].ancestors.shift(); });
+refuseRow("B-58 root element repository_boundary (R5)", INCONSISTENT, w => {
+  w.targets[0].ancestors = [{ path: "", state: "repository_boundary", fsType: null, devIno: null }];
+  Object.assign(w.targets[0], { nativeLookup: null, enumeration: null, complete: false, incompleteReason: "ancestor_scope_out", verdict: "ancestor_boundary" });
+});
+refuseRow("B-59 empty chain with a non-empty-chain reason", INCONSISTENT, w => {
+  Object.assign(w.targets[0], emptyChainRecord(w.targets[0].newPath, "listing_changed"));
+});
+refuseRow("B-59 empty chain with complete:true", INCONSISTENT, w => { w.targets[0].ancestors = []; });
+test("D3 B-60: PA-34-shaped witness (producer Unicode mismatch), no seam -> not proven, no refuse", () => {
+  const f = newFixture(TWO);
+  withWitness(f, absenceWitness(f, TWO.map(path => emptyChainRecord(path, "unicode_version_mismatch")), {
+    observation: { basis: "working_tree", bracket: "before_after_rewalk", revisionStable: false, tokenStable: false },
+    filesystem: { policyId: CREATE_ABSENCE_WITNESS_FS_POLICY_ID, rootFsType: null } }));
+  expectOutcome(f, NOT_PROVEN, { "src/new.js": "unknown", "src/other.js": "unknown" });
+});
+test("D3 B-61: PA-10b witness (lone surrogate) -> not proven; neither evaluator nor binder throws", () => {
+  const f = newFixture(["src/a\ud800.js", "src/b.js"]);
+  withWitness(f, absenceWitness(f, [emptyChainRecord("src/a\ud800.js", "non_utf8_name"), absentRecord("src/b.js")]));
+  const { viaPipeline } = expectOutcome(f, NOT_PROVEN);
+  assert.equal(verdictsOf(viaPipeline.candidate)["src/a\ud800.js"], "unknown");
+});
+
+// ---- C-*: composer ----
+const RELAX_COMPLETENESS = () => ({ source: ["source_unavailable"], provider: [], traversal: [], output: [] });
+/** Real-shaped multi-target new-path Impact (§0.3): global partial / not_evaluated, affectedFiles []. */
+function realShapedCreate(paths = TWO) {
+  const f = newFixture(paths); const impact = f.evidence.impact;
+  Object.assign(impact, { status: "partial", findingState: "not_evaluated", affectedFiles: [], completeness: RELAX_COMPLETENESS() });
+  for (const target of impact.targets) Object.assign(target, { targetSource: null, status: "partial", findingState: "not_evaluated", completeness: RELAX_COMPLETENESS() });
+  impact.affectedTests = { status: "partial", findingState: "no_evidence_found", candidates: [], completeness: RELAX_COMPLETENESS() };
+  return withWitness(f, allAbsent(f));
+}
+test("D3 C-1: proven-absent witness + real-shaped multi-target Impact -> D3-c relax, incomplete WRITE + operationIntent create", U17, () => {
+  const f = realShapedCreate(); const r = run(f);
+  assert.equal(r.status, "incomplete", JSON.stringify(r.reasons));
+  assert.equal(r.policyVersion, policy.EFFECTIVE_TASK_SCOPE_POLICY_VERSION);
+  assert.deepEqual(r.write.items.map(item => item.target.path), TWO);
+  for (const item of r.write.items) assert.deepEqual(item.ruleIds, ["explicit_create_intent", "explicit_task_path"]);
+  assert.deepEqual(Object.keys(r.operationIntent), ["kind", "targets"]);
+  assert.deepEqual(r.operationIntent, { kind: "create", targets: TWO.map(newPath => ({ oldPath: null, newPath })) });
+  assert.ok(r.completeness.resolver.includes(LIFT));
+  assert.deepEqual(r.watch.items, []); assert.deepEqual(r.impact.items, []);
+  assert.equal(JSON.stringify(r).includes("create_intent_awareness"), false);
+});
+test("D3 C-2: a co-target not_evaluated for a non-create reason, or any completeness deviation -> impact_not_evaluated", () => {
+  const edits = [
+    f => { f.evidence.impact.targets[1].completeness.provider = ["provider_partial"]; },
+    f => { f.evidence.impact.targets[1].status = "unavailable"; },
+    f => { f.evidence.impact.completeness.resolver = []; },
+    f => { f.evidence.impact.completeness.source = ["source_unavailable", "source_limit"]; }
+  ];
+  for (const edit of edits) { const f = realShapedCreate(); edit(f); terminal(f, "not_evaluated", "impact_not_evaluated"); }
+});
+test("D3 C-3: global status unavailable / unsupported -> impact_not_evaluated", () => {
+  for (const status of ["unavailable", "unsupported"]) { const f = realShapedCreate(); f.evidence.impact.status = status; terminal(f, "not_evaluated", "impact_not_evaluated"); }
+});
+// C-4 golden (amend1 §E(ii)): every REACHABLE no-witness fixture; the parsed result's top-level policyVersion
+// (asserted equal to the policy constant first) is replaced by the neutral label "<policyVersion>", then
+// sha256(JSON.stringify(result)). Captured from the 4b8e213 src (composer 00ff85f5…e2ab, policy 16a52835…5c9b)
+// on Node v26.8.2 (Unicode 17.0) with this test file:
+//   HN_D3_PRINT_GOLDEN=1 node --test --test-name-pattern="D3 C-4" tests/effective-task-scope-create.test.js
+// Ordered [name, digest] pairs (RN-8); 38 entries, sha256(JSON.stringify(C4_GOLDEN)) = 505d3235…2956.
+const C4_GOLDEN = [
+  ["E1 both paths observed with equal hashes (former happy path)", "82b5dd4612b5dc84f741cccada8fd1f10ece8c5ae19fcf3349e612ddddc0879d"],
+  ["E2 Context-only observation", "82b5dd4612b5dc84f741cccada8fd1f10ece8c5ae19fcf3349e612ddddc0879d"],
+  ["E3 Impact-only observation", "82b5dd4612b5dc84f741cccada8fd1f10ece8c5ae19fcf3349e612ddddc0879d"],
+  ["E4 observed path whose Impact target is not_evaluated", "82b5dd4612b5dc84f741cccada8fd1f10ece8c5ae19fcf3349e612ddddc0879d"],
+  ["E5 Context/Impact hash conflict", "d9c6e4c72d1572afbb6449be1e10dfc29cbd9c440bf56efac9ad96818592223c"],
+  ["E6a Context item with wrong trust", "d9c6e4c72d1572afbb6449be1e10dfc29cbd9c440bf56efac9ad96818592223c"],
+  ["E6b Context item with reason other than task_path", "d9c6e4c72d1572afbb6449be1e10dfc29cbd9c440bf56efac9ad96818592223c"],
+  ["A1 no-laundering: single new path, clean flags", "2fb2911bca49fd30e4152ca0685376b99af21ed12efa12390359a6c78a5013eb"],
+  ["U1 single new path, default incomplete flags", "2fb2911bca49fd30e4152ca0685376b99af21ed12efa12390359a6c78a5013eb"],
+  ["U2 files section not_analyzed, no Impact source", "a6705351bec8e593ad8983e0691395faef3c749f4243ff56202ccd0a10e229c5"],
+  ["U2 files section omitted, no Impact source", "a6705351bec8e593ad8983e0691395faef3c749f4243ff56202ccd0a10e229c5"],
+  ["U2 files section empty, no Impact source", "a6705351bec8e593ad8983e0691395faef3c749f4243ff56202ccd0a10e229c5"],
+  ["U3 mixed [existing, new] -> EXISTS precedence", "9cbbc409aed843d57c25900e4d3017dbd37071d52f45acc6d5181b0aec8aefd6"],
+  ["U4 [new, new]", "8e48031dd7f906e03b657da12835f2ba2c8b54bbcd9aaaf56fc73b98de35817d"],
+  ["U4b [new, new] with clean flags", "8e48031dd7f906e03b657da12835f2ba2c8b54bbcd9aaaf56fc73b98de35817d"],
+  ["M1 malformed declaration {\"kind\":\"create\",\"targets\":[]}", "ad53842b137ac81354643f50c21779641773a7e5a2fd951358cefcbd310b5369"],
+  ["M1 malformed declaration {\"kind\":\"create\",\"targets\":[{\"oldPath\":null}]}", "ad53842b137ac81354643f50c21779641773a7e5a2fd951358cefcbd310b5369"],
+  ["M1 malformed declaration {\"kind\":\"create\",\"targets\":[{\"newPath\":\"src/a.js\"}]}", "ad53842b137ac81354643f50c21779641773a7e5a2fd951358cefcbd310b5369"],
+  ["M1 malformed declaration {\"kind\":\"create\",\"targets\":[{\"oldPath\":\"src/a.js\",\"newPath\":\"src/a.js\"}]}", "ad53842b137ac81354643f50c21779641773a7e5a2fd951358cefcbd310b5369"],
+  ["M1 malformed declaration {\"kind\":\"create\",\"targets\":[{\"oldPath\":null,\"newPath\":null}]}", "ad53842b137ac81354643f50c21779641773a7e5a2fd951358cefcbd310b5369"],
+  ["M1 malformed declaration {\"kind\":\"create\",\"targets\":[{\"oldPath\":null,\"newPath\":\"src/a.js\",\"exists\":true}]}", "ad53842b137ac81354643f50c21779641773a7e5a2fd951358cefcbd310b5369"],
+  ["M1 malformed declaration {\"kind\":\"create\",\"targets\":[{\"oldPath\":null,\"newPath\":\"src/a.js\"}],\"source\":true}", "ad53842b137ac81354643f50c21779641773a7e5a2fd951358cefcbd310b5369"],
+  ["M1 literal spelling \"../a\"", "ad53842b137ac81354643f50c21779641773a7e5a2fd951358cefcbd310b5369"],
+  ["M1 literal spelling \"/a\"", "ad53842b137ac81354643f50c21779641773a7e5a2fd951358cefcbd310b5369"],
+  ["M1 literal spelling \" src/a.js\"", "ad53842b137ac81354643f50c21779641773a7e5a2fd951358cefcbd310b5369"],
+  ["M1 literal spelling \"src//a.js\"", "ad53842b137ac81354643f50c21779641773a7e5a2fd951358cefcbd310b5369"],
+  ["M1 literal spelling \"src/./a.js\"", "ad53842b137ac81354643f50c21779641773a7e5a2fd951358cefcbd310b5369"],
+  ["M1 literal spelling \"src/a.js/\"", "ad53842b137ac81354643f50c21779641773a7e5a2fd951358cefcbd310b5369"],
+  ["M1 literal spelling \"src/*.js\"", "ad53842b137ac81354643f50c21779641773a7e5a2fd951358cefcbd310b5369"],
+  ["M1 literal spelling \"C:/a\"", "ad53842b137ac81354643f50c21779641773a7e5a2fd951358cefcbd310b5369"],
+  ["M1 literal spelling \"src\\\\a.js\"", "ad53842b137ac81354643f50c21779641773a7e5a2fd951358cefcbd310b5369"],
+  ["M1 literal spelling \"src/a.js\\n\"", "ad53842b137ac81354643f50c21779641773a7e5a2fd951358cefcbd310b5369"],
+  ["M2 declaration set [\"src/a.js\"] differs from task.paths", "b0f99b4cd27fb5d3dba4f1e8477a8d106d05fd84dacd86d922552f39bb75a36b"],
+  ["M2 declaration set [\"src/a.js\",\"src/unlisted.js\"] differs from task.paths", "b0f99b4cd27fb5d3dba4f1e8477a8d106d05fd84dacd86d922552f39bb75a36b"],
+  ["M2 Impact target missing for a declared newPath (composer origin gate)", "5309ba9958c9e8711c29aec44283d654e4d4e27b3d899c849ac6a7c6fadbd64d"],
+  ["M3 33 create targets", "3ada7f86181b2cfa2bcc778140abb9d681776548ca7361b57c01fff52b10026a"],
+  ["M4 rename kind remains out of scope (delete-path refuse)", "fe1f414796b6a4a10b2cbb0bc8f3ec0f5f78dd2b15f3cc5a96d4bfdf17f9c678"],
+  ["S1 stale expectedRevision", "960812eab78cb8207ea569e230c7c73fcfe5ff12a010f023a88eab3d242382ed"]
+];
+test("D3 C-4: no witness -> every REACHABLE outcome byte-identical to base except the policyVersion label", () => {
+  const actual = REACHABLE.map(([name, build]) => {
+    const r = run(build());
+    assert.equal(r.policyVersion, policy.EFFECTIVE_TASK_SCOPE_POLICY_VERSION, name);
+    r.policyVersion = "<policyVersion>";
+    return [name, sha256(JSON.stringify(r))];
+  });
+  if (process.env.HN_D3_PRINT_GOLDEN === "1") console.log(`C4_GOLDEN ${JSON.stringify(actual)}`);
+  assert.deepEqual(actual, C4_GOLDEN);
+});
+test("D3 C-6: witness + symbols without a symbol witness -> the symbol gate result (step 4 before step 5)", () => {
+  const build = () => {
+    const f = newFixture(TWO); f.request.task.symbols = ["composeEffectiveTaskScope"];
+    f.evidence.pack.sections.task.items[0].symbols = ["composeEffectiveTaskScope"]; return f;
+  };
+  const without = run(build());
+  const f = build(); withWitness(f, absenceWitness(f, [])); // even a malformed witness is never reached
+  assert.equal(without.status, "not_evaluated");
+  assert.equal(JSON.stringify(run(f)), JSON.stringify(without));
+});
+test("D3 C-7: witness binding mismatch + Impact global not_evaluated -> create_absence_binding_mismatch (step 5 before 6)", () => {
+  const f = realShapedCreate(); f.evidence.createDestinationAbsenceWitness.snapshotToken = "other";
+  terminal(f, "not_evaluated", BINDING);
+});
+test("D3 C-8: the absence witness alone pushes the total over 327680 -> rejected scope_budget_exceeded (sibling)", () => {
+  const dir = "d".repeat(200);
+  const paths = Array.from({ length: 28 }, (_, i) => `${dir}/${String(i).padStart(2, "0")}${"n".repeat(245)}.js`);
+  const f = newFixture(paths);
+  const pad = (obj) => { obj.padding = ""; obj.padding = "p".repeat(131072 - Buffer.byteLength(JSON.stringify(obj), "utf8")); };
+  pad(f.evidence.pack); pad(f.evidence.impact);
+  assert.equal(Buffer.byteLength(JSON.stringify(f.evidence.pack), "utf8"), 131072);
+  assert.equal(Buffer.byteLength(JSON.stringify(f.evidence.impact), "utf8"), 131072);
+  const withoutWitness = run(f);
+  assert.equal(withoutWitness.reasons[0].code, NOT_PROVEN);
+  const w = allAbsent(f); withWitness(f, w);
+  assert.ok(canonicalByteLength(w) <= 49152, String(canonicalByteLength(w)));
+  const { candidate } = pipeline(f); assert.ok(candidate && candidate.ok === true, "the witness passes R1–R8");
+  if (UNICODE_17) assert.ok(candidate.targets.every(t => t.verdict === "absent"));
+  assert.ok(Buffer.byteLength(JSON.stringify({ request: f.request, ...f.evidence }), "utf8") > policy.MAX_COMPACT_INPUT);
+  terminal(f, "rejected", "scope_budget_exceeded");
+});
+test("D3 C-9 / D3-H: checkInputBudget and the D2 sibling are byte-identical (toString sha256)", () => {
+  assert.equal(sha256(policy.checkInputBudget.toString()), "420c4498425bd384bfec0aa3ee8cf0d1435865b455133e85918565f0b8165285");
+  assert.equal(sha256(policy.checkCreateAbsenceInputBudget.toString()), "35f41411ea87e1bef5b74f87fe57bf89534130bd9795ee529818c4d309ae65ae");
+});
+test("D3 C-10: stale gate on a create with a witness -> stale", () => {
+  const f = newFixture(TWO); withWitness(f, allAbsent(f)); f.request.expectedRevision.commitSha = "f".repeat(40);
+  terminal(f, "stale", "revision_observation_differs");
+});
+test("D3 C-11: no witness content in lift, refuse or rejected output", () => {
+  const SENTINELS = ["witness-sentinel-entry.md", "LIVE-SENTINEL-TOKEN", "2049:", FS_TYPE, "listingDigest", "liveSnapshotToken", "liveRevision", "ancestors", "devIno", "fsType"];
+  const outputs = [];
+  if (UNICODE_17) {
+    const lift = realShapedCreate(); withWitness(lift, allAbsent(lift, { entries: ["witness-sentinel-entry.md"] }));
+    const r = run(lift); assert.equal(r.status, "incomplete"); outputs.push(r);
+  }
+  const refuse = newFixture(TWO); withWitness(refuse, allAbsent(refuse, { entries: ["witness-sentinel-entry.md"] }));
+  refuse.evidence.createDestinationAbsenceWitness.provenance = { bindingMismatchReason: "snapshot_token_mismatch", liveSnapshotToken: "LIVE-SENTINEL-TOKEN", liveRevision: null };
+  outputs.push(terminal(refuse, "not_evaluated", INCONSISTENT));
+  const read = newFixture(TWO); delete read.request.operationIntent; withWitness(read, allAbsent(read, { entries: ["witness-sentinel-entry.md"] }));
+  outputs.push(terminal(read, "rejected", "create_absence_witness_unexpected"));
+  for (const output of outputs) {
+    const text = JSON.stringify(output);
+    for (const sentinel of SENTINELS) assert.equal(text.includes(sentinel), false, `${output.status}: ${sentinel}`);
+    assert.equal(text.includes(sha256(canonicalJson({ entryCount: 1, entries: ["witness-sentinel-entry.md"], redactedSecretEntryCount: 0 }))), false);
+  }
+});
+test("D3 C-12: R1-malformed witness and C(p) true -> create_absence_evidence_invalid (refuse wins over EXISTS)", () => {
+  const f = fixture(); withWitness(f, allAbsent(f)); f.evidence.createDestinationAbsenceWitness.extra = 1;
+  terminal(f, "not_evaluated", INVALID);
+});
+test("D3 C-13: single-target create + legacy single-target Impact -> rejected origin_form_mismatch (NG-9)", () => {
+  const f = newFixture(["src/new.js"]); withWitness(f, allAbsent(f));
+  const target = f.evidence.impact.targets[0]; delete f.evidence.impact.targets;
+  Object.assign(f.evidence.impact, { originPath: target.originPath, targetSource: null });
+  terminal(f, "rejected", "origin_form_mismatch");
+});
+test("D3 C-15: as C-1 but global status not_evaluated -> impact_not_evaluated", () => {
+  const f = realShapedCreate(); f.evidence.impact.status = "not_evaluated"; terminal(f, "not_evaluated", "impact_not_evaluated");
+});
+test("D3 C-16: as C-1 but affectedFiles absent -> impact_not_evaluated", () => {
+  const f = realShapedCreate(); delete f.evidence.impact.affectedFiles; terminal(f, "not_evaluated", "impact_not_evaluated");
+});
+test("D3 C-18a: evaluator seam 16.0 / present-undefined / explicit undefined argument -> every target UNKNOWN, R8 skipped", () => {
+  const before = process.versions.unicode;
+  for (const seam of [[{ runtimeUnicodeVersion: "16.0" }], [{ runtimeUnicodeVersion: undefined }], [undefined]]) {
+    const f = newFixture(TWO); withWitness(f, allAbsent(f));
+    f.evidence.createDestinationAbsenceWitness.targets[0].verdict = "exists"; // R8 would refuse; skipped on a mismatch
+    const out = pipeline(f, ...seam);
+    assert.equal(out.code, NOT_PROVEN, JSON.stringify(seam));
+    assert.equal(out.candidate.unicodeMismatch, true);
+    assert.ok(out.candidate.targets.every(t => t.verdict === "unknown"));
+  }
+  assert.equal(process.versions.unicode, before);
+});
+test("D3 C-18b: the composer calls the evaluator once with two arguments; adapter/route forward no Unicode field", () => {
+  const read = file => readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
+  const composer = read("src/lib/effective-task-scope.js");
+  const calls = [...composer.matchAll(/evaluateCreateDestinationAbsenceWitness\(/g)];
+  assert.equal(calls.length, 1);
+  let depth = 0; let args = 1; let i = calls[0].index + "evaluateCreateDestinationAbsenceWitness(".length;
+  for (; i < composer.length; i++) {
+    const ch = composer[i];
+    if ("([{".includes(ch)) depth++;
+    else if (")]}".includes(ch)) { if (depth === 0) break; depth--; }
+    else if (ch === "," && depth === 0) args++;
+  }
+  assert.equal(args, 2);
+  assert.doesNotMatch(composer, /runtimeUnicodeVersion|process\.versions/);
+  for (const file of ["src/lib/effective-task-scope-adapter.js", "src/routes/effective-task-scope.routes.js"]) assert.doesNotMatch(read(file), /runtimeUnicodeVersion|unicode/i, file);
+});
+test("D3 C-18c: non-object third argument (null, string, number, array) -> UNKNOWN, no throw, no fallback", () => {
+  const before = process.versions.unicode;
+  for (const seam of [null, "16.0", "17.0", 17, [], [{ runtimeUnicodeVersion: "17.0" }]]) {
+    const f = newFixture(TWO); withWitness(f, allAbsent(f));
+    const out = pipeline(f, seam);
+    assert.equal(out.code, NOT_PROVEN, JSON.stringify(seam));
+    assert.equal(out.candidate.unicodeMismatch, true);
+  }
+  assert.equal(process.versions.unicode, before);
+});
+
+// ---- D3-L1 / RN-4: instrumented composer instance (its policy import only) ----
+const hookState = globalThis[Symbol.for("effective-task-scope-create.test.d3")] = { relax: [], bindStub: null };
+const canonicalPolicyUrl = new URL("../src/lib/effective-task-scope-policy.js", import.meta.url).href;
+const d3Hook = registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier === "./effective-task-scope-policy.js" && context.parentURL?.endsWith("?d3hooks")) {
+      const source = `import * as real from ${JSON.stringify(canonicalPolicyUrl)};
+        export * from ${JSON.stringify(canonicalPolicyUrl)};
+        const s = () => globalThis[Symbol.for("effective-task-scope-create.test.d3")];
+        export function isCreateGateRelaxed(...args) {
+          const result = typeof real.isCreateGateRelaxed === "function" ? real.isCreateGateRelaxed(...args) : false;
+          s().relax.push(result); return result;
+        }
+        export function bindCreateIntent(...args) { const stub = s().bindStub; return stub ? stub(...args) : real.bindCreateIntent(...args); }`;
+      return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };
+    }
+    return nextResolve(specifier, context);
+  }
+});
+let hookedCompose;
+try {
+  ({ composeEffectiveTaskScope: hookedCompose } = await import("../src/lib/effective-task-scope.js?d3hooks"));
+} finally {
+  d3Hook.deregister();
+}
+test("D3-L1: isCreateGateRelaxed is lazy: 0 calls unless findingState is not_evaluated; 1 false call for READ and delete", () => {
+  const count = f => { hookState.relax = []; const r = hookedCompose(f.request, f.evidence); return { r, calls: [...hookState.relax] }; };
+  assert.deepEqual(count(fixture()).calls, []);
+  const read = fixture(); delete read.request.operationIntent; read.evidence.impact.findingState = "not_evaluated";
+  const readOut = count(read);
+  assert.deepEqual(readOut.calls, [false]); assert.equal(readOut.r.reasons[0].code, "impact_not_evaluated");
+  const del = fixture(); del.request.operationIntent = { kind: "delete", targets: del.request.task.paths.map(oldPath => ({ oldPath, newPath: null })) };
+  del.evidence.impact.findingState = "not_evaluated";
+  const delOut = count(del);
+  assert.deepEqual(delOut.calls, [false]); assert.equal(delOut.r.reasons[0].code, "impact_not_evaluated");
+  if (UNICODE_17) assert.deepEqual(count(realShapedCreate()).calls, [true]);
+});
+test("D3 RN-4: the composer falls through only on a positive lift; stubbed binder results never WRITE", () => {
+  try {
+    for (const stub of [{ notEvaluated: null }, {}, { notEvaluated: null, lift: { reason: "other" } }, { lift: { reason: LIFT } }, null]) {
+      hookState.bindStub = () => stub;
+      const f = newFixture(TWO); const r = hookedCompose(f.request, f.evidence);
+      assert.equal(r.status, "not_evaluated", JSON.stringify(stub));
+      assert.equal(Object.hasOwn(r, "write"), false); assert.equal(Object.hasOwn(r, "operationIntent"), false);
+      assert.equal(r.reasons[0].code, NOT_PROVEN);
+    }
+  } finally { hookState.bindStub = null; }
+});
+test("D3-T1: isCreateGateRelaxed is total: odd shapes (incl. null-prototype records) -> false, never throws", () => {
+  assertD3Exports();
+  const f = realShapedCreate();
+  const req = policy.normalizeEffectiveTaskScopeRequest(f.request, { allowCreateIntent: true });
+  const impact = policy.materializeBoundedJsonData(f.evidence.impact);
+  const candidate = { ok: true, unicodeMismatch: false, targets: TWO.map(newPath => ({ newPath, verdict: "absent" })) };
+  assert.equal(policy.isCreateGateRelaxed(req, impact, candidate), true);
+  assert.equal(policy.isCreateGateRelaxed(policy.materializeBoundedJsonData(req), impact, policy.materializeBoundedJsonData(candidate)), true);
+  const clone = value => structuredClone(value);
+  const nullProto = value => policy.materializeBoundedJsonData(value);
+  const variants = [
+    [null, impact, candidate], [undefined, impact, candidate], [[], impact, candidate], [{}, impact, candidate],
+    [{ ...req, operationIntent: { ...req.operationIntent, kind: "delete" } }, impact, candidate],
+    [{ ...req, operationIntent: null }, impact, candidate], [{ ...req, operationIntent: { kind: "create", targets: "x" } }, impact, candidate],
+    [{ ...req, operationIntent: { kind: "create", targets: [] } }, impact, candidate], [{ ...req, operationIntent: { kind: "create", targets: [null] } }, impact, candidate],
+    [req, impact, undefined], [req, impact, null], [req, impact, []], [req, impact, { ...candidate, ok: false }], [req, impact, { ...candidate, unicodeMismatch: true }],
+    [req, impact, { ...candidate, unicodeMismatch: undefined }], [req, impact, { ...candidate, targets: "x" }], [req, impact, { ...candidate, targets: [null, 1] }],
+    [req, impact, { ...candidate, targets: candidate.targets.slice(1) }], [req, impact, { ...candidate, targets: [{ newPath: "src/new.js", verdict: "absent" }, { newPath: "src/other.js", verdict: "unknown" }] }],
+    [req, null, candidate], [req, [], candidate], [req, { ...clone(impact), status: "available" }, candidate],
+    [req, { ...clone(impact), affectedFiles: null }, candidate], [req, { ...clone(impact), completeness: null }, candidate],
+    [req, { ...clone(impact), completeness: { ...RELAX_COMPLETENESS(), extra: [] } }, candidate],
+    [req, { ...clone(impact), completeness: { source: ["source_unavailable"], provider: [], traversal: [] } }, candidate],
+    [req, { ...clone(impact), completeness: { ...RELAX_COMPLETENESS(), output: "x" } }, candidate],
+    [req, { ...clone(impact), targets: "x" }, candidate], [req, { ...clone(impact), targets: [null] }, candidate],
+    [req, { ...clone(impact), targets: [{ ...clone(impact.targets[0]), originPath: "src/undeclared.js" }] }, candidate],
+    [req, { ...clone(impact), targets: [{ ...clone(impact.targets[0]), targetSource: { path: "src/new.js", hash: "e".repeat(64) } }] }, candidate],
+    [req, { ...clone(impact), targets: [(({ targetSource, ...rest }) => rest)(clone(impact.targets[0]))] }, candidate],
+    [req, { ...clone(impact), targets: [{ ...clone(impact.targets[0]), findingState: "unknown_state" }] }, candidate],
+    [req, { ...clone(impact), targets: [{ ...clone(impact.targets[0]), completeness: { ...RELAX_COMPLETENESS(), provider: ["x"] } }] }, candidate],
+    [req, impact, nullProto({ ok: true, unicodeMismatch: false, targets: [] })]
+  ];
+  for (const [i, args] of variants.entries()) {
+    let result;
+    assert.doesNotThrow(() => { result = policy.isCreateGateRelaxed(...args); }, `variant ${i}`);
+    assert.equal(result, false, `variant ${i}`);
+  }
+  const proxy = new Proxy({}, { get() { throw new Error("trap"); }, has() { throw new Error("trap"); }, ownKeys() { throw new Error("trap"); }, getOwnPropertyDescriptor() { throw new Error("trap"); } });
+  assert.equal(policy.isCreateGateRelaxed(proxy, impact, candidate), false);
+  assert.equal(policy.isCreateGateRelaxed(req, proxy, candidate), false);
+  assert.equal(policy.isCreateGateRelaxed(req, impact, proxy), false);
+});
+test("D3-S2a: the policy's S2a rule equals the producer's s2aSecretRuleRequiresUnknown (test-only producer import)", U17, () => {
+  const corpus = ["\u017fecrets.json", "id_rsa.", "\u017fecrets.\u1fb3\u0301", "secrets.json", "SECRETS", "Id_Rsa", "credentials\u200b", ".ENV.local",
+    "new.js", "secretary.md", "\u1fb3\u0301.txt", "credentialsHelper.ts", "service_accounts.json", "ID_ED25519", "\u0130d_rsa"];
+  for (const redacted of [0, 1, 3]) {
+    for (const name of corpus) {
+      const expected = s2aSecretRuleRequiresUnknown(redacted, name) ? "unknown" : "absent";
+      const f = newFixture([`src/${name}`]);
+      withWitness(f, absenceWitness(f, [absentRecord(`src/${name}`, { entries: ["README.md"], redacted, verdict: expected })]));
+      const out = pipeline(f);
+      assert.ok(out.candidate, `${redacted} ${JSON.stringify(name)}: ${out.code}`);
+      assert.equal(verdictsOf(out.candidate)[`src/${name}`], expected, `${redacted} ${JSON.stringify(name)}`);
+    }
+  }
+  // Both key branches are present in the policy copy (no natural K-only / Kk-only SECRET split exists in the corpus).
+  const source = readFileSync(new URL("../src/lib/effective-task-scope-policy.js", import.meta.url), "utf8");
+  assert.match(source, /isContextSecretSegment\(nameKey\(basename\)\) \|\| isContextSecretSegment\(kernelModelNameKey\(basename\)\)/);
+});
+test("D3-P26c: the policy imports the shared D0 secret predicate and holds no secret literal", () => {
+  const source = readFileSync(new URL("../src/lib/effective-task-scope-policy.js", import.meta.url), "utf8");
+  assert.match(source, /import \{ isContextSecretSegment \} from "\.\/context-path-secret-policy\.js";/);
+  assert.equal(/credentials\?|id_ed25519/.test(source), false);
+});
+// ---- D3-S2a-Kk (amend1 §E(iii), recommended): a module hook on the policy's ./create-name-key.js import forces a K-miss
+// for one basename, so the S2a rule can only fire through its Kk disjunct; dropping that disjunct turns this RED. ----
+const kkState = globalThis[Symbol.for("effective-task-scope-create.test.d3kk")] = { mode: "k-miss", forced: 0 };
+const canonicalNameKeyUrl = new URL("../src/lib/create-name-key.js", import.meta.url).href;
+const kkHook = registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier === "./create-name-key.js" && context.parentURL?.endsWith("?d3kk")) {
+      const source = `import * as real from ${JSON.stringify(canonicalNameKeyUrl)};
+        export * from ${JSON.stringify(canonicalNameKeyUrl)};
+        const s = () => globalThis[Symbol.for("effective-task-scope-create.test.d3kk")];
+        export function nameKey(name) { if (name === "secrets.json") { s().forced++; return "plain-k"; } return real.nameKey(name); }
+        export function kernelModelNameKey(name) { if (name === "secrets.json" && s().mode === "both-miss") return "plain-kk"; return real.kernelModelNameKey(name); }`;
+      return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };
+    }
+    return nextResolve(specifier, context);
+  }
+});
+let kkPolicy;
+try {
+  kkPolicy = await import(`${canonicalPolicyUrl}?d3kk`);
+} finally {
+  kkHook.deregister();
+}
+test("D3-S2a-Kk: K forced to miss, Kk hits -> unknown (S2a Kk disjunct); both forced to miss -> absent (control)", U17, () => {
+  for (const [mode, expected] of [["k-miss", "unknown"], ["both-miss", "absent"]]) {
+    kkState.mode = mode; kkState.forced = 0;
+    const f = newFixture(["src/secrets.json"]);
+    withWitness(f, absenceWitness(f, [absentRecord("src/secrets.json", { redacted: 1, verdict: expected })]));
+    const { req, exterior } = exteriorOf(f);
+    const data = kkPolicy.materializeBoundedJsonData(f.evidence);
+    const normalized = kkPolicy.normalizeCreateDestinationAbsenceWitness(data.createDestinationAbsenceWitness);
+    assert.equal(normalized.ok, true, mode);
+    const candidate = kkPolicy.evaluateCreateDestinationAbsenceWitness(normalized.witness, exterior);
+    assert.equal(candidate.ok, true, `${mode}: ${candidate.code}`);
+    assert.equal(verdictsOf(candidate)["src/secrets.json"], expected, mode);
+    assert.ok(kkState.forced > 0, `${mode}: the K stub was exercised`);
+    const bound = kkPolicy.bindCreateIntent(req.operationIntent, req.task.paths, data.pack, data.impact, candidate);
+    assert.equal(bound.notEvaluated === null ? bound.lift?.reason : bound.notEvaluated, expected === "unknown" ? NOT_PROVEN : LIFT, mode);
+  }
 });
