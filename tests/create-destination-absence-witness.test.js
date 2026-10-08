@@ -963,3 +963,14 @@ test("R-N2 / P-3: the native root realpath is never called on a Unicode mismatch
   assert.equal(native.mock.callCount(), 0);
   assert.equal(rec(w, "src/a.js").incompleteReason, "unicode_version_mismatch");
 });
+
+test("R-N2 / N-F1: readlink bytes that differ but decode to the same string are DVU, never absent (component and root)", { skip: GATE }, (t) => {
+  const root = project(t, { "\uFFFD/a.js": "x", "\uFFFDroot/src/a.js": "y" });
+  // Simulates a rename to a non-UTF-8 name after open: the kernel reports FF where the expected path has EF BF BD.
+  const lossy = () => spyFs({ readlinkSync: (real, p) => Buffer.from(fs.readlinkSync(p, { encoding: "buffer" }).toString("hex").replaceAll("efbfbd", "ff"), "hex") });
+  for (const [projectRoot, target, chainLength] of [[root, "\uFFFD/new.js", 1], [path.join(root, "\uFFFDroot"), "src/new.js", 0]]) {
+    const r = rec(assertWitness(build(projectRoot, [target], { fs: lossy().fs })), target);
+    assert.equal(r.incompleteReason, "descriptor_verification_unavailable"); assert.equal(r.complete, false);
+    assert.notEqual(r.verdict, "absent"); assert.equal(r.ancestors.length, chainLength);
+  }
+});

@@ -172,7 +172,7 @@ mismatch); no test mutates `process.versions`.
   PA-11b, PA-12b, PA-17b, PA-18b … PA-18f, PA-21b, PA-21c, PA-26b), plus the fix-round tests: B-1 / G-a(a)
   and G-a(b) (real-FS BOM-prefixed siblings), N-2 (white-box: the exported pure
   `s2aSecretRuleRequiresUnknown` fires on `SECRET(Kk)` alone and on `SECRET(K)` alone), and R-N2 (a
-  non-UTF-8 root realpath with a U+FFFD look-alike directory; no native realpath on a Unicode mismatch). Only S2a is implemented: the S1,
+  non-UTF-8 root realpath with a U+FFFD look-alike directory; no native realpath on a Unicode mismatch; N-F1: seam readlink bytes `FF` for an expected `EF BF BD`, component and root, give DVU). Only S2a is implemented: the S1,
   S2b, S3 and S4 rows of PA-18/PA-19 are N/A, and PA-37/PA-38 run under S2a. Real-FS tests run on tmpfs
   (`/dev/shm`) or another allow-listed `os.tmpdir()`.
 - `tests/create-name-key.test.js`: KM-1, KM-1b, KM-1c, KM-2 (the ten v6.17 `nfdicf_test_data` vectors as
