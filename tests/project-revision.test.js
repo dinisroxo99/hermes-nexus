@@ -1,9 +1,43 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { gitFixture } from "./helpers/git-fixture.js";
+
+/**
+ * Environment isolation for "no Git repository" reads. Git discovery and the reader's ancestor `.git`
+ * marker walk both look above the directory under test, so a transient `.git` in an ancestor such as
+ * `/tmp` or `/` (outside the fixture) would turn `not_git` into another status. Isolation is test-side:
+ * - a unique mkdtemp root (realpath) holds the directory under test and is removed afterwards;
+ * - the git the reader spawns gets `GIT_CEILING_DIRECTORIES=<root>` through the reader's own
+ *   `execFileSync` seam (the reader strips inherited `GIT_*` variables, so `process.env` cannot carry it);
+ * - for the duration of the read only, `.git` lookups in strict ancestors of the root report ENOENT,
+ *   so the reader's marker walk still runs inside the root (and the directory itself) unchanged.
+ */
+function isolatedNoRepoRoot(t) {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "project-revision-nogit-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const withinRoot = (candidate) => { const relative = path.relative(root, candidate); return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative)); };
+  const execFileSyncWithCeiling = (command, args, options) => execFileSync(command, args, { ...options, env: { ...options.env, GIT_CEILING_DIRECTORIES: root } });
+  const isolated = (read, project, options = {}) => {
+    const lstatSync = fs.lstatSync;
+    fs.lstatSync = function isolatedLstatSync(target, ...rest) {
+      const text = String(target);
+      if (path.basename(text) === ".git" && !withinRoot(path.dirname(text))) {
+        throw Object.assign(new Error(`ENOENT: no such file or directory, lstat '${text}'`), { code: "ENOENT" });
+      }
+      return lstatSync.call(this, target, ...rest);
+    };
+    try {
+      return read(project, { execFileSync: execFileSyncWithCeiling, ...options });
+    } finally {
+      fs.lstatSync = lstatSync;
+    }
+  };
+  return { root, isolated };
+}
 
 async function reader() {
   const module = await import("../src/lib/project-revision.js").catch(() => ({}));
@@ -48,11 +82,12 @@ test("revision distinguishes unborn, non-Git, corrupt and unavailable repositori
   const unborn = read(f.project);
   assert.equal(unborn.status, "unborn");
   assert.equal(unborn.commitSha, null);
-  const plain = path.join(f.root, "plain");
+  const noRepo = isolatedNoRepoRoot(t);
+  const plain = path.join(noRepo.root, "plain");
   fs.mkdirSync(plain);
-  assert.equal(read({ absolutePath: plain }).status, "not_git");
+  assert.equal(noRepo.isolated(read, { absolutePath: plain }).status, "not_git");
   fs.writeFileSync(path.join(plain, ".git"), "invalid marker");
-  assert.equal(read({ absolutePath: plain }).status, "unavailable");
+  assert.equal(noRepo.isolated(read, { absolutePath: plain }).status, "unavailable");
   for (const code of ["ENOENT", "ETIMEDOUT", "ENOBUFS"]) {
     const revision = read(f.project, { execFileSync: () => { throw Object.assign(new Error("sensitive stderr"), { code }); } });
     assert.equal(revision.status, "unavailable");
