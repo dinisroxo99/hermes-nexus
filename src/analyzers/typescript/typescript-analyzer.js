@@ -169,7 +169,8 @@ export function analyzeTypeScriptProject(project, options = {}) {
     // dynamic import/require, unregistered export name, symbol-less target, analyzer-ignored file) is counted
     // so the provider reports partial instead of a silently complete graph. Counted before any cap.
     // N1 tsconfig: a snapshot tsconfig that could not be read completely (invalid JSONC or option, unresolved or
-    // cyclic `extends`) is counted too, so a missing alias can never leave the graph silently complete.
+    // cyclic `extends`, root `references` or a jsconfig.json that are not read yet) is counted too. This does not
+    // make every alias divergence visible: the open resolver gaps in docs/typescript-barrel-reexports.md remain.
     const unrepresentedImports = snapshot
       ? countUnrepresentedImports(tsProject.getSourceFiles(), { rootPath, nodes, edges, exportAliasesByPath, pathAliases, knownPaths: codePaths, barrel }) + snapshotConfig.issues
       : 0;
