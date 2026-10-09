@@ -130,3 +130,46 @@ test("N1-30 amended anchor contract A-1' (D11): only barrel importers/re-exporte
   assert.deepEqual(into, ["src/consumer.js:Use -> src/outer.js", "src/outer.js:<module> -> src/index.js"]);
   assert.equal(graph.nodes.some((node) => node.kind === "module" && ["src/lib.js", "src/consumer.js"].includes(node.file)), false);
 });
+
+// N1-36 (review A-3): a barrel made only of `export { default } from './lib.js'`. The compiler gives the barrel its
+// own default export, so the analyzer registers a regular `default` symbol for it and the barrel has NO anchor. The
+// base linked the default import to that symbol and found the consumer; N1 must keep finding it with the barrel and
+// with lib.js as target, without broadening D11 (no anchor is involved at all). N1-31 (`export { default as b }`) is
+// the anchored control; N1-37 pins both shapes at graph level.
+const LIB_DEFAULT = "export default function A() { return 1; }\n";
+const DEFAULT_CONSUMER = "import A from \"./index.js\";\nexport function use() { return A(); }\n";
+test("N1-36 (review A-3) `export { default } from` barrel: barrel and control lib.js as Impact target find the consumer and its test (available)", (t) => {
+  const p = project(t, { "src/lib.js": LIB_DEFAULT, "src/index.js": "export { default } from \"./lib.js\";\n", "src/consumer.js": DEFAULT_CONSUMER });
+  const i = p.impact("src/index.js");
+  assert.deepEqual(affected(i), CONSUMER);
+  assert.deepEqual(testsOf(i), ["tests/consumer.test.js"]);
+  assert.equal(i.status, "available", JSON.stringify(reasons(i)));
+  const c = p.impact("src/lib.js");
+  assert.deepEqual(affected(c), ["src/consumer.js", "src/index.js", "tests/consumer.test.js"]);
+  assert.deepEqual(testsOf(c), ["tests/consumer.test.js"]);
+  assert.equal(c.status, "available", JSON.stringify(reasons(c)));
+});
+
+test("N1-37 (review A-3) graph level: `export { default } from` links the barrel's own default symbol (no anchor); `export { default as x } from` control stays a pure barrel with one anchor edge", () => {
+  const graphOf = (index, consumer) => {
+    const files = { "package.json": "{\"type\":\"module\"}\n", "src/lib.js": LIB_DEFAULT, "src/index.js": index, "src/consumer.js": consumer };
+    const r = analyzeTypeScriptProject({ name: "snapshot", absolutePath: "/__project_context__" },
+      { nodeLimit: 2000, edgeLimit: 4000, sourceFiles: Object.entries(files).map(([file, text]) => ({ path: file, text })) });
+    const byId = new Map(r.nodes.map((n) => [n.id, n]));
+    const name = (id) => `${byId.get(id).file}:${byId.get(id).label}`;
+    return { anchors: r.nodes.filter((n) => n.kind === "module").map((n) => n.file).sort(),
+      intoAnchors: r.edges.filter((e) => byId.get(e.to).kind === "module").map((e) => `${name(e.from)} -> ${name(e.to)}`).sort(),
+      edges: r.edges.map((e) => `${name(e.from)} -> ${name(e.to)}`).sort(), unrep: r.unrepresentedImports };
+  };
+  const d = graphOf("export { default } from \"./lib.js\";\n", DEFAULT_CONSUMER);
+  assert.deepEqual(d.anchors, []);
+  assert.deepEqual(d.intoAnchors, []);
+  assert.ok(d.edges.includes("src/consumer.js:use -> src/index.js:default"), JSON.stringify(d.edges));
+  assert.ok(d.edges.includes("src/index.js:default -> src/lib.js:A"), JSON.stringify(d.edges));
+  assert.equal(d.unrep, 0);
+  const x = graphOf("export { default as x } from \"./lib.js\";\n", "import { x } from \"./index.js\";\nexport function use() { return x(); }\n");
+  assert.deepEqual(x.anchors, ["src/index.js"]);
+  assert.deepEqual(x.intoAnchors, ["src/consumer.js:use -> src/index.js:<module>"]);
+  assert.ok(x.edges.includes("src/consumer.js:use -> src/lib.js:A"), JSON.stringify(x.edges));
+  assert.equal(x.unrep, 0);
+});
