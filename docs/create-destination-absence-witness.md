@@ -57,6 +57,10 @@ composer. Nothing here lifts a create, flips a hard flag or exposes anything ove
 - Ancestor chain = root element `{ path: "", … }` first, then `s1`, `s1/s2`, … up to the parent, ending at
   the first non-`directory` state (§1.2 errno map). `fsType`/`devIno` are non-null exactly for
   `directory` elements.
+- **Full chain for complete records (G13, N-12 full-chain amendment).** Every `complete:true` record has
+  `ancestors` equal to `D(p)` (`""`, `s1`, …, the parent; length = number of path segments), every element
+  `directory` with a non-null allow-listed `fsType` and `devIno`. A walk that stopped or did not reach the
+  parent is always `complete:false`. Already true of D1; no producer code change (tests PA-39, PA-39b).
 - `enumeration` is `null` in exactly four situations: (a) the chain did not reach the parent (including
   every empty chain); (b) `entry_cap` (more than 1024 entries); (c) `witness_byte_cap`; (d) the parent
   was reached but its listing cannot be represented faithfully (a non-UTF-8 sibling name, a sibling name
@@ -169,7 +173,8 @@ mismatch); no test mutates `process.versions`.
 ## Tests
 
 - `tests/create-destination-absence-witness.test.js`: PA-1 … PA-38 with the sub-lettered ids (PA-10b,
-  PA-11b, PA-12b, PA-17b, PA-18b … PA-18f, PA-21b, PA-21c, PA-26b), plus the fix-round tests: B-1 / G-a(a)
+  PA-11b, PA-12b, PA-17b, PA-18b … PA-18f, PA-21b, PA-21c, PA-26b), PA-39 / PA-39b (G13: full chain for
+  every `complete:true` record; PA-39b is a check inside the shared `assertWitness` helper), plus the fix-round tests: B-1 / G-a(a)
   and G-a(b) (real-FS BOM-prefixed siblings), N-2 (white-box: the exported pure
   `s2aSecretRuleRequiresUnknown` fires on `SECRET(Kk)` alone and on `SECRET(K)` alone), and R-N2 (a
   non-UTF-8 root realpath with a U+FFFD look-alike directory; no native realpath on a Unicode mismatch; N-F1: seam readlink bytes `FF` for an expected `EF BF BD`, component and root, give DVU). Only S2a is implemented: the S1,
@@ -186,3 +191,6 @@ mismatch); no test mutates `process.versions`.
 From `step4-foundation-5` the composer consumes this witness for create intents (the policy imports
 only the pure constants module, `create-name-key.js` and the D0 secret predicate, never this producer):
 see [create intent](effective-task-scope-create-intent.md). The producer text above is unchanged.
+From `step4-foundation-6` (N-12 full-chain amendment, R5-FC) the composer also refuses, as
+`create_absence_evidence_inconsistent`, any `complete:true` record whose `ancestors` is not exactly `D(p)`
+with every element `directory`, whatever its verdict and on any runtime.
