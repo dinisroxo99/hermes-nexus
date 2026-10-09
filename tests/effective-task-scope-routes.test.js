@@ -154,7 +154,7 @@ test("effective task scope route returns the composer object for a bound request
   assert.equal(result.payload.data.reserved.status, "not_evaluated");
   assert.deepEqual(result.payload.data.reserved.items, []);
   assert.deepEqual(result.payload.data.reserved.reasons, ["coupling_evidence_not_supported"]);
-  assert.deepEqual(taskCall.input, { projectId: PROJECT_ID, task: { title: "Adapter fixture" } });
+  assert.deepEqual(taskCall.input, { projectId: PROJECT_ID, task: { id: "fixture", title: "Adapter fixture", paths: ["src/a.js"], symbols: [] } });
   assert.equal(Object.hasOwn(taskCall.input, "worktree"), false);
   assert.equal(Object.hasOwn(taskCall.input, "expectedRevision"), false);
   assert.deepEqual(impactCall, {
