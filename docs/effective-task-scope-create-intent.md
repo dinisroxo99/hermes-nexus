@@ -57,9 +57,12 @@ is `rejected` / `create_absence_witness_unexpected`. With the witness present, t
 producer throws `create_absence_witness_byte_cap_exceeded` and `invalid_create_absence_witness_request`
 are not composer reason codes. The composer and policy never import the fs producer and do no IO.
 
-**Single-target caveat (NG-9, C-13).** A single-path request makes Impact emit the legacy origin form,
-which the composer rejects as `origin_form_mismatch` before any create rule. So only creates with ≥ 2
-targets in one request can reach the lift. A fix belongs to a separate Impact/ETS form slice.
+**Single-target caveat (NG-9, C-13): direct composer/adapter callers only.** A single-path request makes
+Impact emit the legacy origin form, and the composer still rejects it as `origin_form_mismatch` before any
+create rule. So a direct composer/adapter caller that passes that form can reach the lift only with ≥ 2
+targets in one request. The HTTP route no longer has this limit for its own self-built Impact: it re-expresses
+the single-origin form as `targets[]` (see `effective-task-scope-http-route.md`). Create stays refused over
+HTTP (`400` `invalid_delete_intent`), so this does not expose create.
 
 Rejected (`status: "rejected"`, unchanged discipline): `invalid_create_intent` (malformed
 intent), `create_intent_target_mismatch` (declared set differs from `task.paths`),

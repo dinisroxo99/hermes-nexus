@@ -93,3 +93,32 @@ test("HTTP smoke (read-only): ETS over the real server echoes the request task, 
   assert.equal(treeDigest(f.root), before, "fixture tree unchanged (read-only)");
   assert.equal(fs.existsSync(f.options.registry.discoveredProjectsFile), false);
 });
+
+test("HTTP smoke (read-only): one path and two paths both pass binding -> not_evaluated / working_tree_observation_only, no containers", async (t) => {
+  const f = taskContextFixture(t);
+  const before = treeDigest(f.root);
+  const base = await startServer(t, f);
+  const route = `/api/intelligence/projects/${f.request.projectId}/effective-task-scope`;
+  const observed = buildProjectTaskContext({ projectId: f.request.projectId, task: { title: "Smoke origin form" } }, f.options).revision;
+  const source = { ...observed, repositoryId: observed.repositoryIdentity };
+  const expectedRevision = Object.fromEntries(REVISION_KEYS.filter((key) => source[key] !== undefined).map((key) => [key, source[key]]));
+  // The temp fixture has no src/lib/project-overview.js; src/one.ts is its single-path equivalent.
+  for (const paths of [["src/one.ts"], ["src/one.ts", "src/unrelated.ts"]]) {
+    const body = { task: { id: `smoke-${paths.length}`, title: "Smoke origin form", paths }, worktree: { rootId: "test", relativePath: "main" },
+      expectedRevision, includeTests: true, changeSemantics: { category: "local_implementation" } };
+    const { status, payload } = await post(base, route, body);
+    assert.equal(status, 200, JSON.stringify(payload));
+    assert.equal(payload.ok, true);
+    const data = payload.data;
+    const codes = data.reasons.map((reason) => reason.code);
+    assert.equal(data.status, "not_evaluated", `${paths.length} path(s): ${JSON.stringify(codes)}`);
+    assert.ok(codes.includes("working_tree_observation_only"), JSON.stringify(codes));
+    for (const code of ["origin_form_mismatch", "task_echo_mismatch", "origin_set_mismatch"]) assert.equal(codes.includes(code), false, code);
+    assert.equal(data.stale.state, "bound");
+    assert.equal(data.policyVersion, "step4-foundation-6");
+    assert.deepEqual(data.task.paths, paths);
+    for (const key of ["write", "watch", "impact", "reserved", "operationIntent"]) assert.equal(Object.hasOwn(data, key), false, key);
+    console.log(`SMOKE ${paths.length}-path ${JSON.stringify({ status: data.status, reasons: data.reasons, stale: data.stale, policyVersion: data.policyVersion, task: data.task.paths })}`);
+  }
+  assert.equal(treeDigest(f.root), before, "fixture tree unchanged (read-only)");
+});
