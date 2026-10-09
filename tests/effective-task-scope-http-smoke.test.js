@@ -122,3 +122,72 @@ test("HTTP smoke (read-only): one path and two paths both pass binding -> not_ev
   }
   assert.equal(treeDigest(f.root), before, "fixture tree unchanged (read-only)");
 });
+
+test("HTTP smoke (read-only): includeTests true/false forwarded; main checkout and clean linked worktree, one and two paths", async (t) => {
+  const ONE = ["src/one.ts"];
+  const TWO = ["src/one.ts", "src/unrelated.ts"];
+  const cases = [];
+  for (const kind of ["main", "linked"]) {
+    const f = taskContextFixture(t);
+    let projectId = f.request.projectId;
+    let options = f.options;
+    if (kind === "linked") {
+      // Same registry shape as the in-process include-tests suite; the name must stay "fixture" (AGENT.md project).
+      f.worktree("linked");
+      projectId = "PrJ_Linked";
+      fs.writeFileSync(f.options.registry.manualProjectsFile, JSON.stringify([{ name: "fixture", rootId: "test", relativePath: "linked", projectId }]));
+      options = { registry: { ...f.options.registry } };
+    }
+    const before = treeDigest(f.root);
+    const base = await startServer(t, f);
+    const route = `/api/intelligence/projects/${projectId}/effective-task-scope`;
+    const observed = buildProjectTaskContext({ projectId, task: { title: "Smoke includeTests" } }, options).revision;
+    const source = { ...observed, repositoryId: observed.repositoryIdentity };
+    const expectedRevision = Object.fromEntries(REVISION_KEYS.filter((key) => source[key] !== undefined).map((key) => [key, source[key]]));
+    const bodyFor = (paths, includeTests) => ({ task: { id: `smoke-it-${paths.length}`, title: "Smoke includeTests", paths },
+      worktree: { rootId: "test", relativePath: kind }, expectedRevision, includeTests, changeSemantics: { category: "local_implementation" } });
+    for (const paths of [ONE, TWO]) for (const includeTests of [true, false]) {
+      const { status, payload } = await post(base, route, bodyFor(paths, includeTests));
+      assert.equal(status, 200, JSON.stringify(payload));
+      assert.equal(payload.ok, true);
+      const data = payload.data;
+      const codes = data.reasons.map((reason) => reason.code);
+      const label = `${kind} ${paths.length}p includeTests=${includeTests}`;
+      assert.equal(data.policyVersion, "step4-foundation-6", label);
+      assert.equal(data.stale.state, "bound", label);
+      assert.deepEqual(data.task.paths, paths, label);
+      if (kind === "main") {
+        assert.equal(data.status, "not_evaluated", `${label}: ${JSON.stringify(codes)}`);
+        assert.deepEqual(codes, ["working_tree_observation_only"], label);
+        assert.deepEqual(data.completeness.resolver, ["working_tree_observation_only"], label);
+        assert.deepEqual(data.limits, { compactBytes: 65536, classifiedTargets: 0, originWitnessRefs: 0, resolverReasons: 1 }, label);
+        for (const key of ["write", "watch", "impact", "reserved", "operationIntent"]) assert.equal(Object.hasOwn(data, key), false, `${label} ${key}`);
+      } else {
+        assert.equal(data.status, "incomplete", `${label}: ${JSON.stringify(codes)}`);
+        assert.deepEqual(codes, [], label);
+        assert.equal(codes.includes("includeTests_true_not_requested_mismatch"), false, label);
+        assert.deepEqual(data.completeness.resolver, [], label);
+        assert.deepEqual(data.write.items.map((item) => [item.target.path, item.roles, item.ruleIds]), paths.map((p) => [p, ["explicit_task_path"], ["explicit_task_path"]]), label);
+        assert.deepEqual(data.watch.items.map((item) => [item.target.path, item.roles, item.ruleIds]),
+          [["tests/one.test.ts", includeTests ? ["affected_file", "affected_test_candidate"] : ["affected_file"], ["distance_1_2_awareness"]]], label);
+        assert.deepEqual(data.impact.items, [], label);
+        assert.equal(data.reserved.status, "not_evaluated", label);
+        assert.equal(Object.hasOwn(data, "operationIntent"), false, label);
+        assert.deepEqual(data.limits, { compactBytes: 65536, classifiedTargets: paths.length + 1, originWitnessRefs: 1, resolverReasons: 0 }, label);
+      }
+      cases.push(label);
+      console.log(`SMOKE ${label} ${JSON.stringify({ status: data.status, reasons: codes, resolver: data.completeness.resolver, stale: data.stale.state,
+        write: data.write?.items.map((item) => item.target.path), watch: data.watch?.items.map((item) => [item.target.path, item.roles]), limits: data.limits })}`);
+    }
+    for (const includeTests of [true, false]) {
+      const create = await post(base, route, { ...bodyFor(ONE, includeTests), operationIntent: { kind: "create", targets: [{ oldPath: null, newPath: "src/new.ts" }] } });
+      assert.equal(create.status, 400); assert.equal(create.payload.error, "invalid_delete_intent");
+      const witness = await post(base, route, { ...bodyFor(ONE, includeTests), createDestinationAbsenceWitness: { kind: "labelled-synthetic-absence-witness" } });
+      assert.equal(witness.status, 400); assert.equal(witness.payload.error, "unexpected_field");
+    }
+    console.log(`SMOKE ${kind} create -> 400 invalid_delete_intent; witness -> 400 unexpected_field (includeTests true and false)`);
+    assert.equal(treeDigest(f.root), before, `${kind} fixture tree unchanged (read-only)`);
+    assert.equal(fs.existsSync(f.options.registry.discoveredProjectsFile), false);
+  }
+  assert.equal(cases.length, 8);
+});

@@ -161,6 +161,7 @@ test("effective task scope route returns the composer object for a bound request
     projectId: PROJECT_ID,
     input: {
       paths: ["src/a.js"],
+      includeTests: true,
       repositoryId: "b".repeat(64),
       worktreeId: "c".repeat(64)
     },
@@ -189,7 +190,7 @@ test("effective task scope route omits repository ids unless the pack returned b
       return impact;
     }
   });
-  assert.deepEqual(impactInput, { paths: ["src/a.js"] });
+  assert.deepEqual(impactInput, { paths: ["src/a.js"], includeTests: true });
 });
 
 test("effective task scope route keeps RESERVED not_evaluated and omits containers when unevaluated", async () => {
