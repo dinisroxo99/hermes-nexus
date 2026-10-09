@@ -209,3 +209,49 @@ test("C-13 anchors and the counter use the same alias selection (Q8a pin): re-ex
     assert.equal(g.unrep, 3);
   }
 });
+
+// ---- B8: TypeScript config-merge semantics (pins; kill the Tester's N4, N5, N6) ----
+test("C-16 an `extends` array: later entries override earlier ones, so the LAST entry's `paths` win (kills N4)", (t) => {
+  const files = { "tsconfig.json": "{ \"extends\": [\"./a.json\", \"./b.json\"] }\n",
+    "a.json": "{ \"compilerOptions\": { \"paths\": { \"@lib/*\": [\"first/*\"] } } }\n", "b.json": "{ \"compilerOptions\": { \"paths\": { \"@lib/*\": [\"last/*\"] } } }\n",
+    "first/x.js": A(1), "last/x.js": A(2), "src/consumer.js": CONSUMER("@lib/x.js") };
+  const g = snapshotGraph(files);
+  assert.deepEqual(consumerEdgesTo(g), ["last/x.js:a [importa]"]);
+  assert.equal(g.unrep, 0);
+  const p = project(t, files);
+  assertFound(p.impact("last/x.js"), "last/x.js");
+  assert.equal(affected(p.impact("first/x.js")).includes("src/consumer.js"), false);
+});
+
+test("C-17 a child's `paths` REPLACE the parent's (no merge): a parent-only pattern is not used (kills N5)", (t) => {
+  // TypeScript keeps only the child's `paths`, so `@p/x.js` matches the child's `@*` pattern -> src/p/x.js. Merging the
+  // parent's longer `@p/*` pattern in would select shadow/x.js instead.
+  const files = { "tsconfig.json": "{ \"extends\": \"./base.json\", \"compilerOptions\": { \"paths\": { \"@*\": [\"src/*\"] } } }\n",
+    "base.json": "{ \"compilerOptions\": { \"paths\": { \"@p/*\": [\"shadow/*\"] } } }\n",
+    "src/p/x.js": A(1), "shadow/x.js": A(2), "src/consumer.js": CONSUMER("@p/x.js") };
+  const g = snapshotGraph(files);
+  assert.deepEqual(consumerEdgesTo(g), ["src/p/x.js:a [importa]"]);
+  assert.equal(g.unrep, 0);
+  const p = project(t, files);
+  assertFound(p.impact("src/p/x.js"), "src/p/x.js");
+  assert.equal(affected(p.impact("shadow/x.js")).includes("src/consumer.js"), false);
+});
+
+for (const [id, label, files, real, other] of [
+  ["C-18a", "`baseUrl` inherited from a base config in `cfg/`, `paths` declared in the root config",
+    { "tsconfig.json": "{ \"extends\": \"./cfg/base.json\", \"compilerOptions\": { \"paths\": { \"@lib/*\": [\"x/*\"] } } }\n", "cfg/base.json": "{ \"compilerOptions\": { \"baseUrl\": \".\" } }\n" },
+    "cfg/x/m.js", "x/m.js"],
+  ["C-18b", "`baseUrl` and `paths` in the same root config",
+    { "tsconfig.json": "{ \"compilerOptions\": { \"baseUrl\": \"src\", \"paths\": { \"@lib/*\": [\"x/*\"] } } }\n" },
+    "src/x/m.js", "x/m.js"]
+]) {
+  test(`${id} with \`baseUrl\` set, \`paths\` targets resolve from baseUrl, not from the declaring config (kills N6): ${label}`, (t) => {
+    const all = { ...files, [real]: A(1), [other]: A(2), "src/consumer.js": CONSUMER("@lib/m.js") };
+    const g = snapshotGraph(all);
+    assert.deepEqual(consumerEdgesTo(g), [`${real}:a [importa]`]);
+    assert.equal(g.unrep, 0);
+    const p = project(t, all);
+    assertFound(p.impact(real), real);
+    assert.equal(affected(p.impact(other)).includes("src/consumer.js"), false);
+  });
+}
