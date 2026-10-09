@@ -92,10 +92,17 @@ exact set of edges into anchors).
   cycle) is counted as unrepresented, so the result is `partial`; whatever TypeScript could still read stays in use,
   so the config never silently becomes empty. TypeScript's merge rules apply: the last `extends` entry wins, a
   child's `paths` replace the parent's, and with `baseUrl` set the targets resolve from `baseUrl` (C-16…C-18).
-  Configs that are not read yet fail closed: a root `tsconfig.json` with `references` (solution style, e.g. the Vite
-  default with `paths` in `tsconfig.app.json`) and a root `jsconfig.json` are each counted once, so the result is
-  `partial` (C-19…C-22; a plain root without `references` is not affected, C-23). Legacy analysis keeps its own
-  reader and ignores both (C-24). Pinned by C-1…C-7, C-14, C-15.
+  **Only the root `tsconfig.json` is read; any other `tsconfig.json` or `jsconfig.json` makes the result
+  `partial`.** That covers nested and subdirectory configs (`apps/web/tsconfig.json`, `src/jsconfig.json`,
+  `packages/a/jsconfig.json`), a root `jsconfig.json`, and case variants such as `TSConfig.json` or `JSConfig.json`,
+  matched by basename, case-insensitively. Root `references` (solution style, e.g. the Vite default with `paths` in
+  `tsconfig.app.json`) count too, even when the referenced config is not in the snapshot, because an unreadable
+  reference is still a missing config. None of these configs is read, and only snapshot entries are enumerated (no
+  host directory listing or reads; C-25 spies the `references` path). Together they add **one issue per project**,
+  however many such configs there are (C-36); config diagnostics are counted on top (C-38). `tsconfig.*.json` variants
+  such as `tsconfig.app.json` are not project configs for tsserver and are ignored unless referenced; a plain root
+  `tsconfig.json` stays available (C-23, C-39). Legacy analysis keeps its own reader and ignores all of them (C-24,
+  C-40). Pinned by C-1…C-7, C-14, C-15, C-19…C-22, C-25…C-38.
 - **Alias selection and counting (snapshot mode only):** the `paths` pattern is chosen as TypeScript does (exact,
   then the longest prefix before `*`, ties in tsconfig order) and only that pattern's targets are tried; legacy keeps
   first-match. A specifier that matches a pattern but resolves to no snapshot file is counted, even when the name
@@ -109,8 +116,9 @@ exact set of edges into anchors).
   wrong-target edges, and where the analyzer's resolver picks a different file than the compiler (the gaps below),
   Impact can report `available` while missing a dependant.
 - Open follow-ups:
-  - B-2(c): read the referenced configs and `jsconfig.json` inside the snapshot (today they only make the result
-    `partial`).
+  - B-2(c): read the nearest config per directory (as tsserver does: the nearest `tsconfig.json`, else
+    `jsconfig.json`) and the referenced configs inside the snapshot. Today every such config only makes the result
+    `partial`.
   - Exempt `node:` builtins (and declared dependencies) from the catch-all `*` count (precision only).
 - Known open resolver gaps (not fixed in N1; can be silently complete):
   - `.js` / `.jsx` specifiers that the compiler maps to `.ts` / `.tsx` sources. Relative specifiers (`./index.js`
