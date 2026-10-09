@@ -24,13 +24,13 @@ Optional:
 - `operationIntent`
 - `limits`
 
-Evidence calls never carry `expectedRevision`. They carry the body `worktree` locator only when it differs from the project's registered location (for example a parent project plus a linked-worktree locator); a self-located request (the locator equals the registered location) gets no `worktree` in either evidence call. See [Worktree locator forwarding](#operation-intent-pass-through-later-slices) below.
+Evidence calls never carry `expectedRevision`. They carry the body `worktree` locator only when it differs from the project's registered location (for example a parent project plus a linked-worktree locator); a self-located request (the locator equals the registered location) gets no `worktree` in either evidence call. See the worktree locator forwarding bullet under [Operation intent pass-through (later slices)](#operation-intent-pass-through-later-slices) below.
 
 ## Behavior
 
 Wires `composeEffectiveTaskScopeFromEnvelopes` then `composeEffectiveTaskScope`.
 
-Success response: HTTP `200` envelope with `policyVersion` `step4-foundation-2` (value at the time of this slice; see [Operation intent pass-through](#operation-intent-pass-through-later-slices) for the current constant, `step4-foundation-5`). That value is an **existing constant**, not Step 4 authorization or completion.
+Success response: HTTP `200` envelope with `policyVersion` `step4-foundation-2` (value at the time of this slice; see [Operation intent pass-through](#operation-intent-pass-through-later-slices) for the current constant, `step4-foundation-6`). That value is an **existing constant**, not Step 4 authorization or completion.
 
 - `RESERVED` stays `not_evaluated` with reason `coupling_evidence_not_supported`.
 - `WRITE` is a classification, **not** permission to write or publish.
