@@ -487,14 +487,18 @@ function readPathAliases(rootPath, sourceText) {
 // except "no inputs" (the host lists no directories on purpose) is kept as an issue: an invalid config, an unresolved
 // `extends` or an `extends` cycle is counted as unrepresented (partial) and never collapses into an empty config;
 // whatever TypeScript could still read (own `paths`, a readable base) stays in use. Legacy mode keeps readPathAliases.
-// N1 B-2(b): only the root tsconfig.json is read. A root that has `references` (solution style, e.g. the Vite default
-// with `paths` in tsconfig.app.json) and a root jsconfig.json can hold aliases this reading does not see, so each is
-// counted as one issue (partial) instead of leaving their importers silently missing. Reading them is B-2(c).
+// N1 B-3 (replaces B-2(b)): only the ROOT tsconfig.json is read. Every other tsconfig.json or jsconfig.json in the
+// snapshot (nested or subdirectory configs, a root jsconfig.json, case variants such as TSConfig.json; basename,
+// case-insensitive; tsconfig.*.json variants are not project configs and are ignored) and root `references` (even
+// when the referenced config is not in the snapshot) can hold aliases this reading does not see. Together they add ONE
+// issue per project (partial) instead of leaving importers silently missing. Only snapshot entries are enumerated;
+// none of these configs is read. Reading the nearest config per directory and the references is B-2(c).
 const TSCONFIG_NO_INPUTS = 18003;
+const UNREAD_PROJECT_CONFIG = /^(tsconfig|jsconfig)\.json$/i;
 function readSnapshotTsConfig(rootPath, snapshot) {
   const entry = snapshot.find((file) => file.path === 'tsconfig.json');
-  const unreadJsConfig = snapshot.some((file) => file.path === 'jsconfig.json') ? 1 : 0;
-  if (!entry) return { aliases: typescriptPathAliasPrecedence([]), checkerOptions: {}, issues: unreadJsConfig };
+  const unreadConfigs = snapshot.some((file) => file.path !== 'tsconfig.json' && UNREAD_PROJECT_CONFIG.test(file.path.slice(file.path.lastIndexOf('/') + 1))) ? 1 : 0;
+  if (!entry) return { aliases: typescriptPathAliasPrecedence([]), checkerOptions: {}, issues: unreadConfigs };
   const root = rootPath.replace(/\\/g, '/');
   const texts = new Map(snapshot.map((file) => [path.posix.join(root, file.path), file.text]));
   const host = {
@@ -508,7 +512,7 @@ function readSnapshotTsConfig(rootPath, snapshot) {
   const parsed = ts.parseJsonSourceFileConfigFileContent(sourceFile, host, root, undefined, configFileName);
   const unreadReferences = parsed.projectReferences?.length ? 1 : 0;
   const issues = [...(sourceFile.parseDiagnostics || []), ...parsed.errors]
-    .filter((diagnostic) => diagnostic.code !== TSCONFIG_NO_INPUTS).length + unreadReferences + unreadJsConfig;
+    .filter((diagnostic) => diagnostic.code !== TSCONFIG_NO_INPUTS).length + Math.max(unreadReferences, unreadConfigs);
   const { paths, baseUrl, pathsBasePath } = parsed.options;
   if (!paths || typeof paths !== 'object') return { aliases: typescriptPathAliasPrecedence([]), checkerOptions: {}, issues };
   const base = baseUrl || pathsBasePath || root;
