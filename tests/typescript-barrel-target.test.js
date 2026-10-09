@@ -173,3 +173,64 @@ test("N1-37 (review A-3) graph level: `export { default } from` links the barrel
   assert.ok(x.edges.includes("src/consumer.js:use -> src/lib.js:A"), JSON.stringify(x.edges));
   assert.equal(x.unrep, 0);
 });
+
+// N1-38..41 (review B-1 / Tester MT2e): the A-3 boundary. The barrel's own default symbol is linked ONLY for a
+// `default` binding of a barrel that registered one; nothing else is linked in its place. Exact edge sets and exact
+// unrepresented counts are pinned (fixtures Z1, Z3, Z4 from the reviewer re-check, plus the star-only default case).
+function snapshotGraph(files) {
+  const all = { "package.json": "{\"type\":\"module\"}\n", ...files };
+  const r = analyzeTypeScriptProject({ name: "snapshot", absolutePath: "/__project_context__" },
+    { nodeLimit: 2000, edgeLimit: 4000, sourceFiles: Object.entries(all).map(([file, text]) => ({ path: file, text })) });
+  const byId = new Map(r.nodes.map((n) => [n.id, n]));
+  const name = (id) => `${byId.get(id).file}:${byId.get(id).label}`;
+  return { edges: r.edges.map((e) => `${name(e.from)} -> ${name(e.to)} [${e.label}]`).sort(),
+    intoAnchors: r.edges.filter((e) => byId.get(e.to).kind === "module").map((e) => `${name(e.from)} -> ${name(e.to)}`).sort(),
+    unrep: r.unrepresentedImports };
+}
+const LIB_HELPER_DEFAULT = "export function helper() { return 2; }\n" + LIB_DEFAULT;
+
+test("N1-38 (review Z1, MX2b) default import from a symbol-less MIXED barrel: no fallback to the barrel's anchor (D11), no edges, partial", (t) => {
+  const files = { "src/lib.js": LIB_DEFAULT, "src/index.js": "globalThis.booted = true;\nexport * from \"./lib.js\";\n", "src/consumer.js": DEFAULT_CONSUMER };
+  const g = snapshotGraph(files);
+  assert.deepEqual(g.intoAnchors, []);
+  assert.deepEqual(g.edges, []);
+  assert.equal(g.unrep, 3);
+  const i = project(t, files).impact("src/index.js");
+  assert.equal(i.status, "partial");
+  assert.ok(reasons(i).includes("provider_partial"), JSON.stringify(reasons(i)));
+});
+
+test("N1-39 (review Z3, MX1) named import of a symbol-less name through `export *`: the defining file's default is NOT linked; stays partial", (t) => {
+  const files = { "src/lib.js": "export const helper = 1;\n" + LIB_DEFAULT, "src/index.js": "export * from \"./lib.js\";\n",
+    "src/consumer.js": "import { helper } from \"./index.js\";\nexport function use() { return helper; }\n" };
+  const g = snapshotGraph(files);
+  assert.deepEqual(g.edges, ["src/consumer.js:use -> src/index.js:<module> [importa barrel]"]);
+  assert.equal(g.edges.some((edge) => edge.startsWith("src/consumer.js:use -> src/lib.js:A")), false);
+  assert.equal(g.unrep, 2);
+  const i = project(t, files).impact("src/index.js");
+  assert.equal(i.status, "partial");
+  assert.ok(reasons(i).includes("provider_partial"), JSON.stringify(reasons(i)));
+});
+
+test("N1-40 (review Z4, MX3 / Tester MT2e) named-only import from `export { default, helper } from`: no edge to the barrel's default symbol; stays partial (A-3 residual)", (t) => {
+  const files = { "src/lib.js": LIB_HELPER_DEFAULT, "src/index.js": "export { default, helper } from \"./lib.js\";\n",
+    "src/consumer.js": "import { helper } from \"./index.js\";\nexport function use() { return helper(); }\n" };
+  const g = snapshotGraph(files);
+  assert.deepEqual(g.edges, ["src/consumer.js:use -> src/lib.js:helper [importa]",
+    "src/index.js:default -> src/lib.js:A [re-exporta]", "src/index.js:default -> src/lib.js:helper [re-exporta]"]);
+  assert.equal(g.edges.includes("src/consumer.js:use -> src/index.js:default [importa]"), false);
+  assert.deepEqual(g.intoAnchors, []);
+  assert.equal(g.unrep, 1);
+  // Residual (documented): the barrel has its own `default` symbol, so no anchor; the named-only consumer is not
+  // linked to the barrel. Impact on the barrel misses it but reports partial, never silently complete.
+  const i = project(t, files).impact("src/index.js");
+  assert.equal(i.status, "partial");
+  assert.ok(reasons(i).includes("provider_partial"), JSON.stringify(reasons(i)));
+});
+
+test("N1-41 (review MX2) default import through a star-only pure barrel (`export *` excludes default): no edge to the star source's default; exact edge set, partial", () => {
+  const g = snapshotGraph({ "src/lib.js": LIB_HELPER_DEFAULT, "src/index.js": "export * from \"./lib.js\";\n", "src/consumer.js": DEFAULT_CONSUMER });
+  assert.deepEqual(g.edges, ["src/consumer.js:use -> src/index.js:<module> [importa barrel]", "src/index.js:<module> -> src/lib.js:helper [re-exporta]"]);
+  assert.deepEqual(g.intoAnchors, ["src/consumer.js:use -> src/index.js:<module>"]);
+  assert.equal(g.unrep, 1);
+});
