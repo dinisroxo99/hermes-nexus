@@ -30,7 +30,7 @@ Evidence calls never carry `expectedRevision`. They carry the body `worktree` lo
 
 Wires `composeEffectiveTaskScopeFromEnvelopes` then `composeEffectiveTaskScope`.
 
-Success response: HTTP `200` envelope with `policyVersion` `step4-foundation-2` (value at the time of this slice; see [Operation intent pass-through](#operation-intent-pass-through-later-slices) for the current constant, `step4-foundation-5`). That value is an **existing constant**, not Step 4 authorization or completion.
+Success response: HTTP `200` envelope with `policyVersion` `step4-foundation-2` (value at the time of this slice; see [Operation intent pass-through](#operation-intent-pass-through-later-slices) for the current constant, `step4-foundation-6`). That value is an **existing constant**, not Step 4 authorization or completion.
 
 - `RESERVED` stays `not_evaluated` with reason `coupling_evidence_not_supported`.
 - `WRITE` is a classification, **not** permission to write or publish.
