@@ -389,3 +389,24 @@ test("C-40 legacy (non-snapshot) analysis ignores nested and case-variant config
   assert.equal(legacy.unrepresentedImports, 0);
   assert.equal(legacy.metadata.pathAliasCount, 0);
 });
+
+test("C-41 snapshot confinement with unread nested, jsconfig and case-variant configs: detected from snapshot entries only, never read or probed on the host (0 host fs calls)", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "n1-unread-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const decoy = "{ \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"@/*\": [\"src/*\"] } } }\n";
+  for (const file of ["jsconfig.json", "src/jsconfig.json", "packages/a/tsconfig.json", "packages/b/jsconfig.json", "TSConfig.json"]) {
+    fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+    fs.writeFileSync(path.join(root, file), decoy);
+  }
+  const files = { "tsconfig.json": "{ \"compilerOptions\": { \"allowJs\": true } }\n", "jsconfig.json": NESTED, "src/jsconfig.json": NESTED,
+    "packages/a/tsconfig.json": NESTED, "packages/c/JSConfig.json": NESTED, ...BARREL_VIA_ALIAS };
+  const calls = [];
+  const methods = ["readFileSync", "existsSync", "statSync", "lstatSync", "readdirSync", "realpathSync", "openSync", "accessSync", "readFile", "stat", "readdir"];
+  const originals = methods.map((m) => [m, fs[m]]);
+  for (const [m, original] of originals) fs[m] = function spy(...args) { calls.push(`${m} ${String(args[0])}`); return original.apply(this, args); };
+  let g;
+  try { g = snapshotGraph(files, root); } finally { for (const [m, original] of originals) fs[m] = original; }
+  assert.deepEqual(calls, [], "no host file-system access during snapshot analysis");
+  assert.equal(g.edges.some((edge) => edge.startsWith("src/c.ts:")), false, "no unread config is read, from the snapshot or the host");
+  assert.equal(g.unrep, 1);
+});
