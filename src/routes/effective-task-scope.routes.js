@@ -85,7 +85,7 @@ export function createEffectiveTaskScopeHandler(dependencies = {}) {
         throw sourced(error, "task-context");
       }
 
-      const impactRequest = impactEvidenceRequest(request, pack);
+      const impactRequest = impactEvidenceRequest(request);
       let impact;
       try {
         impact = buildImpact(params.projectId, impactRequest, options);
@@ -111,15 +111,11 @@ export function createEffectiveTaskScopeHandler(dependencies = {}) {
   };
 }
 
-function impactEvidenceRequest(request, pack) {
-  const impactRequest = { paths: request.task.paths, includeTests: request.includeTests };
-  const revision = pack && typeof pack === "object" && !Array.isArray(pack) ? pack.revision : undefined;
-  if (!revision || typeof revision !== "object" || Array.isArray(revision)) return impactRequest;
-  if (revision.repositoryId != null && revision.worktreeId != null) {
-    impactRequest.repositoryId = revision.repositoryId;
-    impactRequest.worktreeId = revision.worktreeId;
-  }
-  return impactRequest;
+// The Impact request carries only fields of Impact's public request contract (impact-policy.js
+// REQUEST_FIELDS). Project and worktree are selected by params.projectId and the shared registry options,
+// exactly as for the Context Pack; identity is bound by the composer from both outputs, never copied here.
+function impactEvidenceRequest(request) {
+  return { paths: request.task.paths, includeTests: request.includeTests };
 }
 
 const LEGACY_IMPACT_KEYS = Object.freeze(["schemaVersion", "analysisVersion", "projectId", "project", "originPath", "revision",
