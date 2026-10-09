@@ -43,7 +43,9 @@ A module anchor is never a name match, never a re-export alias, never in `symbol
 never the target of a symbol import or of symbol resolution through a barrel. The ONLY edges into an anchor are
 file-level dependency edges into a PURE BARREL's anchor, snapshot mode only: importer -> pure barrel (`importa barrel`)
 and outer barrel -> pure barrel (`re-exporta barrel`). Anchors of every other file (side-effect-only, imports-only,
-type-only, symbol-less mixed barrels, any non-barrel) receive no edges.
+type-only files without `from` such as a local `export type { T }`, symbol-less mixed barrels, any non-barrel) receive
+no edges. Type-only re-export files (`export type * from`, `export type { T } from`) are pure barrels and do receive
+them (P-2, P-9).
 
 This replaces the F1 wording "anchors are never import targets" for pure barrels only. Pinned by the F1 tests A-1 and
 `g` (unchanged), N1-30, and D11-1…D11-4 (no name match, no symbol resolution, no edge into non-pure-barrel anchors,
@@ -61,6 +63,13 @@ exact set of edges into anchors).
   anchor. A default import from such a barrel links the defining symbol in `lib` and also that own `default` symbol
   (as the base did), so Impact finds the consumer with the barrel and with `lib` as target. No anchor is involved, so
   D11 is unchanged; `export { default as x } from` stays an anchored pure barrel (N1-31). Pinned by N1-36 and N1-37.
+  The barrel's own `default` symbol is linked only for a `default` binding; nothing else is linked in its place: no
+  fallback to the barrel's anchor (N1-38), no default of the defining file for another name (N1-39), no own default for
+  a named import (N1-40), no star source's default (N1-41).
+  **Residual (A-3):** a barrel that re-exports `default` plus other names (`export { default, helper } from`, or
+  `export *` plus `export { default } from`) has its own `default` symbol and so no anchor; a consumer that imports
+  only a named binding is not linked to the barrel. Impact with that barrel as target misses the consumer, but the
+  import is counted and the result is `partial`, never silently complete (N1-40).
   Guard: every import from a barrel and every barrel -> barrel re-export must link the barrel file (anchor edge or an
   edge to one of its own symbols); otherwise it is counted as unrepresented (mixed barrels, namespace imports of mixed
   barrels), so the provider is partial instead of silently complete.

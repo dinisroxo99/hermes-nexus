@@ -116,7 +116,9 @@ export function analyzeTypeScriptProject(project, options = {}) {
     // resolution through a barrel. The ONLY edges into an anchor are file-level dependency edges into a PURE
     // BARREL's anchor (see isPureBarrel), snapshot mode only: importer -> pure barrel (`importa barrel`) and
     // outer barrel -> pure barrel (`re-exporta barrel`). Anchors of every other file (side-effect-only,
-    // imports-only, type-only, symbol-less mixed barrels, any non-barrel) receive no edges.
+    // imports-only, type-only files without `from` such as a local `export type { T }`, symbol-less mixed
+    // barrels, any non-barrel) receive no edges. Type-only RE-EXPORT files (`export type * from`,
+    // `export type { T } from`) are pure barrels and do receive them.
     const codePaths = snapshot ? new Set(snapshot.map((file) => file.path).filter((file) => /\.(ts|tsx|js|jsx)$/i.test(file))) : null;
     const anchorByPath = new Map();
     if (snapshot) {
