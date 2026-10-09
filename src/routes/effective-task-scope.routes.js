@@ -75,9 +75,11 @@ export function createEffectiveTaskScopeHandler(dependencies = {}) {
 
       let pack;
       try {
+        // The pack echoes the task it is built from, and the composer binds that echo to the request
+        // task (id, title, paths, symbols), so forward exactly the normalized request task.
         pack = buildTaskContext({
           projectId: params.projectId,
-          task: { title: request.task.title }
+          task: { id: request.task.id, title: request.task.title, paths: request.task.paths, symbols: request.task.symbols }
         }, options);
       } catch (error) {
         throw sourced(error, "task-context");
