@@ -624,8 +624,8 @@ test("adapter C1: witness envelope parity with direct compose lift path", () => 
   assert.ok(viaAdapter.status === "incomplete" || viaAdapter.status === "available");
   assert.ok(viaAdapter.write);
   assert.ok(!viaAdapter.reasons.some((r) => String(r.code || "").startsWith("symbol_target_")));
-  assert.equal(viaAdapter.policyVersion, "step4-foundation-4");
-  assert.equal(EFFECTIVE_TASK_SCOPE_POLICY_VERSION, "step4-foundation-4");
+  assert.equal(viaAdapter.policyVersion, "step4-foundation-5");
+  assert.equal(EFFECTIVE_TASK_SCOPE_POLICY_VERSION, "step4-foundation-5");
 
   state.calls = 0;
   const counted = countedCompose(request, envelopes);
@@ -773,9 +773,13 @@ test("D2 AD-1: pack + impact + absence witness is forwarded unchanged (one call,
   assert.equal(JSON.stringify(state.args[1]), JSON.stringify(evidence));
   assert.equal(JSON.stringify(result), JSON.stringify(composeEffectiveTaskScope(f.request, evidence)));
   assert.equal(result.policyVersion, EFFECTIVE_TASK_SCOPE_POLICY_VERSION);
+  // D3 C-5 (READ leg; replaces D2 N1's READ leg): the composer rejects the witness on a non-create request.
+  assert.equal(result.status, "rejected");
+  assert.deepEqual(result.reasons.map(reason => reason.code), ["create_absence_witness_unexpected"]);
+  for (const key of ["write", "reserved", "watch", "impact", "operationIntent"]) assert.equal(Object.hasOwn(result, key), false, key);
 });
 
-test("D2 AD-2: pack + impact + both witnesses are forwarded in key order; the symbol lift is unchanged", () => {
+test("D2 AD-2 (rewritten in D3): both witnesses are forwarded in key order; READ + absence witness is rejected after the symbol gate", () => {
   const { witness, snapshotToken, sourceHashes } = produceBoundWitnessOutsideAdapter();
   const { request, pack, impact } = buildSymbolPackImpact({ symbols: ["composeEffectiveTaskScope"], snapshotToken, sourceHashes });
   const absence = syntheticAbsence();
@@ -788,7 +792,10 @@ test("D2 AD-2: pack + impact + both witnesses are forwarded in key order; the sy
   const evidence = { pack, impact, symbolTargetCompletenessWitness: witness, createDestinationAbsenceWitness: absence };
   assert.equal(JSON.stringify(state.args[1]), JSON.stringify(evidence));
   assert.equal(JSON.stringify(viaAdapter), JSON.stringify(composeEffectiveTaskScope(request, evidence)));
-  assert.ok(viaAdapter.write);
+  // The symbol gate (step 4) passed, so step 5 rejects the absence witness on this READ request.
+  assert.equal(viaAdapter.status, "rejected");
+  assert.deepEqual(viaAdapter.reasons.map(reason => reason.code), ["create_absence_witness_unexpected"]);
+  assert.equal(Object.hasOwn(viaAdapter, "write"), false);
   assert.ok(!viaAdapter.reasons.some((r) => String(r.code || "").startsWith("symbol_target_")));
   assert.equal(viaAdapter.policyVersion, EFFECTIVE_TASK_SCOPE_POLICY_VERSION);
 });
@@ -847,98 +854,6 @@ test("D2 AD-7: symbol witness only keeps checkInputBudget (4 args); symbol + abs
   assert.deepEqual(both.sibling.map(args => args.length), [5]);
   assert.equal(JSON.stringify(both.sibling[0][3]), JSON.stringify(witness));
   assert.equal(JSON.stringify(both.sibling[0][4]), JSON.stringify(absence));
-});
-
-// Synthetic create fixture (copy of tests/effective-task-scope-create.test.js fixture(), envelope form).
-function createFixture(paths = ["src/a.js", "src/z.js"]) {
-  const revision = { status: "available", commitSha: "a".repeat(40), branch: "fixture",
-    dirty: false, isLinkedWorktree: true, repositoryId: "b".repeat(64), worktreeId: "c".repeat(64) };
-  const provider = { id: "native.typescript", version: "1" };
-  const coverage = { observed: ["javascript", "python"], covered: ["javascript"], uncovered: ["python"] };
-  const completeness = { source: ["source_limit"], provider: ["provider_partial", "uncovered_language"], traversal: ["depth_limit"], output: ["origin_limit"] };
-  const task = { id: "create-fixture", title: "Create fixture", paths, symbols: [] };
-  const project = { rootId: "fixture", relativePath: "fixture" };
-  const provenance = { projectId: "prj_fixture", revisionRef: "revision", trust: "untrusted_repository_text", producer: "context-source-observation" };
-  const section = (items, limit, status = "available") => ({ items, limit, status, truncated: false, provenance });
-  const request = { task, projectId: "prj_fixture", worktree: project, expectedRevision: revision,
-    includeTests: true, changeSemantics: { category: "local_implementation" },
-    operationIntent: { kind: "create", targets: paths.map(newPath => ({ oldPath: null, newPath })) } };
-  const pack = { schemaVersion: 1, analysisVersion: "task-context-v1", contextPackId: "fixture", projectId: "prj_fixture", project,
-    revision: { ...revision, repositoryIdentity: revision.repositoryId },
-    analysis: { status: "partial", snapshotToken: "snapshot", provider, coverage },
-    observation: { incomplete: true, digestCoverage: "bounded_collected_sources", sourceDigest: "d".repeat(64) },
-    sections: { task: section([task], 1), files: section(paths.map(path => ({ path,
-      provenance: { trust: "canonical_fact", reason: "task_path", source: { path, sha256: "e".repeat(64) } } })), 32),
-    symbols: section([], 0, "not_analyzed") } };
-  const witness = { id: "edge", provider, capability: "dependencies", relationshipKind: "imports",
-    source: { path: "src/far.js", hash: "f".repeat(64) }, location: null, trust: "derived_analysis", basis: "structural" };
-  const affected = { path: "src/far.js", origins: [{ originPath: paths[0], minimumDistance: 5, witness }],
-    originSummary: { discoveredOriginCount: 1, retainedOriginWitnessCount: 1, attributionTruncated: false, reasons: [] } };
-  const impact = { schemaVersion: 1, analysisVersion: "impact-v2", projectId: "prj_fixture", project, revision,
-    snapshotToken: "snapshot", provider, coverage, observation: { incomplete: true, digestCoverage: "bounded_collected_sources" },
-    targets: paths.map(originPath => ({ originPath, targetSource: { path: originPath, hash: "e".repeat(64) },
-      status: "partial", findingState: "no_evidence_found", completeness })),
-    status: "partial", findingState: "evidence_found", affectedFiles: [affected],
-    affectedTests: { status: "partial", findingState: "no_evidence_found", candidates: [], completeness }, completeness };
-  return JSON.parse(JSON.stringify({ request, envelopes: { pack: { ok: true, data: pack }, impact: { ok: true, data: impact } } }));
-}
-function createUnobserve(f, path) {
-  const pack = f.envelopes.pack.data; const impact = f.envelopes.impact.data;
-  pack.sections.files.items = pack.sections.files.items.filter(item => item.path !== path);
-  for (const target of impact.targets) if (target.originPath === path) target.targetSource = null;
-  return f;
-}
-function createCleanFlags(f) {
-  const clean = { source: [], provider: [], traversal: [], output: [] };
-  const pack = f.envelopes.pack.data; const impact = f.envelopes.impact.data;
-  pack.observation.incomplete = false; pack.analysis.status = "available";
-  pack.analysis.coverage = impact.coverage = { observed: ["javascript"], covered: ["javascript"], uncovered: [] };
-  impact.observation.incomplete = false; impact.status = "available"; impact.completeness = clean;
-  impact.affectedTests = { status: "available", findingState: "no_evidence_found", candidates: [], completeness: clean };
-  for (const target of impact.targets) { target.status = "available"; target.completeness = clean; }
-  return f;
-}
-// Copy of the deletion fixture of "adapter: deletion intent byte parity …" above.
-function d2DeletionFixture() {
-  const f = fixture(); const pack = f.envelopes.pack.data; const impact = f.envelopes.impact.data;
-  const provenance = { projectId: f.request.projectId, revisionRef: "revision", trust: "untrusted_repository_text", producer: "context-source-observation" };
-  pack.sections.task = { ...pack.sections.task, status: "available", limit: 1, truncated: false, provenance };
-  pack.sections.files = { status: "available", limit: 1, truncated: false, provenance, items: [{ path: "src/a.js",
-    provenance: { trust: "canonical_fact", reason: "task_path", source: { path: "src/a.js", sha256: "e".repeat(64) } } }] };
-  pack.analysis.status = "available";
-  pack.analysis.coverage = impact.coverage = { observed: ["javascript"], covered: ["javascript"], uncovered: [] };
-  impact.observation.digestCoverage = "bounded_collected_sources";
-  impact.targets[0] = { ...impact.targets[0], status: "available", findingState: "evidence_found", completeness: { source: [], provider: [], traversal: [], output: [] } };
-  f.request.operationIntent = { kind: "delete", targets: [{ oldPath: "src/a.js", newPath: null }] };
-  return f;
-}
-
-test("D2 N1 (foundation-4 interim; replaced by C-4/C-5 in D3): the absence witness is neutral; create stays refused", () => {
-  const cases = [
-    ["create: destination observed", createFixture, "create_destination_exists"],
-    ["create: unobserved", () => createUnobserve(createFixture(["src/new.js"]), "src/new.js"), "create_destination_absence_not_proven"],
-    ["create: unobserved + clean flags", () => createUnobserve(createCleanFlags(createFixture(["src/new.js"])), "src/new.js"), "create_destination_absence_not_proven"],
-    ["create: unobserved + Impact not_evaluated", () => {
-      const f = createUnobserve(createFixture(["src/new.js"]), "src/new.js"); f.envelopes.impact.data.findingState = "not_evaluated"; return f;
-    }, "impact_not_evaluated"],
-    ["read", fixture, null],
-    ["delete", d2DeletionFixture, null]
-  ];
-  for (const [name, build, code] of cases) {
-    const without = build(); const withAbsence = build();
-    withAbsence.envelopes[ABSENCE_KEY] = { ok: true, data: syntheticAbsence({ verdicts: "all absent, complete (synthetic)" }) };
-    const expected = compose(without.request, without.envelopes);
-    state.calls = 0;
-    const actual = countedCompose(withAbsence.request, withAbsence.envelopes);
-    assert.equal(state.calls, 1, name);
-    assert.equal(JSON.stringify(actual), JSON.stringify(expected), name);
-    if (code) {
-      assert.equal(actual.status, "not_evaluated", name);
-      assert.ok(actual.reasons.some(reason => reason.code === code), `${name}: ${JSON.stringify(actual.reasons)}`);
-      assert.equal(Object.hasOwn(actual, "write"), false, name);
-      assert.equal(Object.hasOwn(actual, "operationIntent"), false, name);
-    }
-  }
 });
 
 test("D2 N2: with the absence key the 131072 pack/impact caps fire first through the adapter", () => {

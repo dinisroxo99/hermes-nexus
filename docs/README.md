@@ -64,7 +64,8 @@ unchanged. This acceptance is not full technical validation or Step 4 authorizat
 - [Symbol-target completeness witness](symbol-target-completeness-witness.md) — in-repo ArchW completeness witness producer feature record.
 - [ETS A1+completeness consume](effective-task-scope-symbol-consume.md) — Slice 4 (bounded) ETS consume of A1+completeness witness (PR #57).
 - [ETS adapter witness pass-through](effective-task-scope-adapter-witness-passthrough.md) — Slice 4 (bounded) C1: adapter forwards an optional completeness-witness envelope (PR #59); not Step 4 complete.
-- [ETS explicit create intent (refuse-only)](effective-task-scope-create-intent.md) — Slice 4 (bounded) C2: create intent is recognized and refused fail-closed, no create WRITE (PR #60, merge `6d570ab`); not Step 4 complete.
+- [ETS explicit create intent](effective-task-scope-create-intent.md) — Slice 4 (bounded) C2: create intent recognized (PR #60, merge `6d570ab`, refuse-only); D3 (`step4-foundation-5`) adds the absence-witness lift: create WRITE only when every target is proven absent (classification, not authorization); not Step 4 complete.
+- [Create-destination absence witness](create-destination-absence-witness.md) — the pure-input absence witness v1 (S2a) producer (D1) and its composer consumption (D3); no FS create.
 
 The tracked plugin is delivered in source, not automatically installed into the
 approved fleet. Legacy examples are archived, not the current procedure. For Hermes

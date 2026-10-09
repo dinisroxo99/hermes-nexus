@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { composeEffectiveTaskScope } from "../src/lib/effective-task-scope.js";
-import { normalizeEffectiveTaskScopeEvidence } from "../src/lib/effective-task-scope-policy.js";
+import { normalizeEffectiveTaskScopeEvidence, EFFECTIVE_TASK_SCOPE_POLICY_VERSION } from "../src/lib/effective-task-scope-policy.js";
+import { createHash } from "node:crypto";
 
 const BASE_REQ = {
   task: {
@@ -137,7 +138,7 @@ test("composer: returns incomplete for missing target sources, write available e
   const res = composeEffectiveTaskScope(BASE_REQ, { pack: MIN_PACK, impact: MIN_IMPACT });
   assert.equal(res.schemaVersion, 2);
   assert.equal(res.analysisVersion, "effective-task-scope-v2");
-  assert.equal(res.policyVersion, "step4-foundation-4");
+  assert.equal(res.policyVersion, "step4-foundation-5");
   assert.equal(res.status, "incomplete");
   assert.ok(Array.isArray(res.reasons));
   assert.deepEqual(res.task.paths, BASE_REQ.task.paths);
@@ -617,4 +618,27 @@ test("composer: revoked Proxies reject as invalid structural input without trap/
     const [request, evidence] = insert(proxy);
     assertProxyRejected(request, evidence, hits);
   }
+});
+
+// C-14 (READ legs, D3) golden: plain READ request, no witness key; global findingState no_evidence_found /
+// evidence_found / not_evaluated. Top-level policyVersion (asserted equal to the policy constant first) replaced
+// by "<policyVersion>", then sha256(JSON.stringify(result)). Captured from the 4b8e213 src on Node v26.8.2 with
+// this test file:
+//   HN_D3_PRINT_GOLDEN=1 node --test --test-name-pattern="D3 C-14" tests/effective-task-scope.test.js
+const C14_READ_GOLDEN = [
+  ["read findingState no_evidence_found", "a0bac408c3f8198ac2afa3868e44213066c81dca1624f78f60ddcb44f64ad7fe"],
+  ["read findingState evidence_found", "a0bac408c3f8198ac2afa3868e44213066c81dca1624f78f60ddcb44f64ad7fe"],
+  ["read findingState not_evaluated", "e1b30c6e21cb1d757f1e6ef05190743c3ac32e48f7362de645a679a3bca40a13"]
+];
+test("D3 C-14 (READ legs): no witness -> outcomes byte-identical to base except the policyVersion label", () => {
+  const actual = ["no_evidence_found", "evidence_found", "not_evaluated"].map(findingState => {
+    const r = composeEffectiveTaskScope(structuredClone(BASE_REQ), { pack: structuredClone(MIN_PACK), impact: { ...structuredClone(MIN_IMPACT), findingState } });
+    assert.equal(r.policyVersion, EFFECTIVE_TASK_SCOPE_POLICY_VERSION, findingState);
+    if (findingState === "not_evaluated") assert.deepEqual(r.reasons.map(reason => reason.code), ["impact_not_evaluated"]);
+    else assert.equal(r.reasons.some(reason => reason.code === "impact_not_evaluated"), false, findingState);
+    r.policyVersion = "<policyVersion>";
+    return [`read findingState ${findingState}`, createHash("sha256").update(JSON.stringify(r), "utf8").digest("hex")];
+  });
+  if (process.env.HN_D3_PRINT_GOLDEN === "1") console.log(`C14_READ_GOLDEN ${JSON.stringify(actual)}`);
+  assert.deepEqual(actual, C14_READ_GOLDEN);
 });

@@ -4,6 +4,8 @@ import fs from "node:fs";
 import childProcess from "node:child_process";
 import { composeEffectiveTaskScope as compose } from "../src/lib/effective-task-scope.js";
 import { composeEffectiveTaskScopeFromEnvelopes } from "../src/lib/effective-task-scope-adapter.js";
+import { createHash } from "node:crypto";
+import { EFFECTIVE_TASK_SCOPE_POLICY_VERSION } from "../src/lib/effective-task-scope-policy.js";
 
 // Synthetic consistency fixtures only; not authenticated/live observations.
 function fixture(paths = ["src/a.js", "src/z.js"]) {
@@ -50,7 +52,7 @@ function terminal(f, status, code) {
 
 test("delete: source-bound explicit WRITE; every retained effect WATCH, no safety or expansion", () => {
   const f = fixture(); const before = JSON.stringify(f); const r = run(f);
-  assert.equal(r.status, "incomplete"); assert.equal(r.policyVersion, "step4-foundation-4");
+  assert.equal(r.status, "incomplete"); assert.equal(r.policyVersion, "step4-foundation-5");
   assert.deepEqual(r.write.items.map(i => i.target.path), f.request.task.paths);
   assert.ok(r.write.items.every(i => i.ruleIds.includes("explicit_delete_intent")));
   assert.deepEqual(r.watch.items.map(i => i.target.path), ["src/far.js"]);
@@ -324,4 +326,47 @@ test("delete: 32 unique positive old sources join the entire WRITE set", () => {
   assert.equal(r.operationIntent.evidence.sources.length, 32);
   assert.deepEqual(r.operationIntent.targets.map(target => target.oldPath), r.write.items.map(item => item.target.path));
   assert.deepEqual(r.operationIntent.evidence.sources.map(source => source.oldPath), r.write.items.map(item => item.target.path));
+});
+
+// ---- D3 (absence witness lift) regression legs for delete ----
+// Synthetic labelled object; never evaluated on a non-create request.
+const syntheticAbsenceWitness = () => ({ kind: "labelled-synthetic-absence-witness", targets: [] });
+test("D3 C-5 (delete leg; replaces D2 N1's delete leg): delete + absence-witness key -> rejected create_absence_witness_unexpected, no containers; adapter parity", () => {
+  const f = fixture(); f.evidence.createDestinationAbsenceWitness = syntheticAbsenceWitness();
+  const r = terminal(f, "rejected", "create_absence_witness_unexpected");
+  assert.deepEqual(r.reasons.map(reason => reason.code), ["create_absence_witness_unexpected"]);
+  assert.equal(r.policyVersion, EFFECTIVE_TASK_SCOPE_POLICY_VERSION);
+  const viaAdapter = composeEffectiveTaskScopeFromEnvelopes(f.request, { pack: { ok: true, data: f.evidence.pack }, impact: { ok: true, data: f.evidence.impact },
+    createDestinationAbsenceWitness: { ok: true, data: f.evidence.createDestinationAbsenceWitness } });
+  assert.equal(JSON.stringify(viaAdapter), JSON.stringify(r));
+  // An explicitly undefined key still counts as present (U-6(i) fail-closed).
+  const g = fixture(); g.evidence.createDestinationAbsenceWitness = undefined;
+  assert.equal(run(g).status, "rejected");
+});
+test("D3 C-17: delete + absence-witness key whose stale gate also fires -> stale (step 3 before step 5)", () => {
+  const f = fixture(); f.evidence.createDestinationAbsenceWitness = syntheticAbsenceWitness();
+  f.request.expectedRevision.commitSha = "f".repeat(40);
+  terminal(f, "stale", "revision_observation_differs");
+});
+// C-14 (delete legs) golden: no witness key; global findingState no_evidence_found / evidence_found / not_evaluated.
+// Top-level policyVersion (asserted equal to the policy constant first) replaced by "<policyVersion>", then
+// sha256(JSON.stringify(result)). Captured from the 4b8e213 src on Node v26.8.2 with this test file:
+//   HN_D3_PRINT_GOLDEN=1 node --test --test-name-pattern="D3 C-14" tests/effective-task-scope-delete.test.js
+const C14_DELETE_GOLDEN = [
+  ["delete findingState no_evidence_found", "64beda50b94d92534638ea8d7f0c63b64b77f6cf43e3f900fdcfa183ac75e5f2"],
+  ["delete findingState evidence_found", "64beda50b94d92534638ea8d7f0c63b64b77f6cf43e3f900fdcfa183ac75e5f2"],
+  ["delete findingState not_evaluated", "ee3f9fb0ac467fdd9ed874f4a9680ebada1e7eb399de9f1effaf7a5f176f7622"]
+];
+test("D3 C-14 (delete legs): no witness -> outcomes byte-identical to base except the policyVersion label", () => {
+  const actual = ["no_evidence_found", "evidence_found", "not_evaluated"].map(findingState => {
+    const f = fixture(); f.evidence.impact.findingState = findingState;
+    const r = run(f);
+    assert.equal(r.policyVersion, EFFECTIVE_TASK_SCOPE_POLICY_VERSION, findingState);
+    if (findingState === "not_evaluated") assert.deepEqual(r.reasons.map(reason => reason.code), ["impact_not_evaluated"]);
+    else assert.equal(r.reasons.some(reason => reason.code === "impact_not_evaluated"), false, findingState);
+    r.policyVersion = "<policyVersion>";
+    return [`delete findingState ${findingState}`, createHash("sha256").update(JSON.stringify(r), "utf8").digest("hex")];
+  });
+  if (process.env.HN_D3_PRINT_GOLDEN === "1") console.log(`C14_DELETE_GOLDEN ${JSON.stringify(actual)}`);
+  assert.deepEqual(actual, C14_DELETE_GOLDEN);
 });

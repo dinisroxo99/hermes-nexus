@@ -15,6 +15,10 @@ import {
   evaluateSymbolTargetCompletenessWitness,
   materializeBoundedJsonData,
   checkInputBudget,
+  checkCreateAbsenceInputBudget,
+  normalizeCreateDestinationAbsenceWitness,
+  evaluateCreateDestinationAbsenceWitness,
+  isCreateGateRelaxed,
   buildEmptyCategory,
   MAX_CLASSIFIED_TARGETS,
   MAX_ORIGIN_WITNESS_REFS,
@@ -113,7 +117,9 @@ function classifyFromImpact(affectedItem, semantics, includeTests, isWrite, isDe
 
 /**
  * Pure composer: composeEffectiveTaskScope(request, evidence)
- * Receives validated request + {pack, impact, optional symbolTargetCompletenessWitness} evidence. No IO.
+ * Receives validated request + {pack, impact, optional symbolTargetCompletenessWitness, optional
+ * createDestinationAbsenceWitness} evidence. No IO. The absence witness is evaluated only for a
+ * create intent (absence-witness evidence contract r3.4 §1.4 step 5); elsewhere its presence is rejected.
  */
 export function composeEffectiveTaskScope(request, evidence) {
   // Cross the structural ingress boundary before reading either raw argument.
@@ -297,9 +303,42 @@ export function composeEffectiveTaskScope(request, evidence) {
     passedSymbolWitness = symbolEval.witness;
   }
 
+  // Step 5 (absence-witness contract r3.4 §1.4): a present createDestinationAbsenceWitness is evaluated
+  // (R1–R8) only for a create intent; on any other request it is rejected. Steps 1–4 above run first.
+  // Any refuse, and any unexpected throw, is not_evaluated with no containers (never a lift).
+  const hasAbsenceWitness = Object.hasOwn(evidence, "createDestinationAbsenceWitness");
+  let absenceCandidate;
+  if (hasAbsenceWitness) {
+    if (normalizedRequest.operationIntent?.kind !== "create") {
+      return buildRejected("create_absence_witness_unexpected");
+    }
+    let absenceResult;
+    try {
+      const normalizedAbsence = normalizeCreateDestinationAbsenceWitness(evidence.createDestinationAbsenceWitness);
+      absenceResult = normalizedAbsence.ok
+        ? evaluateCreateDestinationAbsenceWitness(normalizedAbsence.witness, {
+            taskPaths: normalizedRequest.task.paths,
+            projectId: normalizedRequest.projectId,
+            repositoryId: er.repositoryId,
+            worktreeId: er.worktreeId,
+            worktree: normalizedRequest.worktree,
+            revision: er,
+            snapshotToken: pack.analysis.snapshotToken
+          })
+        : normalizedAbsence;
+    } catch {
+      absenceResult = { ok: false, code: "create_absence_evidence_invalid" };
+    }
+    if (absenceResult?.ok !== true) {
+      const refuse = ["create_absence_evidence_invalid", "create_absence_binding_mismatch", "create_absence_evidence_inconsistent"];
+      return buildNotEvaluatedNoContainers(refuse.includes(absenceResult?.code) ? absenceResult.code : "create_absence_evidence_invalid");
+    }
+    absenceCandidate = absenceResult;
+  }
+
   // global unevaluated Impact -> not_evaluated with no classification containers
   // per 38 G/I: unsupported / unavailable / not_evaluated global status or finding -> no write containers
-  if (impact.findingState === "not_evaluated" ||
+  if ((impact.findingState === "not_evaluated" && !isCreateGateRelaxed(normalizedRequest, impact, absenceCandidate)) ||
       impact.status === "not_evaluated" ||
       impact.status === "unsupported" ||
       impact.status === "unavailable" ||
@@ -308,6 +347,15 @@ export function composeEffectiveTaskScope(request, evidence) {
   }
 
   // budget check (now enforces pack/impact <=131072 too; Fix 2 includes witness when present)
+  // With the absence witness the D2 sibling runs instead (raw materialized witness); otherwise the
+  // existing checkInputBudget call below runs unchanged.
+  if (hasAbsenceWitness) {
+    try {
+      checkCreateAbsenceInputBudget(request, pack, impact, passedSymbolWitness, evidence.createDestinationAbsenceWitness);
+    } catch (e) {
+      return buildRejected("scope_budget_exceeded");
+    }
+  } else
   try {
     checkInputBudget(
       normalizedRequest.operationIntent ? request : normalizedRequest,
@@ -319,21 +367,26 @@ export function composeEffectiveTaskScope(request, evidence) {
     return buildRejected("scope_budget_exceeded");
   }
 
-  // Create (step4-foundation-4) is refused fail-closed after the existing gates and whole
-  // proof validation: EXISTS or UNKNOWN destination -> not_evaluated, never WRITE/operationIntent.
+  // Create (step4-foundation-5) is refused fail-closed after the existing gates and whole
+  // proof validation unless every declared target is PROVEN-ABSENT: only a positive lift falls
+  // through to classification; any other binder result -> not_evaluated, no WRITE/operationIntent.
+  let creation;
   if (normalizedRequest.operationIntent && normalizedRequest.operationIntent.kind === "create") {
-    let creation;
+    let createResult;
     try {
-      creation = bindCreateIntent(normalizedRequest.operationIntent, normalizedRequest.task.paths, pack, impact);
+      createResult = bindCreateIntent(normalizedRequest.operationIntent, normalizedRequest.task.paths, pack, impact, absenceCandidate);
     } catch (error) {
       return buildRejected(error.code);
     }
-    return buildNotEvaluatedNoContainers(creation?.notEvaluated ?? "create_destination_absence_not_proven");
+    if (!(createResult?.notEvaluated === null && createResult?.lift?.reason === "create_destination_proven_absent")) {
+      return buildNotEvaluatedNoContainers(createResult?.notEvaluated ?? "create_destination_absence_not_proven");
+    }
+    creation = createResult;
   }
 
   // Activate deletion only after the existing binding/staleness gates and whole proof validation.
   let deletion;
-  if (normalizedRequest.operationIntent) {
+  if (normalizedRequest.operationIntent && !(creation?.notEvaluated === null && creation?.lift?.reason === "create_destination_proven_absent")) {
     try {
       deletion = bindDeleteIntent(normalizedRequest.operationIntent, normalizedRequest.task.paths, pack, impact);
     } catch (error) {
@@ -347,7 +400,7 @@ export function composeEffectiveTaskScope(request, evidence) {
   const writeItems = writePaths.map((p) => ({
     target: makeFileTarget(p),
     roles: ["explicit_task_path"],
-    ruleIds: deletion ? ["explicit_delete_intent", "explicit_task_path"] : ["explicit_task_path"],
+    ruleIds: deletion ? ["explicit_delete_intent", "explicit_task_path"] : creation ? ["explicit_create_intent", "explicit_task_path"] : ["explicit_task_path"],
     evidenceRefs: [],
     origins: [],
     attribution: null
@@ -618,6 +671,7 @@ export function composeEffectiveTaskScope(request, evidence) {
   }
 
   if (deletion) completeness.resolver = [...new Set([...completeness.resolver, ...deletion.reasons])].sort(compareStrings);
+  if (creation) completeness.resolver = [...new Set([...completeness.resolver, creation.lift.reason])].sort(compareStrings);
 
   // count caps
   const classifiedCount = classified.size;
@@ -633,7 +687,7 @@ export function composeEffectiveTaskScope(request, evidence) {
   if (originWitnessRefCount > MAX_ORIGIN_WITNESS_REFS) {
     return buildRejected("scope_budget_exceeded");
   }
-  const resolverReasonCount = topReasons.length + (deletion ? completeness.resolver.length : 0);
+  const resolverReasonCount = topReasons.length + (deletion || creation ? completeness.resolver.length : 0);
   if (resolverReasonCount > MAX_RESOLVER_REASONS) {
     return buildRejected("scope_budget_exceeded");
   }
@@ -675,6 +729,7 @@ export function composeEffectiveTaskScope(request, evidence) {
       reasons: sem.reasons
     },
     ...(deletion && emitCategories ? { operationIntent: deletion.operationIntent } : {}),
+    ...(creation && emitCategories ? { operationIntent: { kind: "create", targets: normalizedRequest.operationIntent.targets } } : {}),
     ...(emitCategories ? { write: writeCat } : {}),
     ...(emitCategories ? { reserved: reservedCat } : {}),
     ...(emitCategories ? { watch: watchCat } : {}),

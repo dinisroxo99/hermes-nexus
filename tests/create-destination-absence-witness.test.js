@@ -197,11 +197,36 @@ test("PA-1: static scan: the producer module uses no mutating fs API and no chil
   assert.match(source, /O_NOFOLLOW/);
 });
 
-test("PA-23: the producer is not imported by the route or the adapter (nor the composer/policy)", () => {
-  for (const file of ["src/routes/effective-task-scope.routes.js", "src/lib/effective-task-scope-adapter.js", "src/lib/effective-task-scope.js",
-    "src/lib/effective-task-scope-policy.js"]) {
+test("PA-23: the producer is not imported by the route, the adapter or the composer (composer/policy: producer module not imported; D3 imports the constants module per P-9)", () => {
+  for (const file of ["src/routes/effective-task-scope.routes.js", "src/lib/effective-task-scope-adapter.js", "src/lib/effective-task-scope.js"]) {
     assert.equal(fs.readFileSync(path.join(ROOT, file), "utf8").includes("create-destination-absence-witness"), false, file);
   }
+  // D3 form (amend1 §E(i)). Direct import specifiers, collected from `from "x"` / `from 'x'` and side-effect
+  // `import "x"` / `import 'x'` forms; direct only (the base already reaches node:fs transitively).
+  const directSpecifiers = (source) => [
+    ...[...source.matchAll(/\bfrom\s*["']([^"']+)["']/g)].map((match) => match[1]),
+    ...[...source.matchAll(/\bimport\s*["']([^"']+)["']/g)].map((match) => match[1])
+  ];
+  // Policy (the composer's evaluator, contract l.765, P-9): a closed allow-list of exactly these 9 literals;
+  // never the fs-using producer, node:fs/fs or the collector.
+  const policy = fs.readFileSync(path.join(ROOT, "src/lib/effective-task-scope-policy.js"), "utf8");
+  const specifiers = directSpecifiers(policy);
+  const allowed = ["node:util", "./project-registry.js", "./project-roots.js", "./impact-policy.js", "./task-context-policy.js",
+    "./create-destination-absence-witness-constants.js", "./create-name-key.js", "./context-path-secret-policy.js", "node:crypto"];
+  assert.ok(specifiers.length >= 5);
+  for (const specifier of specifiers) assert.ok(allowed.includes(specifier), specifier);
+  assert.equal(specifiers.includes("./create-destination-absence-witness.js"), false);
+  for (const banned of ["./project-context-files.js", "node:fs", "fs", "node:fs/promises"]) assert.equal(specifiers.includes(banned), false, banned);
+  assert.equal(/\bimport\s*\(/.test(policy), false);
+  assert.equal(/buildCreateDestinationAbsenceWitness|s2aSecretRuleRequiresUnknown/.test(policy), false);
+  // Composer: its direct specifiers are a subset of exactly the policy and the reserved-track-b witness module.
+  const composer = fs.readFileSync(path.join(ROOT, "src/lib/effective-task-scope.js"), "utf8");
+  const composerSpecifiers = directSpecifiers(composer);
+  assert.ok(composerSpecifiers.length >= 1);
+  for (const specifier of composerSpecifiers) {
+    assert.ok(["./effective-task-scope-policy.js", "./reserved-from-track-b-witness.js"].includes(specifier), specifier);
+  }
+  assert.equal(/\bimport\s*\(/.test(composer), false);
 });
 
 test("PA-26 (producer side): the producer imports the shared D0 secret predicate", () => {
