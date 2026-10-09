@@ -431,6 +431,15 @@ refuseRow("B-10 revision.dirty ≠ er", BINDING, w => { w.revision.dirty = true;
 refuseRow("B-11 a declared target missing", BINDING, w => { w.targets.pop(); });
 refuseRow("B-11 an undeclared extra target", BINDING, w => { w.targets.push(absentRecord("src/zzz.js")); });
 refuseRow("B-11 targets out of code-unit order", BINDING, w => { w.targets.reverse(); });
+// R3 identity binding (Tester h4): each identity field on its own.
+refuseRow("R3 witness projectId ≠ request projectId", BINDING, w => { w.projectId = `${w.projectId}-other`; });
+refuseRow("R3 witness repositoryId ≠ request expectedRevision.repositoryId", BINDING, w => { w.repositoryId = "9".repeat(64); });
+refuseRow("R3 witness worktreeId ≠ request expectedRevision.worktreeId", BINDING, w => { w.worktreeId = "8".repeat(64); });
+// R8 (Tester i5): native lookup present, basename not listed, producer verdict absent -> recomputed exists ≠ absent.
+refuseRow("R8 nativeLookup present + basename not listed + verdict absent", INCONSISTENT, w => { w.targets[0].nativeLookup = "present"; }, U17);
+// R5 (Tester g2): complete:true requires nativeLookup ∈ {ENOENT, present}.
+refuseRow("R5 complete:true with nativeLookup error (verdict absent)", INCONSISTENT, w => { w.targets[0].nativeLookup = "error"; });
+refuseRow("R5 complete:true with nativeLookup null (verdict absent)", INCONSISTENT, w => { w.targets[0].nativeLookup = null; });
 for (const key of ["kind", "version", "producerIdentity"]) refuseRow(`B-12 wrong ${key}`, INVALID, w => { w[key] = `${w[key]}-other`; });
 refuseRow("B-13 extra top-level key", INVALID, w => { w.extra = true; });
 refuseRow("B-14 verdict absent with the name listed (ENOENT; R5)", INCONSISTENT, w => { relist(w.targets[0], ["README.md", "new.js"]); });
@@ -888,7 +897,7 @@ test("D3 C-18c: non-object third argument (null, string, number, array) -> UNKNO
 });
 
 // ---- D3-L1 / RN-4: instrumented composer instance (its policy import only) ----
-const hookState = globalThis[Symbol.for("effective-task-scope-create.test.d3")] = { relax: [], bindStub: null };
+const hookState = globalThis[Symbol.for("effective-task-scope-create.test.d3")] = { relax: [], bindStub: null, deleteBinds: [], intentKindOverride: null };
 const canonicalPolicyUrl = new URL("../src/lib/effective-task-scope-policy.js", import.meta.url).href;
 const d3Hook = registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -900,7 +909,12 @@ const d3Hook = registerHooks({
           const result = typeof real.isCreateGateRelaxed === "function" ? real.isCreateGateRelaxed(...args) : false;
           s().relax.push(result); return result;
         }
-        export function bindCreateIntent(...args) { const stub = s().bindStub; return stub ? stub(...args) : real.bindCreateIntent(...args); }`;
+        export function bindCreateIntent(...args) { const stub = s().bindStub; return stub ? stub(...args) : real.bindCreateIntent(...args); }
+        export function bindDeleteIntent(...args) { s().deleteBinds.push(args[0]?.kind); return real.bindDeleteIntent(...args); }
+        export function normalizeEffectiveTaskScopeRequest(...args) {
+          const normalized = real.normalizeEffectiveTaskScopeRequest(...args); const kind = s().intentKindOverride;
+          return kind && normalized.operationIntent ? { ...normalized, operationIntent: { ...normalized.operationIntent, kind } } : normalized;
+        }`;
       return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };
     }
     return nextResolve(specifier, context);
@@ -1037,4 +1051,76 @@ test("D3-S2a-Kk: K forced to miss, Kk hits -> unknown (S2a Kk disjunct); both fo
     const bound = kkPolicy.bindCreateIntent(req.operationIntent, req.task.paths, data.pack, data.impact, candidate);
     assert.equal(bound.notEvaluated === null ? bound.lift?.reason : bound.notEvaluated, expected === "unknown" ? NOT_PROVEN : LIFT, mode);
   }
+});
+
+// ---- Fix round (Tester a5 / c1 / c2 / i2, Reviewer N-2): direct binder and delete-bind gate behaviour ----
+/** bindCreateIntent on a no-observation fixture with a synthetic evaluated candidate. */
+function bindWith(paths, targets, extra = {}) {
+  const f = newFixture(paths);
+  const req = policy.normalizeEffectiveTaskScopeRequest(f.request, { allowCreateIntent: true });
+  const data = policy.materializeBoundedJsonData(f.evidence);
+  const out = policy.bindCreateIntent(req.operationIntent, req.task.paths, data.pack, data.impact,
+    { ok: true, unicodeMismatch: false, targets, ...extra });
+  return out.notEvaluated === null ? out.lift?.reason : out.notEvaluated;
+}
+const candidateTarget = (newPath, verdict) => ({ ...describe(newPath), verdict, witnessVerdict: verdict, entries: ["README.md"] });
+test("D3 binder N-2: unicodeMismatch true with every candidate absent -> not proven (binder check on its own)", () => {
+  assert.equal(bindWith(TWO, TWO.map(path => candidateTarget(path, "absent"))), LIFT);
+  assert.equal(bindWith(TWO, TWO.map(path => candidateTarget(path, "absent")), { unicodeMismatch: true }), NOT_PROVEN);
+  assert.equal(bindWith(TWO, TWO.map(path => candidateTarget(path, "absent")), { unicodeMismatch: undefined }), NOT_PROVEN);
+});
+test("D3 binder c1/c2: a missing record or non-record candidate entries -> not proven, never thrown, never lift", () => {
+  const [a, b] = TWO;
+  for (const [name, run] of [
+    ["one declared path has no record", () => bindWith(TWO, [candidateTarget(a, "absent")])],
+    ["no records", () => bindWith(TWO, [])],
+    ["non-record entries beside an absent record", () => bindWith(TWO, [null, 7, "x", [], candidateTarget(a, "absent")])],
+    ["non-record entry in place of a record", () => bindWith(TWO, [candidateTarget(a, "absent"), null])],
+    ["record for an undeclared path", () => bindWith(TWO, [candidateTarget(a, "absent"), candidateTarget("src/zzz.js", "absent")])],
+    ["targets not an array", () => bindWith(TWO, { [a]: candidateTarget(a, "absent"), [b]: candidateTarget(b, "absent") })]
+  ]) {
+    let code;
+    assert.doesNotThrow(() => { code = run(); }, name);
+    assert.equal(code, NOT_PROVEN, name);
+  }
+  for (const candidate of [null, [], "x", { ok: false, unicodeMismatch: false, targets: TWO.map(path => candidateTarget(path, "absent")) }]) {
+    const f = newFixture(TWO);
+    const req = policy.normalizeEffectiveTaskScopeRequest(f.request, { allowCreateIntent: true });
+    const data = policy.materializeBoundedJsonData(f.evidence);
+    const out = policy.bindCreateIntent(req.operationIntent, req.task.paths, data.pack, data.impact, candidate);
+    assert.equal(out.notEvaluated, NOT_PROVEN, JSON.stringify(candidate));
+  }
+});
+test("D3 binder i2: aggregation precedence EXISTS › parent_absent › ancestor_boundary › UNKNOWN › lift", () => {
+  const [a, b] = TWO;
+  for (const [va, vb, expected] of [
+    ["exists", "parent_absent", "create_destination_exists"], ["parent_absent", "exists", "create_destination_exists"],
+    ["exists", "ancestor_boundary", "create_destination_exists"], ["exists", "unknown", "create_destination_exists"],
+    ["parent_absent", "ancestor_boundary", "create_parent_directory_absent"], ["ancestor_boundary", "parent_absent", "create_parent_directory_absent"],
+    ["parent_absent", "unknown", "create_parent_directory_absent"],
+    ["ancestor_boundary", "unknown", "create_ancestor_boundary"], ["unknown", "ancestor_boundary", "create_ancestor_boundary"],
+    ["unknown", "absent", NOT_PROVEN], ["absent", "absent", LIFT]
+  ]) {
+    assert.equal(bindWith(TWO, [candidateTarget(a, va), candidateTarget(b, vb)]), expected, `${va} + ${vb}`);
+  }
+});
+test("D3 a5: the delete-bind gate runs bindDeleteIntent for every non-lift intent kind and skips it only on a create lift", { ...U17 }, () => {
+  try {
+    const del = fixture(); del.request.operationIntent = { kind: "delete", targets: del.request.task.paths.map(oldPath => ({ oldPath, newPath: null })) };
+    hookState.deleteBinds = []; hookedCompose(del.request, del.evidence);
+    assert.deepEqual(hookState.deleteBinds, ["delete"]);
+    // A kind other than create/delete reaching the gate (normalizer output overridden in the instrumented instance
+    // only) must still be delete-bound: the gate is not a recognised-kind allow-list (amend1 §B.3, P2 rejected).
+    hookState.intentKindOverride = "future_kind"; hookState.deleteBinds = [];
+    const r = hookedCompose(del.request, del.evidence);
+    assert.deepEqual(hookState.deleteBinds, ["future_kind"]);
+    assert.equal(JSON.stringify(r).includes("explicit_create_intent"), false);
+    hookState.intentKindOverride = null;
+    const lift = newFixture(TWO); withWitness(lift, allAbsent(lift));
+    hookState.deleteBinds = []; const liftOut = hookedCompose(lift.request, lift.evidence);
+    assert.equal(liftOut.status, "incomplete"); assert.deepEqual(hookState.deleteBinds, []);
+    const notProven = newFixture(TWO);
+    hookState.deleteBinds = []; const npOut = hookedCompose(notProven.request, notProven.evidence);
+    assert.equal(npOut.status, "not_evaluated"); assert.deepEqual(hookState.deleteBinds, []);
+  } finally { hookState.intentKindOverride = null; hookState.deleteBinds = []; }
 });
