@@ -4,6 +4,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { taskContextFixture } from "./helpers/task-context-fixture.js";
 import { collectContextSources } from "../src/lib/project-context-files.js";
+import { readProjectRevision } from "../src/lib/project-revision.js";
+import { noRepoIsolation } from "./helpers/no-repo-isolation.js";
 
 async function builder() {
   const module = await import("../src/lib/task-context.js").catch(() => ({}));
@@ -88,9 +90,12 @@ test("pack labels unborn, non-Git and unavailable evidence without reusing a cle
   f.git(["checkout", "--orphan", "unborn"]);
   assert.equal(build(f.request, f.options).revision.status, "unborn");
   fs.rmSync(path.join(f.repo, ".git"), { recursive: true, force: true });
-  assert.equal(build(f.request, f.options).revision.status, "not_git");
+  // Isolated from any ancestor `.git` above the fixture root (see tests/helpers/no-repo-isolation.js).
+  const noRepo = noRepoIsolation(f.root);
+  const isolatedOptions = { ...f.options, readRevision: (project) => readProjectRevision(project, { execFileSync: noRepo.execFileSync }) };
+  assert.equal(noRepo.run(() => build(f.request, isolatedOptions)).revision.status, "not_git");
   fs.writeFileSync(path.join(f.repo, ".git"), "invalid metadata");
-  const unavailable = build(f.request, f.options);
+  const unavailable = noRepo.run(() => build(f.request, isolatedOptions));
   assert.equal(unavailable.revision.status, "unavailable");
   assert.equal(unavailable.revision.commitSha, null);
   assert.equal(unavailable.observation.incomplete, true);

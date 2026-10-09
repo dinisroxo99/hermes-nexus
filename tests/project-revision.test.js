@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { gitFixture } from "./helpers/git-fixture.js";
+import { isolatedNoRepoRoot } from "./helpers/no-repo-isolation.js";
 
 async function reader() {
   const module = await import("../src/lib/project-revision.js").catch(() => ({}));
@@ -48,11 +49,12 @@ test("revision distinguishes unborn, non-Git, corrupt and unavailable repositori
   const unborn = read(f.project);
   assert.equal(unborn.status, "unborn");
   assert.equal(unborn.commitSha, null);
-  const plain = path.join(f.root, "plain");
+  const noRepo = isolatedNoRepoRoot(t);
+  const plain = path.join(noRepo.root, "plain");
   fs.mkdirSync(plain);
-  assert.equal(read({ absolutePath: plain }).status, "not_git");
+  assert.equal(noRepo.isolated(read, { absolutePath: plain }).status, "not_git");
   fs.writeFileSync(path.join(plain, ".git"), "invalid marker");
-  assert.equal(read({ absolutePath: plain }).status, "unavailable");
+  assert.equal(noRepo.isolated(read, { absolutePath: plain }).status, "unavailable");
   for (const code of ["ENOENT", "ETIMEDOUT", "ENOBUFS"]) {
     const revision = read(f.project, { execFileSync: () => { throw Object.assign(new Error("sensitive stderr"), { code }); } });
     assert.equal(revision.status, "unavailable");

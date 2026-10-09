@@ -74,8 +74,12 @@ export function buildProjectOverview(project, options = {}) {
 
   const projectType = detectProjectType(project.absolutePath);
   const analyzerType = getAnalyzer(projectType)?.projectType || projectType;
+  // Test-only seam: an optional revisionOptions.execFileSync is forwarded to the revision reader; when it
+  // is absent the identity options are exactly { now } as before.
+  const revisionExecFileSync = options.revisionOptions?.execFileSync;
   const identity = getProjectCacheIdentity(project, {
-    now: typeof options.now === "function" ? options.now : options.now ? () => options.now : undefined
+    now: typeof options.now === "function" ? options.now : options.now ? () => options.now : undefined,
+    ...(typeof revisionExecFileSync === "function" ? { execFileSync: revisionExecFileSync } : {})
   });
   const supported = isSupportedProjectType(projectType);
   const packageInfo = readPackageJson(project.absolutePath, warnings);
