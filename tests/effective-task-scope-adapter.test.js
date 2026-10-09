@@ -624,8 +624,8 @@ test("adapter C1: witness envelope parity with direct compose lift path", () => 
   assert.ok(viaAdapter.status === "incomplete" || viaAdapter.status === "available");
   assert.ok(viaAdapter.write);
   assert.ok(!viaAdapter.reasons.some((r) => String(r.code || "").startsWith("symbol_target_")));
-  assert.equal(viaAdapter.policyVersion, "step4-foundation-5");
-  assert.equal(EFFECTIVE_TASK_SCOPE_POLICY_VERSION, "step4-foundation-5");
+  assert.equal(viaAdapter.policyVersion, "step4-foundation-6");
+  assert.equal(EFFECTIVE_TASK_SCOPE_POLICY_VERSION, "step4-foundation-6");
 
   state.calls = 0;
   const counted = countedCompose(request, envelopes);

@@ -21,7 +21,7 @@ import { KERNEL_MODEL_KEY_DESCRIPTOR } from "../src/lib/create-name-key.js";
 import { s2aSecretRuleRequiresUnknown } from "../src/lib/create-destination-absence-witness.js";
 
 // Synthetic consistency fixtures only; not authenticated/live observations.
-// step4-foundation-5: without a createDestinationAbsenceWitness, create is refused fail-closed exactly
+// step4-foundation-6: without a createDestinationAbsenceWitness, create is refused fail-closed exactly
 // as under the previous policy version: a positively observed destination is EXISTS
 // (create_destination_exists); anything else is UNKNOWN (create_destination_absence_not_proven), so
 // none of the REACHABLE fixtures below emits WRITE, WATCH or operationIntent. The witness-carrying
@@ -201,11 +201,11 @@ test("create: A2 no reachable create fixture emits WRITE, WATCH or operationInte
   }
 });
 
-test("create: V1 policyVersion step4-foundation-5 on create outcomes", () => {
-  assert.equal(EFFECTIVE_TASK_SCOPE_POLICY_VERSION, "step4-foundation-5");
-  assert.equal(run(fixture()).policyVersion, "step4-foundation-5");
+test("create: V1 policyVersion step4-foundation-6 on create outcomes", () => {
+  assert.equal(EFFECTIVE_TASK_SCOPE_POLICY_VERSION, "step4-foundation-6");
+  assert.equal(run(fixture()).policyVersion, "step4-foundation-6");
   const f = fixture(["src/new.js"]); unobserve(f, "src/new.js");
-  assert.equal(run(f).policyVersion, "step4-foundation-5");
+  assert.equal(run(f).policyVersion, "step4-foundation-6");
 });
 
 test("create: P1 purity, no fixture mutation and no filesystem side effects", () => {
@@ -694,6 +694,122 @@ test("D3 B-61: PA-10b witness (lone surrogate) -> not proven; neither evaluator 
   assert.equal(verdictsOf(viaPipeline.candidate)["src/a\ud800.js"], "unknown");
 });
 
+// ---- B-62…B-67: full chain for complete:true records (r3.4 + N-12 full-chain amendment, R5-FC) ----
+// Otherwise valid all-absent S2a witnesses; only targets[i].ancestors is mutated and complete:true is kept.
+// R5 precedes R7, so the refuse rows run on any runtime; never registered in REACHABLE (RN-8).
+const FC_DEEP = ["a/b/c/new.js", "a/b/c/other.js"];
+const keepAncestors = (record, indexes) => { const full = chainFor(record.newPath); record.ancestors = indexes.map(i => ({ ...full[i] })); };
+const truncateAncestors = (record, length) => { record.ancestors = record.ancestors.slice(0, length); };
+function fullChainRow(id, paths, code, edit, options = {}) {
+  test(`D3 ${id} -> ${code}`, options, () => {
+    const f = newFixture(paths); withWitness(f, allAbsent(f)); edit(f.evidence.createDestinationAbsenceWitness, f);
+    expectOutcome(f, code);
+  });
+}
+fullChainRow("B-62a complete:true chain without the parent element (a/b/c/new.js: ['', a, a/b]; R5-FC)", FC_DEEP, INCONSISTENT, w => truncateAncestors(w.targets[0], 3));
+fullChainRow("B-62b complete:true root-only chain (a/b/c/new.js: ['']; R5-FC)", FC_DEEP, INCONSISTENT, w => truncateAncestors(w.targets[0], 1));
+fullChainRow("B-62c complete:true src/new.js with root-only chain [''] (Reviewer R-1 shape; R5-FC)", TWO, INCONSISTENT, w => truncateAncestors(w.targets[0], 1));
+fullChainRow("B-62d mixed depth a/b/new.js truncated to [''] + root-level z.js full ['']; R5-FC", ["a/b/new.js", "z.js"], INCONSISTENT, w => {
+  assert.equal(w.targets[0].newPath, "a/b/new.js"); assert.deepEqual(w.targets[1].ancestors.map(a => a.path), [""]);
+  truncateAncestors(w.targets[0], 1);
+});
+test("D3 B-62e: B-62c with evaluator seam runtimeUnicodeVersion 16.0 -> create_absence_evidence_inconsistent (R5 before R7)", () => {
+  const f = newFixture(TWO); withWitness(f, allAbsent(f)); truncateAncestors(f.evidence.createDestinationAbsenceWitness.targets[0], 1);
+  assert.equal(pipeline(f, { runtimeUnicodeVersion: "16.0" }).code, INCONSISTENT);
+});
+test("D3 B-62f: complete:true EXISTS record (present) truncated to ['', a] -> create_absence_evidence_inconsistent (R5-FC, any verdict)", () => {
+  const f = newFixture(["a/b/new.js", "a/b/other.js"]);
+  const entries = ["README.md", "other.js"];
+  withWitness(f, absenceWitness(f, [absentRecord("a/b/new.js", { entries }),
+    absentRecord("a/b/other.js", { entries, nativeLookup: "present", verdict: "exists" })]));
+  const w = f.evidence.createDestinationAbsenceWitness;
+  assert.equal(w.targets[1].newPath, "a/b/other.js");
+  truncateAncestors(w.targets[1], 2);
+  expectOutcome(f, INCONSISTENT);
+});
+test("D3 B-63: path defects in a complete:true chain -> create_absence_binding_mismatch (R3 runs before R5-FC)", () => {
+  const cases = [
+    ["drop middle", FC_DEEP, [0, 1, 3]], ["drop root", FC_DEEP, [1, 2, 3]], ["reorder", FC_DEEP, [0, 2, 1, 3]],
+    ["duplicate middle", FC_DEEP, [0, 1, 1, 2, 3]], ["duplicate parent appended", FC_DEEP, [0, 1, 2, 3, 3]],
+    ["duplicate inside a truncated prefix", FC_DEEP, [0, 1, 1]]
+  ];
+  for (const [name, paths, indexes] of cases) {
+    const f = newFixture(paths); withWitness(f, allAbsent(f)); keepAncestors(f.evidence.createDestinationAbsenceWitness.targets[0], indexes);
+    assert.equal(pipeline(f).code, BINDING, name);
+    terminal(f, "not_evaluated", BINDING);
+  }
+  const f = newFixture(["new.js", "other.js"]); withWitness(f, allAbsent(f));
+  const target = f.evidence.createDestinationAbsenceWitness.targets[0];
+  target.ancestors = [...target.ancestors, { path: "x", state: "directory", fsType: FS_TYPE, devIno: "2049:1999" }];
+  assert.equal(pipeline(f).code, BINDING, "root-level target with ['', x]");
+  terminal(f, "not_evaluated", BINDING);
+});
+test("D3 B-64: non-directory states in a complete:true verdict-absent chain -> create_absence_evidence_inconsistent", () => {
+  const off = (path, state) => ({ path, state, fsType: null, devIno: null });
+  const cases = [
+    ["parent unreadable", a => { a[3] = off("a/b/c", "unreadable"); }],
+    ["middle unreadable", a => { a[1] = off("a", "unreadable"); }],
+    ["parent symlink", a => { a[3] = off("a/b/c", "symlink"); }],
+    ["parent not_directory keeping fsType/devIno", a => { a[3].state = "not_directory"; }],
+    ["parent absent", a => { a[3] = off("a/b/c", "absent"); }],
+    ["root unreadable", a => { a[0] = off("", "unreadable"); }],
+    ["truncated root-unreadable only", a => { a.splice(0, a.length, off("", "unreadable")); }]
+  ];
+  for (const [name, edit] of cases) {
+    const f = newFixture(FC_DEEP); withWitness(f, allAbsent(f)); edit(f.evidence.createDestinationAbsenceWitness.targets[0].ancestors);
+    assert.equal(pipeline(f).code, INCONSISTENT, name);
+    terminal(f, "not_evaluated", INCONSISTENT);
+  }
+});
+for (const [id, paths] of [["B-65 full chain ['', a, a/b, a/b/c]", FC_DEEP], ["B-65 src/new.js full ['', src]", TWO], ["B-65 root-level new.js + other.js with [''] (parent = root)", ["new.js", "other.js"]]]) {
+  test(`D3 ${id} -> lift ${LIFT}`, U17, () => {
+    const f = newFixture(paths); withWitness(f, allAbsent(f));
+    for (const t of f.evidence.createDestinationAbsenceWitness.targets) assert.equal(t.ancestors.length, t.newPath.split("/").length);
+    expectOutcome(f, LIFT, Object.fromEntries(paths.map(path => [path, "absent"])));
+  });
+}
+test("D3 B-66a: B-62c + co-target witness EXISTS (present) -> inconsistent (refuse beats EXISTS)", () => {
+  const f = newFixture(TWO); const entries = ["README.md", "other.js"];
+  withWitness(f, absenceWitness(f, [absentRecord("src/new.js", { entries }), absentRecord("src/other.js", { entries, nativeLookup: "present", verdict: "exists" })]));
+  truncateAncestors(f.evidence.createDestinationAbsenceWitness.targets[0], 1);
+  expectOutcome(f, INCONSISTENT);
+});
+test("D3 B-66b: B-62c + co-target observed in Context (C(p)), entries consistent -> inconsistent (refuse beats EXISTS)", () => {
+  const f = fixture(TWO); unobserve(f, "src/new.js"); const entries = ["README.md", "other.js"];
+  assert.ok(f.evidence.pack.sections.files.items.some(item => item.path === "src/other.js"));
+  withWitness(f, absenceWitness(f, [absentRecord("src/new.js", { entries }), absentRecord("src/other.js", { entries, nativeLookup: "present", verdict: "exists" })]));
+  truncateAncestors(f.evidence.createDestinationAbsenceWitness.targets[0], 1);
+  expectOutcome(f, INCONSISTENT);
+});
+test("D3 B-66c: truncated src/z.js + co-target src/a/new.js scope-out (parent_absent) -> inconsistent (refuse beats scope-out)", () => {
+  const f = newFixture(["src/a/new.js", "src/z.js"]);
+  withWitness(f, absenceWitness(f, [scopeOutRecord("src/a/new.js", "absent"), absentRecord("src/z.js")]));
+  const w = f.evidence.createDestinationAbsenceWitness; assert.equal(w.targets[1].newPath, "src/z.js");
+  truncateAncestors(w.targets[1], 1);
+  expectOutcome(f, INCONSISTENT);
+});
+fullChainRow("B-66d B-62c + snapshotToken ≠ exterior (R3 first)", TWO, BINDING, w => { truncateAncestors(w.targets[0], 1); w.snapshotToken = "other-snapshot"; });
+fullChainRow("B-66e B-62c + generatedAt non-null (R4)", TWO, INCONSISTENT, w => { truncateAncestors(w.targets[0], 1); w.generatedAt = "2026-10-09T00:00:00Z"; });
+fullChainRow("B-66f B-62c + extra top-level key (R1)", TWO, INVALID, w => { truncateAncestors(w.targets[0], 1); w.extra = true; });
+test("D3 B-67(i): complete:false honest scope-out (absent at src/a) + absent co-target -> create_parent_directory_absent (R5-FC not applied)", U17, () => {
+  const f = newFixture(["src/a/new.js", "src/z.js"]);
+  withWitness(f, absenceWitness(f, [scopeOutRecord("src/a/new.js", "absent"), absentRecord("src/z.js")]));
+  expectOutcome(f, "create_parent_directory_absent", { "src/a/new.js": "parent_absent", "src/z.js": "absent" });
+});
+test("D3 B-67(ii–v): complete:false forms with short or empty chains -> not proven (R5-FC not applied)", () => {
+  const cases = [
+    ["truncated chain, listing_changed, verdict unknown", () => { const r = absentRecord("src/new.js", { complete: false, incompleteReason: "listing_changed", verdict: "unknown" }); r.ancestors = r.ancestors.slice(0, 1); return r; }],
+    ["witness_byte_cap minimal", () => emptyChainRecord("src/new.js", "witness_byte_cap")],
+    ["segment_cap empty chain", () => emptyChainRecord("src/new.js", "segment_cap")],
+    ["case (d) reached chain, enumeration null, non_utf8_name", () => absentRecord("src/new.js", { enumeration: null, complete: false, incompleteReason: "non_utf8_name", verdict: "unknown" })]
+  ];
+  for (const [name, record] of cases) {
+    const f = newFixture(TWO); withWitness(f, absenceWitness(f, [record(), absentRecord("src/other.js")]));
+    const { viaPipeline } = expectOutcome(f, NOT_PROVEN);
+    assert.equal(verdictsOf(viaPipeline.candidate)["src/new.js"], "unknown", name);
+  }
+});
+
 // ---- C-*: composer ----
 const RELAX_COMPLETENESS = () => ({ source: ["source_unavailable"], provider: [], traversal: [], output: [] });
 /** Real-shaped multi-target new-path Impact (§0.3): global partial / not_evaluated, affectedFiles []. */
@@ -894,6 +1010,19 @@ test("D3 C-18c: non-object third argument (null, string, number, array) -> UNKNO
     assert.equal(out.candidate.unicodeMismatch, true);
   }
   assert.equal(process.versions.unicode, before);
+});
+test("D3 C-19a: real-shaped Impact (D3-c path), target 0 chain truncated as B-62a -> not_evaluated / inconsistent, no containers, no ancestor path", () => {
+  const f = realShapedCreate(FC_DEEP); truncateAncestors(f.evidence.createDestinationAbsenceWitness.targets[0], 3);
+  const r = terminal(f, "not_evaluated", INCONSISTENT);
+  const text = JSON.stringify(r);
+  for (const sentinel of ["\"a/b\"", "\"a/b/c\"", "\"a\"", "ancestors", "devIno", "fsType", FS_TYPE, "2049:", "listingDigest"]) assert.equal(text.includes(sentinel), false, sentinel);
+});
+test("D3 C-19b: real-shaped Impact (D3-c path), unmutated full chains -> lift incomplete, WRITE on task.paths", U17, () => {
+  const f = realShapedCreate(FC_DEEP); const r = run(f);
+  assert.equal(r.status, "incomplete", JSON.stringify(r.reasons));
+  assert.deepEqual(r.write.items.map(item => item.target.path), FC_DEEP);
+  assert.deepEqual(r.operationIntent, { kind: "create", targets: FC_DEEP.map(newPath => ({ oldPath: null, newPath })) });
+  assert.ok(r.completeness.resolver.includes(LIFT));
 });
 
 // ---- D3-L1 / RN-4: instrumented composer instance (its policy import only) ----

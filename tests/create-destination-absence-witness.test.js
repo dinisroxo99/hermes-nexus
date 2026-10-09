@@ -163,6 +163,12 @@ function assertWitness(w) {
       if (!reached) { assert.equal(r.nativeLookup, null); assert.equal(r.enumeration, null); }
       else assert.notEqual(r.nativeLookup, null);
     }
+    // PA-39b (G13, N-12 full-chain amendment): a complete record carries exactly D(p), every element a directory.
+    if (r.complete) {
+      assert.equal(r.ancestors.length, segs.length, `${r.newPath}: complete chain length`);
+      assert.deepEqual(r.ancestors.map((el) => el.path), segs.map((_, i) => segs.slice(0, i).join("/")));
+      assert.ok(r.ancestors.every((el) => el.state === "directory"), `${r.newPath}: complete chain all directory`);
+    }
     if (r.enumeration !== null) {
       const e = r.enumeration;
       assert.deepEqual(Object.keys(e).sort(), ["entries", "entryCount", "listingDigest", "redactedSecretEntryCount"]);
@@ -998,4 +1004,26 @@ test("R-N2 / N-F1: readlink bytes that differ but decode to the same string are 
     assert.equal(r.incompleteReason, "descriptor_verification_unavailable"); assert.equal(r.complete, false);
     assert.notEqual(r.verdict, "absent"); assert.equal(r.ancestors.length, chainLength);
   }
+});
+
+test("PA-39 (G13): every complete:true record carries the full chain D(p), all directory, on tmpfs; a scope-out chain is shorter", { skip: GATE }, (t) => {
+  assert.equal(fsTypeOf("/dev/shm"), "0x1021994", "PA-39 needs a tmpfs /dev/shm");
+  const root = fs.mkdtempSync(path.join(fs.realpathSync("/dev/shm"), "hn-absence-pa39-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "a", "b", "c"), { recursive: true });
+  fs.writeFileSync(path.join(root, "a", "b", "c", "f.txt"), "x");
+  fs.writeFileSync(path.join(root, "top.txt"), "x");
+  const w = assertWitness(build(root, ["a/b/c/new.js", "a/b/new.js", "a/x/y/new.js", "new.js"]));
+  for (const [target, chain] of [["a/b/c/new.js", ["", "a", "a/b", "a/b/c"]], ["a/b/new.js", ["", "a", "a/b"]], ["new.js", [""]]]) {
+    const r = rec(w, target);
+    assert.equal(r.complete, true, target); assert.equal(r.incompleteReason, null); assert.equal(r.verdict, "absent");
+    assert.deepEqual(r.ancestors.map((a) => a.path), chain, target);
+    for (const a of r.ancestors) {
+      assert.equal(a.state, "directory"); assert.ok(ALLOW.includes(a.fsType), a.fsType); assert.match(a.devIno, /^\d+:\d+$/);
+    }
+  }
+  const out = rec(w, "a/x/y/new.js");
+  assert.equal(out.complete, false); assert.equal(out.incompleteReason, "ancestor_scope_out"); assert.equal(out.verdict, "parent_absent");
+  assert.deepEqual(out.ancestors.map((a) => [a.path, a.state]), [["", "directory"], ["a", "directory"], ["a/x", "absent"]]);
+  assert.ok(out.ancestors.length < "a/x/y/new.js".split("/").length);
 });
