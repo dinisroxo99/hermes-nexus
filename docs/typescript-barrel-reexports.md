@@ -56,6 +56,11 @@ exact set of edges into anchors).
   default-as, `export * as ns` and type-only re-exports. Edges go to the defining symbols.
 - **Barrel as Impact target (D10):** an importer of a pure barrel gets one edge into the barrel's anchor, and a barrel
   re-exporting from a pure barrel gets one, so Impact with the barrel itself as target reaches its importers.
+  A barrel whose only statement is `export { default } from './lib'` is syntactically pure, but the compiler gives it
+  its own default export, which the analyzer registers as a regular graph symbol (label `default`), so it has no
+  anchor. A default import from such a barrel links the defining symbol in `lib` and also that own `default` symbol
+  (as the base did), so Impact finds the consumer with the barrel and with `lib` as target. No anchor is involved, so
+  D11 is unchanged; `export { default as x } from` stays an anchored pure barrel (N1-31). Pinned by N1-36 and N1-37.
   Guard: every import from a barrel and every barrel -> barrel re-export must link the barrel file (anchor edge or an
   edge to one of its own symbols); otherwise it is counted as unrepresented (mixed barrels, namespace imports of mixed
   barrels), so the provider is partial instead of silently complete.

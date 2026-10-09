@@ -796,9 +796,17 @@ function originDeclarations(barrel, targetPath, name, seen) {
   return declarations;
 }
 
+// N1 review A-3: `export { default } from` gives the barrel its OWN default export, which extractSymbols registers as a
+// regular graph symbol of the barrel (never an anchor), so such a barrel has no anchor. A `default` binding therefore
+// also links that own symbol, as the base did: the importer's file-level dependency on the barrel is represented (D10
+// guard satisfied) and the barrel as Impact target reaches the importer. Only `symbols` grows; `files` stays the
+// compiler's origin set, so D3a ambiguity accounting is unchanged. No anchor, name match or D11 edge is involved.
 function barrelExportOrigins(barrel, targetPath, name) {
   const origins = originDeclarations(barrel, targetPath, name, new Set()).map((declaration) => declarationOrigin(barrel, declaration, name));
-  return { files: [...new Set(origins.map((origin) => origin.file))].sort(), symbols: [...new Set(origins.flatMap((origin) => origin.symbols))] };
+  const symbols = [...new Set(origins.flatMap((origin) => origin.symbols))];
+  const ownDefault = name === 'default' ? barrel.defaultSymbolByPath.get(targetPath) : null;
+  if (ownDefault && ownDefault.file === targetPath && ownDefault.kind !== 'module' && !symbols.includes(ownDefault)) symbols.push(ownDefault);
+  return { files: [...new Set(origins.map((origin) => origin.file))].sort(), symbols };
 }
 
 function reExportOrigins(barrel, exportDeclaration, targetPath) {
