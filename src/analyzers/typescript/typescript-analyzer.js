@@ -88,7 +88,9 @@ export function analyzeTypeScriptProject(project, options = {}) {
     const fileSymbolsByPath = new Map();
     const defaultSymbolByPath = new Map();
     const exportAliasesByPath = new Map();
-    const pathAliases = readPathAliases(rootPath, snapshot ? snapshot.find((file) => file.path === 'tsconfig.json')?.text || '{}' : undefined);
+    const pathAliases = snapshot
+      ? typescriptPathAliasPrecedence(readPathAliases(rootPath, snapshot.find((file) => file.path === 'tsconfig.json')?.text || '{}'))
+      : readPathAliases(rootPath, undefined);
     const sourceFiles = tsProject.getSourceFiles().filter((sourceFile) => {
       const relativePath = normalizeRelativePath(rootPath, sourceFile.getFilePath());
       return !shouldIgnorePath(relativePath);
@@ -423,9 +425,28 @@ function resolveImportPath(fromRelativePath, moduleSpecifier, context) {
       const resolved = resolveFromProjectRoot(target, knownPaths);
       if (resolved) return resolved;
     }
+    // Snapshot (N1 review P1): TypeScript tries only the best-matching pattern's targets, never a later pattern.
+    if (context.pathAliases.bestMatchOnly) return null;
   }
 
   return null;
+}
+
+// N1 review P1 (snapshot mode only): order tsconfig `paths` patterns the way TypeScript selects among patterns that
+// match one specifier: an exact pattern (no `*`) before any wildcard, then the wildcard with the longest prefix before
+// the `*`; ties keep the tsconfig order (stable sort). With `bestMatchOnly`, resolveImportPath tries only the first
+// matching pattern, so imports, re-exports, anchors and the unrepresented counter all select the module the compiler
+// selects. Only snapshot-admitted paths are candidates (D6a: no host reads). Legacy analysis keeps its order.
+function typescriptPathAliasPrecedence(aliases) {
+  const rank = (alias) => {
+    const star = alias.pattern.indexOf('*');
+    return star === -1 ? Number.POSITIVE_INFINITY : star;
+  };
+  const ordered = aliases.map((alias, index) => ({ alias, index }))
+    .sort((left, right) => rank(right.alias) - rank(left.alias) || left.index - right.index)
+    .map(({ alias }) => alias);
+  Object.defineProperty(ordered, 'bestMatchOnly', { value: true });
+  return ordered;
 }
 
 function readPathAliases(rootPath, sourceText) {
@@ -833,7 +854,8 @@ function barrelRequiredFiles(barrel, sourceFile, from) {
     // D10 guard: the barrel file itself must be linked (pure-barrel anchor edge, or an edge to one of its own symbols);
     // otherwise (mixed barrel, namespace import of a mixed barrel, ...) the import counts as unrepresented.
     add(target, [target]);
-    if (importDeclaration.getNamespaceImport()) continue;
+    // N1 review P2: a namespace import has no named bindings, but `import D, * as ns from` still has a default binding,
+    // which must be checked like any other default import (importBindings yields only that default here).
     for (const binding of importBindings(importDeclaration)) add(target, ambiguityGuard(barrelExportOrigins(barrel, target, binding.exportedName).files));
   }
   for (const exportDeclaration of sourceFile.getExportDeclarations()) {
