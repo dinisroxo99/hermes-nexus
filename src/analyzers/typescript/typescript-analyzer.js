@@ -108,6 +108,22 @@ export function analyzeTypeScriptProject(project, options = {}) {
       });
     }
 
+    // F1: a source file without top-level symbols still imports. In snapshot (provider) mode it gets one
+    // module anchor so its imports are represented as edges. Anchors never enter symbolsByName or
+    // fileSymbolsByPath, so they are never import targets, re-export aliases or name matches.
+    const codePaths = snapshot ? new Set(snapshot.map((file) => file.path).filter((file) => /\.(ts|tsx|js|jsx)$/i.test(file))) : null;
+    const anchorByPath = new Map();
+    if (snapshot) {
+      for (const sourceFile of sourceFiles) {
+        const relativePath = normalizeRelativePath(rootPath, sourceFile.getFilePath());
+        if (fileSymbolsByPath.has(relativePath) || localModuleTargets(sourceFile, relativePath, { pathAliases, knownPaths: codePaths }).size === 0) continue;
+        const anchor = createModuleAnchor(relativePath);
+        seenNodeKeys.add(`${relativePath}:${anchor.label}`);
+        nodes.push(anchor);
+        anchorByPath.set(relativePath, anchor);
+      }
+    }
+
     for (const sourceFile of sourceFiles) {
       const relativePath = normalizeRelativePath(rootPath, sourceFile.getFilePath());
       collectReExportAliases(sourceFile, relativePath, {
@@ -124,12 +140,20 @@ export function analyzeTypeScriptProject(project, options = {}) {
         edges,
         symbolsByName,
         fileSymbolsByPath,
+        anchorByPath,
         defaultSymbolByPath,
         exportAliasesByPath,
         pathAliases,
         rootPath
       });
     }
+
+    // F1: every local module reference the graph still cannot represent (namespace or side-effect import,
+    // dynamic import/require, unregistered export name, symbol-less target, analyzer-ignored file) is counted
+    // so the provider reports partial instead of a silently complete graph. Counted before any cap.
+    const unrepresentedImports = snapshot
+      ? countUnrepresentedImports(tsProject.getSourceFiles(), { rootPath, nodes, edges, exportAliasesByPath, pathAliases, knownPaths: codePaths })
+      : 0;
 
     const filteredNodes = filterNodes(nodes, { layers, features });
     if (snapshot) {
@@ -155,6 +179,7 @@ export function analyzeTypeScriptProject(project, options = {}) {
       nodes: limitedNodes,
       edges: limitedEdges,
       limited,
+      unrepresentedImports,
       originalNodeCount: filteredNodes.length,
       originalEdgeCount: retainedEdges.length,
       metadata: {
@@ -370,7 +395,7 @@ function resolveRelativeImportPath(fromRelativePath, moduleSpecifier, knownPaths
 }
 
 function resolveImportPath(fromRelativePath, moduleSpecifier, context) {
-  const knownPaths = new Set(context.fileSymbolsByPath.keys());
+  const knownPaths = context.knownPaths || new Set(context.fileSymbolsByPath.keys());
 
   if (moduleSpecifier.startsWith('.') || moduleSpecifier.startsWith('/')) {
     return resolveRelativeImportPath(fromRelativePath, moduleSpecifier, knownPaths);
@@ -528,7 +553,8 @@ function registerSymbol(context, relativePath, node) {
 }
 
 function extractImportEdges(sourceFile, relativePath, context) {
-  const sourceSymbols = context.fileSymbolsByPath.get(relativePath) || [];
+  const anchor = context.anchorByPath?.get(relativePath);
+  const sourceSymbols = context.fileSymbolsByPath.get(relativePath) || (anchor ? [anchor] : []);
   collectReExportAliases(sourceFile, relativePath, context);
 
   if (!sourceSymbols.length) return;
@@ -627,6 +653,35 @@ function findExportedSymbols(context, targetPath, exportedName) {
   }
 
   return (context.fileSymbolsByPath.get(targetPath) || []).filter((node) => node.label === exportedName);
+}
+
+const MODULE_ANCHOR_LABEL = '<module>';
+
+function createModuleAnchor(relativePath) {
+  return createNode({ name: MODULE_ANCHOR_LABEL, kind: 'module', relativePath, fileName: path.basename(relativePath), start: 0, category: 'module' });
+}
+
+function localModuleTargets(sourceFile, relativePath, context) {
+  const targets = new Set();
+  for (const literal of sourceFile.getImportStringLiterals()) {
+    const target = resolveImportPath(relativePath, literal.getLiteralValue(), context);
+    if (target && target !== relativePath) targets.add(target);
+  }
+  return targets;
+}
+
+function countUnrepresentedImports(allSourceFiles, { rootPath, nodes, edges, exportAliasesByPath, pathAliases, knownPaths }) {
+  const fileById = new Map(nodes.map((node) => [node.id, node.file]));
+  const linked = new Set(edges.map((edge) => `${fileById.get(edge.from)}\u0000${fileById.get(edge.to)}`));
+  let count = 0;
+  for (const sourceFile of allSourceFiles) {
+    const from = normalizeRelativePath(rootPath, sourceFile.getFilePath());
+    for (const target of localModuleTargets(sourceFile, from, { pathAliases, knownPaths })) {
+      const reach = [target, ...[...(exportAliasesByPath.get(target)?.values() || [])].map((symbol) => symbol.file)];
+      if (!reach.some((file) => linked.has(`${from}\u0000${file}`))) count += 1;
+    }
+  }
+  return count;
 }
 
 function addImportEdges(edges, sourceSymbols, targetSymbols, importName, label) {

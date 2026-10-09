@@ -49,7 +49,7 @@ export function selectTaskContext(request, { sourceFiles, graph = { nodes: [], e
   const nodeCounts = new Map();
   for (const node of graph.nodes) nodeCounts.set(node?.id, (nodeCounts.get(node?.id) || 0) + 1);
   const nodes = graph.nodes.filter((node) => typeof node?.id === "string" && node.id.length <= 4096 && nodeCounts.get(node.id) === 1
-    && byPath.has(node.file) && isAnalyzerSymbolLabel(node.label))
+    && byPath.has(node.file) && isAnalyzerSymbolLabel(node.label) && node.kind !== "module")
     .map((node) => ({ rawId: node.id, id: `symbol_${contextDigest(JSON.stringify([projectId, node.id]))}`,
       line: Number.isInteger(node.line) && node.line >= 1 && node.line <= byPath.get(node.file).text.split("\n").length ? node.line : null,
       name: node.label, kind: ["class", "function", "hook", "interface", "type", "record", "struct", "enum", "component"].includes(node.kind) ? node.kind : "symbol", path: node.file }));
