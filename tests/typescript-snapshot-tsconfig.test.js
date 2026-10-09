@@ -255,3 +255,48 @@ for (const [id, label, files, real, other] of [
     assert.equal(affected(p.impact(other)).includes("src/consumer.js"), false);
   });
 }
+
+// ---- B-2 option (b): configs the analyzer does not read yet fail closed (snapshot mode) ----
+// Only the root tsconfig.json is read. A solution-style root (`references`, e.g. the Vite default with `paths` in
+// tsconfig.app.json) or a root jsconfig.json may hold aliases the analyzer cannot see, so each is counted once and
+// the result is partial, never available while an importer is missing. Reading them is the follow-up B-2(c).
+const BARREL_VIA_ALIAS = { "src/impl.ts": "export function q() { return 1; }\n", "src/index.ts": "export { q as r } from './impl';\n",
+  "src/c.ts": "import { r } from '@/index';\nexport function Use() { return r(); }\n" };
+const APP = "{ \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"@/*\": [\"src/*\"] } }, \"include\": [\"src\"] }\n";
+for (const [id, label, configs] of [
+  ["C-19", "Vite-style solution root (`files: []` + references, `paths` only in tsconfig.app.json)",
+    { "tsconfig.json": "{\n  \"files\": [],\n  \"references\": [{ \"path\": \"./tsconfig.app.json\" }, { \"path\": \"./tsconfig.node.json\" }]\n}\n", "tsconfig.app.json": APP, "tsconfig.node.json": "{ \"compilerOptions\": { \"composite\": true }, \"include\": [\"vite.config.ts\"] }\n" }],
+  ["C-20", "root `references` next to own (unrelated) `paths`",
+    { "tsconfig.json": "{ \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"#x/*\": [\"x/*\"] } }, \"references\": [{ \"path\": \"./tsconfig.app.json\" }] }\n", "tsconfig.app.json": APP }],
+  ["C-21", "jsconfig.json-only project", { "jsconfig.json": APP }],
+  ["C-22", "jsconfig.json next to a tsconfig.json without `paths`", { "jsconfig.json": APP, "tsconfig.json": "{ \"compilerOptions\": { \"allowJs\": true } }\n" }]
+]) {
+  test(`${id} ${label}: counted once, partial, never available while missing the importer`, (t) => {
+    const files = { ...configs, ...BARREL_VIA_ALIAS };
+    const g = snapshotGraph(files);
+    assert.equal(g.edges.some((edge) => edge.startsWith("src/c.ts:")), false, "the alias is not read yet (B-2(c))");
+    assert.equal(g.unrep, 1);
+    const p = project(t, files, { tests: false });
+    for (const target of ["src/impl.ts", "src/index.ts"]) assertPartial(p.impact(target), target);
+  });
+}
+
+test("C-23 control: a plain root tsconfig without `references` is not made partial, even with other tsconfig.*.json files in the snapshot", (t) => {
+  const files = { "tsconfig.json": APP, "tsconfig.app.json": APP, "tsconfig.node.json": "{ \"compilerOptions\": { \"composite\": true } }\n", ...BARREL_VIA_ALIAS };
+  const g = snapshotGraph(files);
+  assert.ok(g.edges.includes("src/c.ts:Use -> src/impl.ts:q [importa]"), JSON.stringify(g.edges));
+  assert.equal(g.unrep, 0);
+  const p = project(t, files, { tests: false });
+  for (const target of ["src/impl.ts", "src/index.ts"]) {
+    const i = p.impact(target);
+    assert.ok(affected(i).includes("src/c.ts"), target);
+    assert.equal(i.status, "available", `${target} ${JSON.stringify(reasons(i))}`);
+  }
+});
+
+test("C-24 legacy (non-snapshot) analysis ignores `references` and jsconfig.json exactly as before", (t) => {
+  const p = project(t, { "tsconfig.json": "{ \"files\": [], \"references\": [{ \"path\": \"./tsconfig.app.json\" }] }\n", "tsconfig.app.json": APP, "jsconfig.json": APP, ...BARREL_VIA_ALIAS }, { tests: false });
+  const legacy = analyzeTypeScriptProject({ name: "fixture", absolutePath: p.repo }, LIMITS);
+  assert.equal(legacy.unrepresentedImports, 0);
+  assert.equal(legacy.metadata.pathAliasCount, 0);
+});
