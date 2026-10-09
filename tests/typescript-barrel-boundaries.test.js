@@ -11,7 +11,9 @@ import { analyzeTypeScriptProject } from "../src/analyzers/typescript/typescript
 
 // N1 boundaries (acceptance criteria 1, 3, 4, 5):
 // P-*   the pure-barrel definition: a PURE barrel is a file whose every top-level statement is an `export … from`
-//       re-export (at least one). Having no recognised graph symbols is NOT sufficient; every negative case below has
+//       re-export (at least one), including the type-only forms `export type * from` and `export type { T } from`
+//       (structural type-level dependencies). Local declarations (also local type declarations) and local exports
+//       without `from` (`export {}`, `export { x }`, `export type { T }`) are outside the definition. Having no recognised graph symbols is NOT sufficient; every negative case below has
 //       an anchor-free or anchored file that is not a pure barrel and must receive no anchor edge.
 // D11-* the amended anchor contract: no name match to an anchor, no symbol resolution to an anchor, no incoming edge
 //       to the anchor of a non-pure-barrel file, and an exact set of edges into anchors.
@@ -45,7 +47,7 @@ test("P-1 positive: a file made only of `export … from` re-exports is a pure b
   assert.equal(g.unrep, 0);
 });
 
-test("P-2 positive: a type-only re-export file (`export type { T } from`) is a pure barrel", () => {
+test("P-2 positive: `export type { T } from` is a pure-barrel statement (type-level re-export)", () => {
   const g = graph({ "src/shapes.ts": "export interface Shape { id: string }\n", "src/index.ts": "export type { Shape } from \"./shapes\";\n",
     "src/consumer.ts": "import type { Shape } from \"./index\";\nexport function Use(s: Shape) { return s.id; }\n" });
   assert.deepEqual(g.into, ["src/consumer.ts:Use -> src/index.ts"]);
@@ -93,7 +95,7 @@ for (const [name, text] of [
   });
 }
 
-test("P-7 negative: type-only files that are not `export … from` re-exports (local `export type {}`, type declarations) get no anchor edge", () => {
+test("P-7 negative: a local `export type { T }` without `from` and local type declarations are outside the pure-barrel definition: no anchor edge", () => {
   const local = graph({ "src/shapes.ts": "export interface Shape { id: string }\n", "src/types.ts": "import type { Shape } from \"./shapes\";\nexport type { Shape };\n",
     "src/consumer.ts": "import type { Shape } from \"./types\";\nexport function Use(s: Shape) { return s.id; }\n" });
   assert.deepEqual(local.anchors, ["src/types.ts"]);
@@ -104,6 +106,48 @@ test("P-7 negative: type-only files that are not `export … from` re-exports (l
   assert.deepEqual(declarations.anchors, []);
   assert.deepEqual(declarations.into, []);
   assert.deepEqual(declarations.from("src/consumer.ts"), ["src/consumer.ts:Use -> src/types.ts:Shape"]);
+});
+
+test("P-9 positive: `export type * from` is a pure-barrel statement (type-level re-export); its importer gets the file-level anchor edge", () => {
+  const g = graph({ "src/shapes.ts": "export interface Shape { id: string }\n", "src/index.ts": "export type * from \"./shapes\";\n",
+    "src/consumer.ts": "import type { Shape } from \"./index\";\nexport function Use(s: Shape) { return s.id; }\n" });
+  assert.deepEqual(g.anchors, ["src/index.ts"]);
+  assert.deepEqual(g.into, ["src/consumer.ts:Use -> src/index.ts"]);
+  assert.deepEqual(g.from("src/consumer.ts"), ["src/consumer.ts:Use -> src/index.ts:<module>", "src/consumer.ts:Use -> src/shapes.ts:Shape"]);
+  assert.equal(g.unrep, 0);
+});
+
+test("P-10 negative: a local type declaration next to `export type { T } from` is outside the pure-barrel definition: no anchor edge; importer counted", () => {
+  const g = graph({ "src/shapes.ts": "export interface Shape { id: string }\n", "src/index.ts": "type Local = string;\nexport type { Shape } from \"./shapes\";\n",
+    "src/consumer.ts": "import type { Shape } from \"./index\";\nexport function Use(s: Shape) { return s.id; }\n" });
+  assert.deepEqual(g.into, []);
+  assert.equal(g.result.nodes.some((node) => node.file === "src/index.ts" && node.kind === "module"), false);
+  assert.ok(g.unrep >= 1, String(g.unrep));
+});
+
+test("N1-35 (review A-2) `export {}` plus a re-export is a mixed barrel, not pure: anchored but receives no edge; importer counted", () => {
+  const g = graph({ "src/lib.js": LIB, "src/index.js": "export {};\nexport * from \"./lib.js\";\n", "src/consumer.js": use("helper", "./index.js") });
+  assert.deepEqual(g.anchors, ["src/index.js"]);
+  assert.deepEqual(g.into, []);
+  assert.equal(g.unrep, 1);
+});
+
+test("N1-34 (review A-1) barrel -> barrel guard: an outer barrel re-exporting through a mixed inner barrel must link it, else partial; the inner barrel as Impact target is never silently complete", (t) => {
+  const files = { "src/lib.js": LIB, "src/inner.js": "export function own() { return 0; }\nexport * from \"./lib.js\";\n",
+    "src/outer.js": "export { helper } from \"./inner.js\";\n", "src/consumer.js": use("helper", "./outer.js") };
+  const g = graph(files);
+  assert.deepEqual(g.into, ["src/consumer.js:Use -> src/outer.js"]);
+  assert.equal(g.unrep, 1);
+  const f = gitFixture(t, { committed: false });
+  f.write("package.json", "{\"type\":\"module\"}\n");
+  for (const [file, text] of Object.entries(files)) f.write(file, text);
+  f.commit();
+  const manualProjectsFile = path.join(f.root, "projects.json");
+  fs.writeFileSync(manualProjectsFile, JSON.stringify([{ name: "fixture", rootId: "test", relativePath: "main", projectId: "PrJ_N1G" }]));
+  const options = { registry: { roots: [{ id: "test", path: f.root }], manualProjectsFile, discoveredProjectsFile: path.join(f.root, "d.json") } };
+  const i = buildProjectImpact("PrJ_N1G", { paths: ["src/inner.js"], includeTests: true }, options);
+  assert.equal(i.status, "partial");
+  assert.ok(Object.values(i.completeness).flat().includes("provider_partial"));
 });
 
 test("P-8 a symbol-less mixed barrel as Impact target is never silently complete (partial, provider_partial)", (t) => {
