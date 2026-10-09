@@ -2,10 +2,12 @@ import path from "node:path";
 
 import { composeEffectiveTaskScopeFromEnvelopes as composeEffectiveTaskScopeFromEnvelopesDefault } from "../lib/effective-task-scope-adapter.js";
 import { normalizeEffectiveTaskScopeRequest } from "../lib/effective-task-scope-policy.js";
+import { normalizeImpactRequest } from "../lib/impact-policy.js";
 import { buildProjectImpact as buildProjectImpactDefault } from "../lib/project-impact-service.js";
 import { resolveProjectConfig } from "../lib/project-config.js";
 import { validateProjectId } from "../lib/project-registry.js";
 import { getConfiguredProjectRoots } from "../lib/project-roots.js";
+import { getProjectByIdForIntelligence } from "../lib/projects.js";
 import { buildProjectTaskContext as buildProjectTaskContextDefault } from "../lib/task-context.js";
 import { readJsonBody } from "../utils/request-body.js";
 import { sendOk, sendError } from "../utils/response.js";
@@ -55,6 +57,7 @@ export function createEffectiveTaskScopeHandler(dependencies = {}) {
   const compose = dependencies.composeEffectiveTaskScopeFromEnvelopes || composeEffectiveTaskScopeFromEnvelopesDefault;
   const getConfig = dependencies.getProjectConfig || resolveProjectConfig;
   const getRoots = dependencies.getConfiguredProjectRoots || getConfiguredProjectRoots;
+  const getProject = dependencies.getProjectByIdForIntelligence || getProjectByIdForIntelligence;
 
   return async function handleEffectiveTaskScope(req, res, params) {
     try {
@@ -72,6 +75,18 @@ export function createEffectiveTaskScopeHandler(dependencies = {}) {
       };
       const analyzer = config.serenaPythonImage ? { serena: { image: config.serenaPythonImage } } : undefined;
       const options = { registry, ...(analyzer ? { analyzer } : {}) };
+      const locator = forwardedWorktreeLocator(params.projectId, request.worktree, registry, getProject);
+      const impactRequest = impactEvidenceRequest(request, locator);
+      if (locator) {
+        // A forwarded locator must be inside BOTH builders' request contracts. The Context Pack normalizer runs first
+        // inside its builder (before any FS access); check Impact's pure normalizer here, before the Pack is built,
+        // so a locator only Impact rejects (glob metacharacters, URI-like prefixes) fails before any resolution.
+        try {
+          normalizeImpactRequest(impactRequest);
+        } catch (error) {
+          throw sourced(error, "impact");
+        }
+      }
 
       let pack;
       try {
@@ -79,13 +94,13 @@ export function createEffectiveTaskScopeHandler(dependencies = {}) {
         // task (id, title, paths, symbols), so forward exactly the normalized request task.
         pack = buildTaskContext({
           projectId: params.projectId,
+          ...(locator ? { worktree: locator } : {}),
           task: { id: request.task.id, title: request.task.title, paths: request.task.paths, symbols: request.task.symbols }
         }, options);
       } catch (error) {
         throw sourced(error, "task-context");
       }
 
-      const impactRequest = impactEvidenceRequest(request);
       let impact;
       try {
         impact = buildImpact(params.projectId, impactRequest, options);
@@ -111,11 +126,35 @@ export function createEffectiveTaskScopeHandler(dependencies = {}) {
   };
 }
 
-// The Impact request carries only fields of Impact's public request contract (impact-policy.js
-// REQUEST_FIELDS). Project and worktree are selected by params.projectId and the shared registry options,
-// exactly as for the Context Pack; identity is bound by the composer from both outputs, never copied here.
-function impactEvidenceRequest(request) {
-  return { paths: request.task.paths, includeTests: request.includeTests };
+// The Impact request carries only fields of Impact's public request contract (impact-policy.js REQUEST_FIELDS):
+// `paths`, `includeTests` and, only when forwardedWorktreeLocator returned one, `worktree` (SB-2).
+// D1: the body locator is forwarded, here and to the Context Pack builder, only when it differs from the project's
+// registered location (rootId or relativePath); a self-located request sends `{ paths, includeTests }` exactly as before.
+// D2: that decision uses the injectable dependencies.getProjectByIdForIntelligence lookup; if the lookup fails or returns
+// no usable location, nothing is forwarded and the route behaves as before the fix.
+// D3: when a locator is forwarded, this request is first checked with normalizeImpactRequest, so a locator outside
+// Impact's contract is 400 invalid_impact_request before any builder runs. Identity is bound by the composer from both
+// outputs, never copied here.
+function impactEvidenceRequest(request, locator) {
+  return { paths: request.task.paths, includeTests: request.includeTests, ...(locator ? { worktree: locator } : {}) };
+}
+
+// SB-2: the request worktree is forwarded to BOTH builders only when it names a location other than the registered
+// project's own one (parent project + linked-worktree locator). Both builders then resolve it through the shared
+// registry resolver (projects.js resolveProjectWorktree: registered root + same git common dir + `git worktree list`).
+// A self-located request forwards nothing, exactly as before. If the read-only lookup fails, nothing is forwarded and
+// the Context Pack builder repeats the same lookup and raises the same error as before; any wrong decision here is
+// still caught fail-closed by the builders (worktree_parent_mismatch) or the composer (worktree_locator_mismatch).
+function forwardedWorktreeLocator(projectId, worktree, registry, getProject) {
+  let registered;
+  try {
+    registered = getProject(projectId, registry);
+  } catch {
+    return null;
+  }
+  if (typeof registered?.rootId !== "string" || typeof registered?.relativePath !== "string") return null;
+  if (registered.rootId === worktree.rootId && registered.relativePath === worktree.relativePath) return null;
+  return { rootId: worktree.rootId, relativePath: worktree.relativePath };
 }
 
 const LEGACY_IMPACT_KEYS = Object.freeze(["schemaVersion", "analysisVersion", "projectId", "project", "originPath", "revision",
