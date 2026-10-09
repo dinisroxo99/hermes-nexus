@@ -323,3 +323,69 @@ test("C-25 snapshot confinement with solution-style `references`: referenced con
   assert.equal(g.edges.some((edge) => edge.startsWith("src/c.ts:")), false, "no referenced config is read, from the snapshot or the host");
   assert.equal(g.unrep, 1);
 });
+
+// ---- B-3 (one rule for the whole class): only the ROOT tsconfig.json is read; any other tsconfig.json / jsconfig.json
+// in the snapshot (nested or subdirectory configs, a root jsconfig.json, case variants such as TSConfig.json), matched
+// by basename case-insensitively, is not read and makes the result partial. Root `references` count too, even when
+// the referenced config is not in the snapshot. ONE issue per project, however many such configs there are.
+// Shapes: Reviewer check 6 (B-3, A-11) and Tester sixth check (B9: V6, V7, V8, V8b).
+const UNDER = (pre) => ({ [`${pre}src/impl.ts`]: "export function q() { return 1; }\n", [`${pre}src/index.ts`]: "export { q as r } from './impl';\n",
+  [`${pre}src/c.ts`]: "import { r } from '@/index';\nexport function Use() { return r(); }\n" });
+const NESTED = "{ \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"@/*\": [\"src/*\"] } } }\n";
+for (const [id, label, configs, pre] of [
+  ["C-26", "Reviewer B-3: subdirectory src/jsconfig.json (baseUrl `..`)", { "src/jsconfig.json": "{ \"compilerOptions\": { \"baseUrl\": \"..\", \"paths\": { \"@/*\": [\"src/*\"] } } }\n" }, ""],
+  ["C-27", "Reviewer B-3: monorepo apps/web/tsconfig.json, no root config", { "apps/web/tsconfig.json": NESTED }, "apps/web/"],
+  ["C-28", "Reviewer B-3: root tsconfig `{compilerOptions:{}}` + nested src/tsconfig.json with the paths", { "tsconfig.json": "{\"compilerOptions\":{}}\n", "src/tsconfig.json": "{ \"compilerOptions\": { \"paths\": { \"@/*\": [\"../src/*\"] } } }\n" }, ""],
+  ["C-29", "Tester V6: packages/a/jsconfig.json only, no root config", { "packages/a/jsconfig.json": NESTED }, "packages/a/"],
+  ["C-30", "Tester V7: packages/a/tsconfig.json only, no root config", { "packages/a/tsconfig.json": NESTED }, "packages/a/"],
+  ["C-31", "Tester V8: root tsconfig (unrelated `#x/*`) + packages/a/jsconfig.json", { "tsconfig.json": "{ \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"#x/*\": [\"x/*\"] } } }\n", "packages/a/jsconfig.json": NESTED }, "packages/a/"],
+  ["C-32", "Tester V8b: root tsconfig (no paths) + packages/a/tsconfig.json", { "tsconfig.json": "{ \"compilerOptions\": { \"allowJs\": true } }\n", "packages/a/tsconfig.json": NESTED }, "packages/a/"],
+  ["C-33", "Reviewer A-11: root JSConfig.json (case variant)", { "JSConfig.json": NESTED }, ""],
+  ["C-34", "Reviewer A-11: root TSConfig.json (case variant, not the root tsconfig.json) with references", { "TSConfig.json": "{ \"files\": [], \"references\": [{ \"path\": \"./tsconfig.app.json\" }] }\n", "tsconfig.app.json": APP }, ""],
+  ["C-35", "nested case variant packages/a/TsConfig.JSON", { "packages/a/TsConfig.JSON": NESTED }, "packages/a/"]
+]) {
+  test(`${id} ${label}: not read, counted once, partial, never available while missing the importer`, (t) => {
+    const files = { ...configs, ...UNDER(pre) };
+    const g = snapshotGraph(files);
+    assert.equal(g.edges.some((edge) => edge.startsWith(`${pre}src/c.ts:`)), false, "the unread config's alias is not used");
+    assert.equal(g.unrep, 1);
+    const p = project(t, files, { tests: false });
+    for (const target of [`${pre}src/impl.ts`, `${pre}src/index.ts`]) assertPartial(p.impact(target), target);
+  });
+}
+
+test("C-36 granularity: ONE issue per project, however many unread configs (references + root jsconfig + nested tsconfig/jsconfig + case variant)", () => {
+  const g = snapshotGraph({ "tsconfig.json": "{ \"files\": [], \"references\": [{ \"path\": \"./tsconfig.app.json\" }, { \"path\": \"./packages/a\" }] }\n", "tsconfig.app.json": APP,
+    "jsconfig.json": APP, "packages/a/tsconfig.json": NESTED, "packages/b/jsconfig.json": NESTED, "packages/c/TSConfig.json": NESTED, ...UNDER("packages/a/") });
+  assert.equal(g.unrep, 1);
+});
+
+test("C-37 root `references` still count when no referenced config is in the snapshot (an unreadable reference is a missing config)", () => {
+  const g = snapshotGraph({ "tsconfig.json": "{ \"files\": [], \"references\": [{ \"path\": \"./tsconfig.app.json\" }] }\n", ...BARREL_VIA_ALIAS });
+  assert.equal(g.unrep, 1);
+});
+
+test("C-38 config diagnostics stay counted on top of the one unread-config issue (invalid root with references + nested config)", () => {
+  const g = snapshotGraph({ "tsconfig.json": "{ \"references\": [{ \"path\": \"./tsconfig.app.json\" }]\n", "packages/a/tsconfig.json": NESTED, ...BARREL_VIA_ALIAS });
+  assert.equal(g.unrep, 2);
+});
+
+test("C-39 control: only the root tsconfig.json plus non-config look-alikes (tsconfig.*.json, nested tsconfig.build.json, my-tsconfig.json, package.json) stays available", (t) => {
+  const files = { "tsconfig.json": APP, "tsconfig.app.json": APP, "packages/a/tsconfig.build.json": NESTED, "config/my-tsconfig.json": NESTED, "packages/a/package.json": "{\"name\":\"a\"}\n", ...BARREL_VIA_ALIAS };
+  const g = snapshotGraph(files);
+  assert.ok(g.edges.includes("src/c.ts:Use -> src/impl.ts:q [importa]"), JSON.stringify(g.edges));
+  assert.equal(g.unrep, 0);
+  const p = project(t, files, { tests: false });
+  for (const target of ["src/impl.ts", "src/index.ts"]) {
+    const i = p.impact(target);
+    assert.ok(affected(i).includes("src/c.ts"), target);
+    assert.equal(i.status, "available", `${target} ${JSON.stringify(reasons(i))}`);
+  }
+});
+
+test("C-40 legacy (non-snapshot) analysis ignores nested and case-variant configs exactly as before", (t) => {
+  const p = project(t, { "tsconfig.json": "{ \"compilerOptions\": { \"allowJs\": true } }\n", "packages/a/tsconfig.json": NESTED, "src/jsconfig.json": NESTED, "JSConfig.json": NESTED, ...UNDER("packages/a/") }, { tests: false });
+  const legacy = analyzeTypeScriptProject({ name: "fixture", absolutePath: p.repo }, LIMITS);
+  assert.equal(legacy.unrepresentedImports, 0);
+  assert.equal(legacy.metadata.pathAliasCount, 0);
+});
