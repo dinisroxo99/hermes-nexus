@@ -234,3 +234,17 @@ for (const [name, getProjectByIdForIntelligence] of [
     assert.deepEqual([r.payload.data.status, codes(r.payload.data)], ["rejected", ["worktree_locator_mismatch"]]);
   });
 }
+
+// A-1: a locator that differs from the registered location ONLY in rootId (same relativePath "main") is not the
+// registered location (D1 compares rootId AND relativePath). It is forwarded, and the Context Pack builder fails closed
+// on the unregistered root before Impact is built. Kills "compare relativePath only, ignore rootId".
+test("A-1 locator differing from the registered location only in rootId is forwarded -> 404 project_unavailable; Impact never built", async (t) => {
+  const f = parentFx(t);
+  const loc = { rootId: "nope", relativePath: f.own.relativePath };
+  assert.notEqual(loc.rootId, f.own.rootId);
+  const { seen, deps } = spy();
+  const r = await dispatch(f, { ...body(f, ONE, f.own), worktree: loc }, deps);
+  assert.deepEqual([r.status, r.payload.error], [404, "project_unavailable"], JSON.stringify(r.payload));
+  assert.deepEqual(seen.pack.worktree, loc);
+  assert.equal(seen.impact, undefined);
+});
