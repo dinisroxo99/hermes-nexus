@@ -24,7 +24,7 @@ Optional:
 - `operationIntent`
 - `limits`
 
-Evidence calls never carry `expectedRevision`. They carry the body `worktree` locator only when it differs from the project's registered location (for example a parent project plus a linked-worktree locator); a self-located request (the locator equals the registered location) gets no `worktree` in either evidence call. See [Worktree locator forwarding](#operation-intent-pass-through-later-slices) below.
+Evidence calls never carry `expectedRevision`. They carry the body `worktree` locator only when it differs from the project's registered location (for example a parent project plus a linked-worktree locator); a self-located request (the locator equals the registered location) gets no `worktree` in either evidence call. See the worktree locator forwarding bullet under [Operation intent pass-through (later slices)](#operation-intent-pass-through-later-slices) below.
 
 ## Behavior
 
