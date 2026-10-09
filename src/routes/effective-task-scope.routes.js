@@ -126,9 +126,15 @@ export function createEffectiveTaskScopeHandler(dependencies = {}) {
   };
 }
 
-// The Impact request carries only fields of Impact's public request contract (impact-policy.js
-// REQUEST_FIELDS). Project and worktree are selected by params.projectId and the shared registry options,
-// exactly as for the Context Pack; identity is bound by the composer from both outputs, never copied here.
+// The Impact request carries only fields of Impact's public request contract (impact-policy.js REQUEST_FIELDS):
+// `paths`, `includeTests` and, only when forwardedWorktreeLocator returned one, `worktree` (SB-2).
+// D1: the body locator is forwarded, here and to the Context Pack builder, only when it differs from the project's
+// registered location (rootId or relativePath); a self-located request sends `{ paths, includeTests }` exactly as before.
+// D2: that decision uses the injectable dependencies.getProjectByIdForIntelligence lookup; if the lookup fails or returns
+// no usable location, nothing is forwarded and the route behaves as before the fix.
+// D3: when a locator is forwarded, this request is first checked with normalizeImpactRequest, so a locator outside
+// Impact's contract is 400 invalid_impact_request before any builder runs. Identity is bound by the composer from both
+// outputs, never copied here.
 function impactEvidenceRequest(request, locator) {
   return { paths: request.task.paths, includeTests: request.includeTests, ...(locator ? { worktree: locator } : {}) };
 }
