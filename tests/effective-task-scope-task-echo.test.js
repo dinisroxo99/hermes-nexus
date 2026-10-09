@@ -60,7 +60,7 @@ for (const [name, task] of [
   });
 }
 
-test("ETS route + real Context Pack builder: a single-path task is not an echo mismatch (it stays the documented origin_form_mismatch)", async (t) => {
+test("ETS route + real Context Pack builder: a single-path task is not an echo mismatch and passes binding (route canonicalizes the single-origin Impact)", async (t) => {
   const f = taskContextFixture(t);
   const task = { id: "task-3", title: "Fix One alone", paths: ["src/one.ts"] };
   const result = await dispatchEts(f, etsBody(f, task));
@@ -68,8 +68,8 @@ test("ETS route + real Context Pack builder: a single-path task is not an echo m
   assert.equal(codes(result.payload.data).includes("task_echo_mismatch"), false, JSON.stringify(result.payload.data.reasons));
   const [echo] = result.calls[0].echo;
   assert.deepEqual({ id: echo.id, title: echo.title, paths: echo.paths, symbols: echo.symbols }, { ...task, symbols: [] });
-  assert.equal(result.payload.data.status, "rejected");
-  assert.deepEqual(codes(result.payload.data), ["origin_form_mismatch"]);
+  assert.equal(result.payload.data.status, "not_evaluated");
+  assert.deepEqual(codes(result.payload.data), ["working_tree_observation_only"]);
 });
 
 test("ETS route + real Context Pack builder: paths the pack refuses -> 400 invalid_task_context_request, zero impact and compose calls", async (t) => {
