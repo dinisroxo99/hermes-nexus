@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { composeEffectiveTaskScopeFromEnvelopes } from "../src/lib/effective-task-scope-adapter.js";
+import { normalizeImpactRequest } from "../src/lib/impact-policy.js";
 import { normalizeEffectiveTaskScopeRequest } from "../src/lib/effective-task-scope-policy.js";
 import { createEffectiveTaskScopeHandler } from "../src/routes/effective-task-scope.routes.js";
 import { registerIntelligenceRoutes } from "../src/routes/intelligence.routes.js";
@@ -26,7 +27,12 @@ function evidence() {
   const pack = {
     schemaVersion: 1, analysisVersion: "task-context-v1", contextPackId: "fixture",
     projectId: PROJECT_ID, project,
-    revision: { ...revision, repositoryIdentity: revision.repositoryId },
+    // Real Context Pack revision shape (project-revision.js): repositoryIdentity, no repositoryId alias.
+    revision: {
+      status: revision.status, commitSha: revision.commitSha, branch: revision.branch,
+      dirty: revision.dirty, isLinkedWorktree: revision.isLinkedWorktree,
+      repositoryIdentity: revision.repositoryId, worktreeId: revision.worktreeId
+    },
     analysis: { snapshotToken: "fixture", provider },
     observation: { incomplete: false, sourceDigest: "fixture", digestCoverage: "bounded_collected_sources" },
     sections: { task: { items: [task] } }
@@ -159,14 +165,10 @@ test("effective task scope route returns the composer object for a bound request
   assert.equal(Object.hasOwn(taskCall.input, "expectedRevision"), false);
   assert.deepEqual(impactCall, {
     projectId: PROJECT_ID,
-    input: {
-      paths: ["src/a.js"],
-      includeTests: true,
-      repositoryId: "b".repeat(64),
-      worktreeId: "c".repeat(64)
-    },
+    input: { paths: ["src/a.js"], includeTests: true },
     options: taskCall.options
   });
+  assert.doesNotThrow(() => normalizeImpactRequest(impactCall.input));
   assert.equal(Object.hasOwn(impactCall.input, "worktree"), false);
   assert.equal(Object.hasOwn(impactCall.input, "expectedRevision"), false);
   assert.equal(Object.hasOwn(impactCall.options, "analyzer"), false);
@@ -177,20 +179,22 @@ test("effective task scope route returns the composer object for a bound request
   });
 });
 
-test("effective task scope route omits repository ids unless the pack returned both", async () => {
+test("effective task scope route never copies pack revision identity into the Impact request", async () => {
   const { pack, impact } = evidence();
-  const withoutIds = structuredClone(pack);
-  delete withoutIds.revision.repositoryId;
-  delete withoutIds.revision.worktreeId;
+  const aliased = structuredClone(pack);
+  aliased.revision.repositoryId = aliased.revision.repositoryIdentity;
   let impactInput;
-  await invoke(validBody(), {
-    buildProjectTaskContext: () => withoutIds,
+  const result = await invoke(validBody(), {
+    buildProjectTaskContext: () => aliased,
     buildProjectImpact(_projectId, input) {
       impactInput = input;
       return impact;
     }
   });
   assert.deepEqual(impactInput, { paths: ["src/a.js"], includeTests: true });
+  assert.doesNotThrow(() => normalizeImpactRequest(impactInput));
+  assert.equal(result.res.status, 200);
+  assert.equal(result.payload.ok, true);
 });
 
 test("effective task scope route keeps RESERVED not_evaluated and omits containers when unevaluated", async () => {
