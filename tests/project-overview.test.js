@@ -8,6 +8,7 @@ import { buildProjectOverview } from "../src/lib/project-overview.js";
 import { getProjectByNameForIntelligence } from "../src/lib/projects.js";
 import { getCachedAnalysis, invalidateAnalysisCache } from "../src/lib/analysis-cache.js";
 import { gitFixture } from "./helpers/git-fixture.js";
+import { isolatedNoRepoRoot } from "./helpers/no-repo-isolation.js";
 
 test("overview exposes stable identity and safe Git evidence without internal paths", (t) => {
   const f = gitFixture(t);
@@ -44,13 +45,14 @@ test("overview matches exact cached identity and rejects stale HEAD or dirty sta
 });
 
 test("overview preserves legacy non-Git identity and rejects cache path-prefix collisions", (t) => {
-  const root = makeTempRoot();
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  // Isolated from any ancestor `.git` above the temp root (see tests/helpers/no-repo-isolation.js).
+  const noRepo = isolatedNoRepoRoot(t, "project-overview-");
+  const root = noRepo.root;
   const project = makeProject(root, "legacy");
   writeJson(path.join(project.absolutePath, "package.json"), {});
-  const overview = buildProjectOverview(project, { getAnalysisCacheStats: () => ({ entries: [{
+  const overview = noRepo.run(() => buildProjectOverview(project, { revisionOptions: { execFileSync: noRepo.execFileSync }, getAnalysisCacheStats: () => ({ entries: [{
     project: "legacy", projectType: "nodejs", key: `legacy:nodejs:${project.absolutePath}-other`, expiresInMs: 300000, nodeCount: 99
-  }] }) });
+  }] }) }));
   assert.equal(overview.project.projectId, null);
   assert.equal(overview.revision.status, "not_git");
   assert.equal(overview.analysis.status, "not_analyzed");
@@ -186,20 +188,24 @@ test("buildProjectOverview returns bounded TypeScript identity, stack and archit
   assert.equal(JSON.stringify(overview).includes(project.absolutePath), false);
 });
 
-test("buildProjectOverview distinguishes not analyzed null counts from analyzed zero counts", () => {
-  const root = makeTempRoot();
+test("buildProjectOverview distinguishes not analyzed null counts from analyzed zero counts", (t) => {
+  // Isolated from any ancestor `.git` above the temp root (see tests/helpers/no-repo-isolation.js).
+  const noRepo = isolatedNoRepoRoot(t, "project-overview-");
+  const root = noRepo.root;
   const project = makeProject(root, "sample-service");
   writeJson(path.join(project.absolutePath, "package.json"), { type: "module" });
   writeJson(path.join(project.absolutePath, "tsconfig.json"), { compilerOptions: {} });
 
-  const notAnalyzed = buildProjectOverview(project, {
+  const notAnalyzed = noRepo.run(() => buildProjectOverview(project, {
+    revisionOptions: { execFileSync: noRepo.execFileSync },
     getAnalysisCacheStats: () => ({ entries: [] })
-  });
+  }));
   assert.equal(notAnalyzed.analysis.status, "not_analyzed");
   assert.equal(notAnalyzed.statistics.nodeCount, null);
   assert.equal(notAnalyzed.statistics.edgeCount, null);
 
-  const zeroGraph = buildProjectOverview(project, {
+  const zeroGraph = noRepo.run(() => buildProjectOverview(project, {
+    revisionOptions: { execFileSync: noRepo.execFileSync },
     getAnalysisCacheStats: () => ({
       entries: [{
         key: `sample-service:typescript:${project.absolutePath}`,
@@ -210,7 +216,7 @@ test("buildProjectOverview distinguishes not analyzed null counts from analyzed 
         edgeCount: 0
       }]
     })
-  });
+  }));
   assert.equal(zeroGraph.analysis.status, "fresh");
   assert.equal(zeroGraph.statistics.nodeCount, 0);
   assert.equal(zeroGraph.statistics.edgeCount, 0);
