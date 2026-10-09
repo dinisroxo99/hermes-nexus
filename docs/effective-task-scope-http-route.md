@@ -30,14 +30,14 @@ Evidence calls omit `worktree` and `expectedRevision`.
 
 Wires `composeEffectiveTaskScopeFromEnvelopes` then `composeEffectiveTaskScope`.
 
-Success response: HTTP `200` envelope with `policyVersion` `step4-foundation-2` (value at the time of this slice; see [Operation intent pass-through](#operation-intent-pass-through-later-slices) for the current constant, `step4-foundation-4`). That value is an **existing constant**, not Step 4 authorization or completion.
+Success response: HTTP `200` envelope with `policyVersion` `step4-foundation-2` (value at the time of this slice; see [Operation intent pass-through](#operation-intent-pass-through-later-slices) for the current constant, `step4-foundation-5`). That value is an **existing constant**, not Step 4 authorization or completion.
 
 - `RESERVED` stays `not_evaluated` with reason `coupling_evidence_not_supported`.
 - `WRITE` is a classification, **not** permission to write or publish.
 
 ## Operation intent pass-through (later slices)
 
-Observed by code reading on `main` at merge `6d570ab7ebdada851e85131271e15b0ceb6dfff6` (PR #60 merged, including fix commit `1c382eb56b554e390e99ce5757b5df8e99166b14`; parents `95ea609` + `1709d53`). `src/routes/effective-task-scope.routes.js` is unchanged since base `95ea609`; the behavior below comes from the shared request normalizer.
+Observed by code reading on `main` at merge `6d570ab7ebdada851e85131271e15b0ceb6dfff6` (PR #60 merged, including fix commit `1c382eb56b554e390e99ce5757b5df8e99166b14`; parents `95ea609` + `1709d53`), and re-checked at merge `f9032302fc55b53400257ce44db8ee5581b53b45` (PR #64, absence-witness lift). `src/routes/effective-task-scope.routes.js` is unchanged since base `95ea609`; the behavior below comes from the shared request normalizer.
 
 - The route calls `normalizeEffectiveTaskScopeRequest({ ...body, projectId })` (`projectId` taken from the path) with **no options**, then passes the normalized request through `composeEffectiveTaskScopeFromEnvelopes` into `composeEffectiveTaskScope`. The adapter does not inspect or rewrite `operationIntent`; intent binding happens in the composer.
 - Over HTTP only `operationIntent.kind: "delete"` (Slice 3, PR #46; exact keys `kind` and `targets`, targets `{ oldPath, newPath: null }` matching the explicit `task.paths`) reaches compose. The shared normalizer is default-deny for create: only a caller passing `{ allowCreateIntent: true }` (strictly `=== true`; today only `composeEffectiveTaskScope`) gets create normalization.
