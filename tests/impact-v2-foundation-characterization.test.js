@@ -59,13 +59,13 @@ test("package-only JavaScript remains classified as nodejs while using native.ty
   assert.deepEqual(result.coverage, { observed: ["javascript"], covered: ["javascript"], uncovered: [] });
 });
 
-test("CommonJS require currently leaves normalized dependency evidence empty with explicit analyzer coverage limits", () => {
+test("CommonJS require currently leaves normalized dependency evidence empty and reports the unrepresented import as partial", () => {
   const result = analyzeContextSources({ name: "commonjs" }, [
     { path: "dep.js", text: "module.exports = { value: 1 };\n" },
     { path: "user.js", text: "const dep = require('./dep');\nexports.run = () => dep.value;\n" }
   ]);
   assert.equal(result.provider.id, "native.typescript");
-  assert.equal(result.status, "available");
+  assert.equal(result.status, "partial");
   assert.deepEqual(result.edges, []);
 });
 

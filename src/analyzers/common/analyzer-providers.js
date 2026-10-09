@@ -22,7 +22,7 @@ function nativeEvidence(provider, snapshot, limits) {
     .map((node) => {
       const id = `symbol_${contextDigest(JSON.stringify([snapshot.projectId, provider.id, node.id]))}`;
       ids.set(node.id, id);
-      return { id, label: node.label, file: node.file, kind: ["class", "function", "hook", "interface", "type", "record", "struct", "enum", "component"].includes(node.kind) ? node.kind : "symbol", line: null };
+      return { id, label: node.label, file: node.file, kind: ["class", "function", "hook", "interface", "type", "record", "struct", "enum", "component", "module"].includes(node.kind) ? node.kind : "symbol", line: null };
     });
   const edgeKeys = new Set();
   const edges = [];
@@ -35,7 +35,8 @@ function nativeEvidence(provider, snapshot, limits) {
     edges.push(normalized);
   }
   return { projectType, nodes, edges, definitions: [], implementations: [], diagnostics: [],
-    limited: Boolean(raw.limited || nodes.length < (raw.nodes || []).length) };
+    limited: Boolean(raw.limited || nodes.length < (raw.nodes || []).length),
+    partial: Number.isSafeInteger(raw.unrepresentedImports) && raw.unrepresentedImports > 0 };
 }
 
 export function analyzeProviderSnapshot(project, sourceFiles, options = {}) {
@@ -72,10 +73,11 @@ export function analyzeProviderSnapshot(project, sourceFiles, options = {}) {
     if (!evidence) { attempts.push({ providerId: provider.id, status: "unavailable" }); continue; }
     if (["unavailable", "unsupported"].includes(evidence.status)) { attempts.push({ providerId: provider.id, status: evidence.status }); continue; }
     const uncovered = snapshot.languages.filter((language) => !provider.languages.includes(language));
-    const status = evidence.limited || uncovered.length ? "partial" : "available";
+    const { partial: unrepresented, ...graphEvidence } = evidence;
+    const status = evidence.limited || unrepresented || uncovered.length ? "partial" : "available";
     attempts.push({ providerId: provider.id, status });
     return { schemaVersion: 1, success: true, status, provider, snapshotToken: snapshot.token,
-      coverage: { observed: snapshot.languages, covered: snapshot.languages.filter((language) => provider.languages.includes(language)), uncovered }, attempts, ...evidence };
+      coverage: { observed: snapshot.languages, covered: snapshot.languages.filter((language) => provider.languages.includes(language)), uncovered }, attempts, ...graphEvidence };
   }
   return { schemaVersion: 1, success: false, status: attempts.some((attempt) => ["invalid", "unavailable"].includes(attempt.status)) ? "unavailable" : "unsupported",
     provider: null, snapshotToken: snapshot.token, projectType: "unknown", coverage: { observed: snapshot.languages, covered: [], uncovered: snapshot.languages },
