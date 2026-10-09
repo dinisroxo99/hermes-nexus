@@ -80,16 +80,37 @@ exact set of edges into anchors).
   the result is `partial`. Nothing in the output marks one candidate as "the" resolution. The walk is bounded by a
   `seen` set on cycles. When node/edge caps are hit the provider is `partial` (`limited`) and the ambiguity is still
   counted, because the counter runs before the caps. Pinned by N1-15, N1-29, D3a-1…D3a-3.
-- **tsconfig paths (D6a):** the checker receives the snapshot `tsconfig.json` `baseUrl`/`paths`. It runs on the
-  in-memory file system that holds only the snapshot sources (`skipFileDependencyResolution`, `noLib`), so an alias
-  resolves only to a file admitted to the snapshot; no host or out-of-project file is read. Unresolved aliases (target
-  missing, outside the project, or on disk but not admitted) stay counted, so the result stays partial. Pinned by
-  N1-28, D6a-1 (compiler-host and `node:fs` spies) and D6a-2.
+- **tsconfig paths (D6a):** the checker runs on the in-memory file system that holds only the snapshot sources
+  (`skipFileDependencyResolution`, `noLib`), so an alias resolves only to a file admitted to the snapshot; no host or
+  out-of-project file is read. Pinned by N1-28, D6a-1 (compiler-host and `node:fs` spies) and D6a-2.
+- **tsconfig reading (snapshot mode only):** the snapshot `tsconfig.json` is read once, by TypeScript's own config
+  parser (JSONC: comments, trailing commas, `/*` or `*/` inside strings such as `"include": ["src/**/*.ts"]`), and
+  that one reading feeds both the alias resolver and the checker. `extends` is followed only through configs admitted
+  to the snapshot (the parse host answers from snapshot entries only; no host reads). `paths` are relative to
+  `baseUrl` or to the config that declares them. Each config diagnostic (invalid JSONC or option, an unresolved
+  `extends` such as a missing file or a package base, since the snapshot has no `node_modules`, or an `extends`
+  cycle) is counted as unrepresented, so the result is `partial`; whatever TypeScript could still read stays in use,
+  so the config never silently becomes empty. Legacy analysis keeps its own reader. Pinned by C-1…C-7, C-14, C-15.
+- **Alias selection and counting (snapshot mode only):** the `paths` pattern is chosen as TypeScript does (exact,
+  then the longest prefix before `*`, ties in tsconfig order) and only that pattern's targets are tried; legacy keeps
+  first-match. A specifier that matches a pattern but resolves to no snapshot file is counted, even when the name
+  fallback (D7) draws an edge for it, because that edge is not a module resolution. A catch-all `*` pattern therefore
+  also counts bare package imports. This counts what the analyzer's resolver cannot resolve; it does not make every
+  alias divergence from the compiler visible (see the open gaps below). Pinned by R1-1…R1-4, C-8…C-13.
 
 ## Not changed / still open
 
-- D7 (side bug S1): the global name fallback for unresolved non-barrel targets is unchanged (wrong-target edges are
-  possible; it never hides a dependant silently).
+- D7 (side bug S1): the global name fallback for unresolved non-barrel targets is unchanged. It can draw
+  wrong-target edges, and where the analyzer's resolver picks a different file than the compiler (the gaps below),
+  Impact can report `available` while missing a dependant.
+- Known open resolver gaps (not fixed in N1; can be silently complete):
+  - `.js` / `.jsx` specifiers that the compiler maps to `.ts` / `.tsx` sources. Relative specifiers (`./index.js`
+    for an `index.ts` barrel) resolve to nothing and are not counted. Alias specifiers in snapshot mode are now
+    counted (partial). When both `x.js` and `x.ts` exist, the analyzer links `x.js` while the compiler picks `x.ts`,
+    so Impact on `x.ts` can be `available` without the importer.
+  - `.d.ts` targets and `baseUrl`-only bare specifiers (no `paths` pattern matches) are not resolved and not counted.
+  - The `paths` matcher has no prefix/suffix-overlap length guard (`ab*b` matches `ab`; TypeScript does not).
+  - An `export *` whose source contributes no names gets no file edge and no count.
 - The remaining TypeScript analyzer findings (lowercase `export const` has no graph symbol and stays partial; legacy
   mode has no counter; per-member namespace imports) and F2 stay open.
 - The Context Pack still drops `kind === "module"` items, so anchors never become Pack symbols (N1-18).
