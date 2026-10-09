@@ -341,8 +341,10 @@ for (const [id, label, configs, pre] of [
   ["C-31", "Tester V8: root tsconfig (unrelated `#x/*`) + packages/a/jsconfig.json", { "tsconfig.json": "{ \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"#x/*\": [\"x/*\"] } } }\n", "packages/a/jsconfig.json": NESTED }, "packages/a/"],
   ["C-32", "Tester V8b: root tsconfig (no paths) + packages/a/tsconfig.json", { "tsconfig.json": "{ \"compilerOptions\": { \"allowJs\": true } }\n", "packages/a/tsconfig.json": NESTED }, "packages/a/"],
   ["C-33", "Reviewer A-11: root JSConfig.json (case variant)", { "JSConfig.json": NESTED }, ""],
-  ["C-34", "Reviewer A-11: root TSConfig.json (case variant, not the root tsconfig.json) with references", { "TSConfig.json": "{ \"files\": [], \"references\": [{ \"path\": \"./tsconfig.app.json\" }] }\n", "tsconfig.app.json": APP }, ""],
-  ["C-35", "nested case variant packages/a/TsConfig.JSON", { "packages/a/TsConfig.JSON": NESTED }, "packages/a/"]
+  ["C-34", "Reviewer A-11 / Tester B9b: root TSConfig.json (case variant, not the root tsconfig.json) with references AND `paths` (never read, so no alias edge)", { "TSConfig.json": "{ \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"@/*\": [\"src/*\"] } }, \"files\": [], \"references\": [{ \"path\": \"./tsconfig.app.json\" }] }\n", "tsconfig.app.json": APP }, ""],
+  ["C-35", "nested case variant packages/a/TsConfig.JSON", { "packages/a/TsConfig.JSON": NESTED }, "packages/a/"],
+  ["C-42", "Tester B11: scoped monorepo package packages/@scope/a/tsconfig.json (3 directory levels)", { "tsconfig.json": "{ \"compilerOptions\": { \"allowJs\": true } }\n", "packages/@scope/a/tsconfig.json": NESTED }, "packages/@scope/a/"],
+  ["C-43", "Tester B11: a/b/c/d/e/jsconfig.json (5 directory levels), no root config", { "a/b/c/d/e/jsconfig.json": NESTED }, "a/b/c/d/e/"]
 ]) {
   test(`${id} ${label}: not read, counted once, partial, never available while missing the importer`, (t) => {
     const files = { ...configs, ...UNDER(pre) };
@@ -409,4 +411,17 @@ test("C-41 snapshot confinement with unread nested, jsconfig and case-variant co
   assert.deepEqual(calls, [], "no host file-system access during snapshot analysis");
   assert.equal(g.edges.some((edge) => edge.startsWith("src/c.ts:")), false, "no unread config is read, from the snapshot or the host");
   assert.equal(g.unrep, 1);
+});
+
+test("C-44 (Tester K3b) an empty root `references: []` names no config, so it is not counted: available", (t) => {
+  const files = { "tsconfig.json": "{ \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"@/*\": [\"src/*\"] } }, \"references\": [] }\n", ...BARREL_VIA_ALIAS };
+  const g = snapshotGraph(files);
+  assert.ok(g.edges.includes("src/c.ts:Use -> src/impl.ts:q [importa]"), JSON.stringify(g.edges));
+  assert.equal(g.unrep, 0);
+  const p = project(t, files, { tests: false });
+  for (const target of ["src/impl.ts", "src/index.ts"]) {
+    const i = p.impact(target);
+    assert.ok(affected(i).includes("src/c.ts"), target);
+    assert.equal(i.status, "available", `${target} ${JSON.stringify(reasons(i))}`);
+  }
 });
