@@ -6,9 +6,12 @@ import assert from "node:assert/strict";
 import { analyzeTypeScriptProject } from "../src/analyzers/typescript/typescript-analyzer.js";
 
 // F1 module-anchor invariants (kills mutants that survived the F1-1..F1-9 suite):
-// A-1: an anchor (kind "module") is never an import target and never a name match. It must not be added to the
+// A-1: an anchor (kind "module") is never a symbol-import target and never a name match. It must not be added to the
 //      per-file symbol map (an `export *` from a symbol-less file would then target it) nor registered for name
 //      matching (an unresolved import of the name "<module>" would then match it).
+//      N1/D11 amends this for PURE barrels only: a pure barrel's anchor may receive file-level edges from its
+//      importers and outer barrels (tests/typescript-barrel-target.test.js N1-30, typescript-barrel-boundaries D11-*).
+//      The fixtures below re-export from or import a symbol-less NON-barrel file, so they still expect no such edge.
 // g:   legacy (non-snapshot) analysis creates no anchors and keeps its exact non-anchor nodes and edges.
 const SNAPSHOT_PROJECT = { name: "snapshot", absolutePath: "/__project_context__" };
 const LIMITS = { nodeLimit: 2000, edgeLimit: 4000 };
