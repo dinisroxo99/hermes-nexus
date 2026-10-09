@@ -150,7 +150,7 @@ test("effective task scope route returns the composer object for a bound request
   assert.deepEqual(result.payload.data, JSON.parse(JSON.stringify(expected)));
   assert.equal(result.payload.data.schemaVersion, 2);
   assert.equal(result.payload.data.analysisVersion, "effective-task-scope-v2");
-  assert.equal(result.payload.data.policyVersion, "step4-foundation-5");
+  assert.equal(result.payload.data.policyVersion, "step4-foundation-6");
   assert.equal(result.payload.data.reserved.status, "not_evaluated");
   assert.deepEqual(result.payload.data.reserved.items, []);
   assert.deepEqual(result.payload.data.reserved.reasons, ["coupling_evidence_not_supported"]);
@@ -320,7 +320,7 @@ test("intelligence router registers effective task scope beside task-context and
   const payload = JSON.parse(res.body);
   assert.equal(res.status, 200);
   assert.equal(payload.message, SUCCESS_MESSAGE);
-  assert.equal(payload.data.policyVersion, "step4-foundation-5");
+  assert.equal(payload.data.policyVersion, "step4-foundation-6");
   assert.equal(payload.data.reserved.reasons[0], "coupling_evidence_not_supported");
 });
 
@@ -380,7 +380,7 @@ test("R3 effective task scope route still lets a delete intent reach the produce
   assert.equal(calls.taskContext + calls.impact, 2);
   assert.equal(calls.compose, 1);
   assert.equal(calls.config, 1);
-  assert.equal(result.payload.data.policyVersion, "step4-foundation-5");
+  assert.equal(result.payload.data.policyVersion, "step4-foundation-6");
 });
 
 test("D3 RT-3 effective task scope route refuses a body carrying createDestinationAbsenceWitness with zero producer, config and compose calls", async () => {

@@ -267,8 +267,8 @@ test("T1 success: real producer+A1 witness lifts symbol gate; WRITEsubseteq expl
     symbolTargetCompletenessWitness: witness
   });
 
-  assert.equal(EFFECTIVE_TASK_SCOPE_POLICY_VERSION, "step4-foundation-5");
-  assert.equal(res.policyVersion, "step4-foundation-5");
+  assert.equal(EFFECTIVE_TASK_SCOPE_POLICY_VERSION, "step4-foundation-6");
+  assert.equal(res.policyVersion, "step4-foundation-6");
   assert.equal(res.schemaVersion, 2);
   assert.equal(res.analysisVersion, "effective-task-scope-v2");
   assert.ok(!res.reasons.some((r) => r.code === "symbol_targets_not_supported"));

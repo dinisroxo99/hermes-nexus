@@ -2,7 +2,7 @@
 
 **Slice:** Slice 4 (bounded) — explicit create-intent classification (C2), reopened by the absence-witness lift (D3/D4/D5)
 **Date:** 2026-10-07 (PT); D3 update 2026-10-09 (PT)
-**policyVersion:** `step4-foundation-5` (bumped from `step4-foundation-4` by D3 because the create rules changed; `-4` had been bumped from `step4-foundation-3` by the PR #60 fix `1c382eb`)
+**policyVersion:** `step4-foundation-6` (bumped from `step4-foundation-5` by the N-12 full-chain amendment, R5-FC, because a create rule changed; `-5` had been bumped from `step4-foundation-4` by D3 because the create rules changed; `-4` had been bumped from `step4-foundation-3` by the PR #60 fix `1c382eb`)
 **schemaVersion / analysisVersion:** unchanged (`2` / `effective-task-scope-v2`)
 
 ## Contract
@@ -50,7 +50,8 @@ every non-create request the gate behaves exactly as before.
 (shape, constants, any option other than S2a), `create_absence_binding_mismatch` (identity, revision,
 snapshot token or target set differs; or a retained observation contradicts the witness listing),
 `create_absence_evidence_inconsistent` (sizes, structure, arithmetic, digests, fail-closed matrix,
-filesystem allow-list, producer verdict ≠ recomputed verdict). A witness on a READ or delete request
+filesystem allow-list, producer verdict ≠ recomputed verdict; from `step4-foundation-6`, a `complete:true`
+record without the full ancestor chain `D(p)`, every element `directory`, R5-FC). A witness on a READ or delete request
 is `rejected` / `create_absence_witness_unexpected`. With the witness present, the input budget is
 `checkCreateAbsenceInputBudget` (327680 total); oversize → `rejected` / `scope_budget_exceeded`. The
 producer throws `create_absence_witness_byte_cap_exceeded` and `invalid_create_absence_witness_request`

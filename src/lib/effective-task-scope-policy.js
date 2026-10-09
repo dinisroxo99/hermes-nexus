@@ -19,7 +19,7 @@ import { isContextSecretSegment } from "./context-path-secret-policy.js";
 
 export const EFFECTIVE_TASK_SCOPE_SCHEMA_VERSION = 2;
 export const EFFECTIVE_TASK_SCOPE_ANALYSIS_VERSION = "effective-task-scope-v2";
-export const EFFECTIVE_TASK_SCOPE_POLICY_VERSION = "step4-foundation-5";
+export const EFFECTIVE_TASK_SCOPE_POLICY_VERSION = "step4-foundation-6";
 
 export const ETS_STATUSES = Object.freeze([
   "available",
@@ -441,7 +441,7 @@ export function bindDeleteIntent(intent, paths, pack, impact) {
 }
 
 /**
- * Validate create-intent proof and return a fail-closed verdict (policy step4-foundation-5).
+ * Validate create-intent proof and return a fail-closed verdict (policy step4-foundation-6).
  * Whole-proof structural/budget validation runs before any verdict. Per declared newPath: any
  * positive byte observation (Context files item or non-null Impact targetSource) is EXISTS.
  * Without an absence witness (`absence === undefined`) everything else is UNKNOWN, exactly as
@@ -1400,6 +1400,12 @@ function absenceRecordConsistent(t) {
   if (t.complete === true && t.incompleteReason !== null) return false;
   if (t.complete === false && (t.incompleteReason === null || !CREATE_ABSENCE_INCOMPLETE_REASONS.includes(t.incompleteReason))) return false;
   if (t.complete === true && (t.enumeration === null || !["ENOENT", "present"].includes(t.nativeLookup))) return false;
+  // R5-FC (r3.4 + N-12 full-chain amendment): a complete:true record needs ancestors to be exactly the full
+  // chain D(p): length |D(p)|, ancestors[j].path === D(p)[j] and every state "directory" (any verdict).
+  if (t.complete === true) {
+    const full = absenceDerivedChain(t.newPath);
+    if (t.ancestors.length !== full.length || t.ancestors.some((a, j) => a.path !== full[j] || a.state !== "directory")) return false;
+  }
   const chain = t.ancestors;
   for (let i = 0; i < chain.length; i++) {
     const a = chain[i];

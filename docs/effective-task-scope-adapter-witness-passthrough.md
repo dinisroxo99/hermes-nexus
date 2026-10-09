@@ -2,7 +2,7 @@
 
 **Slice:** Slice 4 (bounded) — ETS adapter completeness-witness pass-through (C1)
 **Date:** 2026-10-07 (PT)
-**policyVersion:** `step4-foundation-5` (bumped by D3, the absence-witness lift; unchanged by this seam itself; the earlier `step4-foundation-3` / `-4` values here are historical)
+**policyVersion:** `step4-foundation-6` (bumped by the N-12 full-chain amendment, R5-FC; `-5` was bumped by D3, the absence-witness lift; unchanged by this seam itself; the earlier `step4-foundation-3` / `-4` / `-5` values here are historical)
 **schemaVersion / analysisVersion:** unchanged (`2` / `effective-task-scope-v2`)
 
 ## Contract

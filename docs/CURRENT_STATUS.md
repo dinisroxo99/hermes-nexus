@@ -201,8 +201,10 @@ head `1709d53`); merge is not deployment. Rename and directory expansion
 remain **not selected**. The absence-witness track D0–D5 has since merged
 (PR #62, #63, #64; main at `f9032302fc55b53400257ce44db8ee5581b53b45`): a create WRITE
 is now classified only when a create-destination absence witness (v1, S2a)
-proves **every** declared target absent (all or nothing), under
-`policyVersion` `step4-foundation-5`. Single-target creates still fail with
+proves **every** declared target absent (all or nothing). PR #64 shipped this
+under `policyVersion` `step4-foundation-5`; this PR (N-12, pending merge) bumps it
+to `step4-foundation-6` with the R5-FC full-chain rule: a `complete:true` absence record is refused with `create_absence_evidence_inconsistent` unless its `ancestors` chain is exactly the derived full chain D(p): full length, `ancestors[j].path === D(p)[j]` and every entry `directory` (any verdict).
+Single-target creates still fail with
 `origin_form_mismatch`. WRITE is classification, not authorization; there is
 no filesystem create; no flag change.
 
@@ -234,6 +236,7 @@ product-wide auth still NO):
 - [Create-destination absence witness producer (D0+D1)](create-destination-absence-witness.md) — PR #62 **MERGED** at `60e04a1232850823cc2bdf9982be5b5a25997e78` (parents `55f606cf5dc9fcb987f4af976061274cffd8c884` + `16e6ad88a5b9c519600fa5f98f83ded5cb902ae3`; head `16e6ad8`). D0 moves the collector secret predicate to `context-path-secret-policy.js`; D1 adds the read-only producer `buildCreateDestinationAbsenceWitness` (v1, S2a), its pure constants and the Unicode 17.0 name key. Library only: no route, plugin or composer path calls the producer. `policyVersion` unchanged (`step4-foundation-4`) at that merge.
 - [ETS adapter absence-witness allow-list (D2)](effective-task-scope-adapter-witness-passthrough.md) — PR #63 **MERGED** at `4b8e213cc4e13f7df5aa09482f67a38412281104` (parents `60e04a1` + `0f2aa646374f0d4721e61c2d6498e0d99200aff6`; head `0f2aa64`). The adapter accepts an optional `createDestinationAbsenceWitness` envelope, forwards its `.data` and checks the combined input budget (`checkCreateAbsenceInputBudget`, 327680 total). At that merge the composer did not consume it and create stayed refused (`step4-foundation-4`).
 - [ETS create intent, absence-witness lift (D3/D4/D5)](effective-task-scope-create-intent.md) — PR #64 **MERGED** at `f9032302fc55b53400257ce44db8ee5581b53b45` (parents `4b8e213` + `e1104d39a6c3393faa1171fa315050945282e6e6`; head `e1104d3`; code `3ff8130`). Completes the absence-witness track D0–D5 on main. The composer consumes an optional `createDestinationAbsenceWitness` (v1, S2a) for create intents: refuse codes `create_absence_evidence_invalid` / `create_absence_binding_mismatch` / `create_absence_evidence_inconsistent`, scope-outs `create_parent_directory_absent` / `create_ancestor_boundary`, `rejected create_absence_witness_unexpected` on READ/delete; lift `create_destination_proven_absent` → create WRITE (`explicit_create_intent`) and `operationIntent` only when every target is proven absent. Without a witness, outcomes equal `step4-foundation-4` except the version label. Single-target creates still fail with `origin_form_mismatch`. HTTP unchanged (create → 400 `invalid_delete_intent`). `policyVersion` `step4-foundation-5` (bumped from `-4`). WRITE is classification, not authorization; no filesystem create; product-wide flags unchanged.
+- [ETS create intent, R5-FC full-chain absence rule (N-12)](effective-task-scope-create-intent.md) — this PR (branch `fix/absence-witness-full-chain`; code `406ea33`, docs `3cfe3d3`; base main `5a76630`), **not merged**. Implements the N-12 full-chain amendment to the absence-witness contract r3.4: in `absenceRecordConsistent` (`src/lib/effective-task-scope-policy.js`), a `complete:true` absence record is refused with `create_absence_evidence_inconsistent` unless its `ancestors` chain is exactly the derived full chain D(p): full length, `ancestors[j].path === D(p)[j]` and every entry `directory` (any verdict). One such record refuses the whole witness. `policyVersion` `step4-foundation-6` (bumped from `-5`). Only the policy module changes in src; the composer, HTTP route, adapter, producer and constants are unchanged. Closes the short-chain class only; a forged self-consistent full-length chain stays an accepted residual (consistency, not authenticity). Classification, not authorization; no filesystem create; product-wide flags unchanged.
 
 PR #57 landed on main; it does **not** flip `IMPLEMENTATION_AUTHORIZED`,
 `SLICE4`, or `STEP4_SLICE4_READY_TO_IMPLEMENT`. This does **not** mark Step 4
@@ -246,27 +249,37 @@ complete.
 
 **Absence-witness track D0–D5: complete on main** (PR #62 D0+D1, PR #63 D2,
 PR #64 D3/D4/D5; main at `f9032302fc55b53400257ce44db8ee5581b53b45`). Current create
-behavior (`policyVersion` `step4-foundation-5`): WRITE (`explicit_create_intent`,
+behavior (`policyVersion` `step4-foundation-6` with this PR, pending merge;
+`step4-foundation-5` at PR #64): WRITE (`explicit_create_intent`,
 `explicit_task_path`) and `operationIntent` are emitted only when **every**
 declared target is PROVEN-ABSENT under a valid, bound absence witness, all or
 nothing; otherwise the result is `not_evaluated` with the specific create or
-absence reason. Single-target creates still fail with `origin_form_mismatch`
+absence reason. R5-FC (this PR; `absenceRecordConsistent` in
+`src/lib/effective-task-scope-policy.js`): a `complete:true` absence record is refused with `create_absence_evidence_inconsistent` unless its `ancestors` chain is exactly the derived full chain D(p): full length, `ancestors[j].path === D(p)[j]` and every entry `directory` (any verdict). One such record
+refuses the whole witness. R5-FC closes the short-chain class only: the witness
+is consistency-checked, not authenticated, so a forged self-consistent
+full-length chain remains an accepted residual (N-12). Single-target creates still fail with `origin_form_mismatch`
 (a fix belongs to a separate Impact/ETS form slice). WRITE is classification,
 not authorization; there is no filesystem create. HTTP still refuses create
 (400 `invalid_delete_intent`) and the witness field (400 `unexpected_field`).
 This is not Slice 4 readiness, product-wide authorization or Step 4 completion.
 
-Open absence-witness follow-ups (not done):
+Absence-witness follow-ups:
 
 - **N-12 full-chain contract amendment:** require a full-length, all-directory
   ancestor chain whenever the witness claims completeness (closes the accepted
   short-chain residual; the witness is consistency-checked, not authenticated).
-  In design with the Architect.
+  **Implemented on this branch** (`fix/absence-witness-full-chain`, this PR) as
+  R5-FC / `step4-foundation-6`, **pending merge**. A forged self-consistent
+  full-length chain stays an accepted residual (not an authenticity control).
 - **`tests/project-revision.test.js:45` `/tmp` isolation:** isolate the
-  intermittently flaky revision test from shared `/tmp` state. In progress.
-- **Optional i2d test:** a mutant that drops the binder's "observed path →
+  intermittently flaky revision test from shared `/tmp` state. PR #66
+  **MERGED** at `4c4e8e4bd294fb3712fd2fb42bdd346ebd634a2d` (after this branch's
+  base `5a76630`); it isolates the no-repo cases in project-revision,
+  task-context and project-overview from a stray ancestor `.git`.
+- **Optional i2d test (not done):** a mutant that drops the binder's "observed path →
   exists" rule is not caught by the current suite; it cannot produce a WRITE.
-- **O-1:** the D0 collector (`project-context-files.js`) still compares
+- **O-1 (not done):** the D0 collector (`project-context-files.js`) still compares
   realpath/readlink results as decoded strings; out of scope for D0/D1.
 
 `NEXT_PREREQUISITE` at the NO-GO date was producer-backed evidence contract; A/B
@@ -627,6 +640,7 @@ candidate verification or plugin lifecycle acceptance.
 | Create-destination absence witness producer (PR #62, D0+D1) | **MERGED** at `60e04a1232850823cc2bdf9982be5b5a25997e78` (parents `55f606c` + `16e6ad8`). D0: collector secret predicate moved to `context-path-secret-policy.js` (behavior parity). D1: read-only `buildCreateDestinationAbsenceWitness` (v1, S2a), pure constants and the Unicode 17.0 name key. Library only; no route, plugin or composer call. `policyVersion` unchanged at that merge (`step4-foundation-4`). Not Step 4 complete. | [create-destination-absence-witness.md](create-destination-absence-witness.md) |
 | ETS adapter absence-witness allow-list (PR #63, D2) | **MERGED** at `4b8e213cc4e13f7df5aa09482f67a38412281104` (parents `60e04a1` + `0f2aa64`). The adapter accepts an optional `createDestinationAbsenceWitness` envelope and forwards its `.data` with the combined input budget (`checkCreateAbsenceInputBudget`, 327680 total). The composer did not consume it at that merge; create stayed refused (`step4-foundation-4`). Not Step 4 complete. | [effective-task-scope-adapter-witness-passthrough.md](effective-task-scope-adapter-witness-passthrough.md) |
 | ETS create intent, absence-witness lift (PR #64, D3/D4/D5) | **MERGED** at `f9032302fc55b53400257ce44db8ee5581b53b45` (parents `4b8e213` + `e1104d3`; code `3ff8130`). Completes the absence-witness track D0–D5 on main. The composer evaluates an optional `createDestinationAbsenceWitness` (v1, S2a; the policy imports only the pure D1 constants/name-key modules and the D0 secret predicate, never the fs producer) for create intents; create WRITE (`explicit_create_intent`, `explicit_task_path`) and `operationIntent` only when every declared target is PROVEN-ABSENT (EXISTS › parent_absent › ancestor_boundary › UNKNOWN › lift); the `impact_not_evaluated` gate relaxed only by the total `isCreateGateRelaxed`. Needs a runtime reporting Unicode 17.0 (else every create UNKNOWN). Single-target create still fails with `origin_form_mismatch` (NG-9). `policyVersion` `step4-foundation-5`. Classification, not authorization; no filesystem create; HTTP unchanged; product-wide flags unchanged. Open follow-ups: N-12 full-chain contract amendment, `project-revision` test `/tmp` isolation, optional i2d test, O-1. Not Step 4 complete. | [effective-task-scope-create-intent.md](effective-task-scope-create-intent.md) |
+| ETS create intent, R5-FC full-chain absence rule (this PR, N-12) | **Not merged**: branch `fix/absence-witness-full-chain` (code `406ea33`, docs `3cfe3d3`; base main `5a76630`). In `absenceRecordConsistent` (`src/lib/effective-task-scope-policy.js`), a `complete:true` absence record is refused with `create_absence_evidence_inconsistent` unless its `ancestors` chain is exactly the derived full chain D(p): full length, `ancestors[j].path === D(p)[j]` and every entry `directory` (any verdict); one such record refuses the whole witness. `policyVersion` `step4-foundation-6` (bumped from `-5`). Composer, HTTP route, adapter, producer and constants unchanged. Closes the short-chain class only; a forged self-consistent full-length chain stays an accepted residual (consistency, not authenticity). Classification, not authorization; no filesystem create; product-wide flags unchanged. Not Step 4 complete. | [effective-task-scope-create-intent.md](effective-task-scope-create-intent.md) |
 | Hermes thin plugin | Exactly two tracked read-only tools (`project_task_context`, `project_impact`); `compose_effective_task_scope` exists in plugin at historical `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5`, read-only local, without HTTP tool/route/schemas; labels only WRITE and WATCH; RESERVED/IMPACT `not_emitted`. `feat/legacy-project-map-t_d032c9fe@787f662df941ea8461efeb0db86f51ad569a461c` / adapter 1A do not enter this delta. Two-tool publication is accepted as recorded in the installation contract, not automatic installation or Guard. | [Usage contract](hermes-tool-integration.md#dev-adoption-1--two-tool-usage-contract), [open limitations](KNOWN_ISSUES.md), [composer](../integrations/hermes-nexus/effective_task_scope.py) |
 | Gated ETS caller | `project_effective_task_scope` (local compose from accepted pack+impact) exists at ancestor `cc4fcbcbad68de2d6e8d4bed9df9eaff29a60acb`. Hidden via `register_tool` omission unless `scope_enabled` is exactly true. `provides_tools` lists exactly the two core tools. Dated 2026-09-28 six-profile install handoff: independent copies with `scope_enabled: true`; `default` and `workspace-manager` excluded from install/config/exposure (not a ban on the workspace-manager role). Canonical Git `tools.py` overlay is on main at `643eb3ab` and remains at checkpoint `050540d0`; that is not byte equality of every installed file, and the `6152cea` `schemas.py` text is in this revision and is **not copied into local installations**. Read-only classification, not Step 4 coordination/enforcement. | [ETS profile exposure](ETS_PROFILE_EXPOSURE.md); [effective_task_scope](../integrations/hermes-nexus/effective_task_scope.py) |
 | Request-preflight helper CLI | Present in the code baseline (`4d6a78632e772e7ca43fadf37b287213d6f9ea93`) via PR #39 merge `07845ba0fc86440a080f81ffe4ad3fe125ec726d`. Invoke `python3 -B -m scripts.nexus_request_preflight`. Syntax-only local helper; not a Hermes tool; not pending merge; not Step 4. Helper classification is a documentation delta, not content of that baseline commit. | [request-preflight](development/request-preflight.md), [`scripts/nexus_request_preflight/__main__.py`](../scripts/nexus_request_preflight/__main__.py) |

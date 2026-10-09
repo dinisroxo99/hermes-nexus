@@ -52,7 +52,7 @@ function terminal(f, status, code) {
 
 test("delete: source-bound explicit WRITE; every retained effect WATCH, no safety or expansion", () => {
   const f = fixture(); const before = JSON.stringify(f); const r = run(f);
-  assert.equal(r.status, "incomplete"); assert.equal(r.policyVersion, "step4-foundation-5");
+  assert.equal(r.status, "incomplete"); assert.equal(r.policyVersion, "step4-foundation-6");
   assert.deepEqual(r.write.items.map(i => i.target.path), f.request.task.paths);
   assert.ok(r.write.items.every(i => i.ruleIds.includes("explicit_delete_intent")));
   assert.deepEqual(r.watch.items.map(i => i.target.path), ["src/far.js"]);
