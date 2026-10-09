@@ -112,7 +112,7 @@ export function createEffectiveTaskScopeHandler(dependencies = {}) {
 }
 
 function impactEvidenceRequest(request, pack) {
-  const impactRequest = { paths: request.task.paths };
+  const impactRequest = { paths: request.task.paths, includeTests: request.includeTests };
   const revision = pack && typeof pack === "object" && !Array.isArray(pack) ? pack.revision : undefined;
   if (!revision || typeof revision !== "object" || Array.isArray(revision)) return impactRequest;
   if (revision.repositoryId != null && revision.worktreeId != null) {

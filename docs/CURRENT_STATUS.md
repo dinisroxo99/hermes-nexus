@@ -265,6 +265,7 @@ full-length chain remains an accepted residual (N-12). Single-target creates sti
 (a fix belongs to a separate Impact/ETS form slice). WRITE is classification,
 not authorization; there is no filesystem create. HTTP still refuses create
 (400 `invalid_delete_intent`) and the witness field (400 `unexpected_field`).
+HTTP-visible fix (route only, `policyVersion` stays `step4-foundation-6`, no flag change): the ETS route now forwards the request's `includeTests` boolean to Impact; before, it was dropped, so a bound request with `includeTests: true` on a clean linked worktree was rejected with `includeTests_true_not_requested_mismatch`.
 This is not Slice 4 readiness, product-wide authorization or Step 4 completion.
 
 Absence-witness follow-ups.
