@@ -300,3 +300,26 @@ test("C-24 legacy (non-snapshot) analysis ignores `references` and jsconfig.json
   assert.equal(legacy.unrepresentedImports, 0);
   assert.equal(legacy.metadata.pathAliasCount, 0);
 });
+
+// ---- B10: D6a confinement on the `references` path (kills the Tester's K5b/K5d) ----
+test("C-25 snapshot confinement with solution-style `references`: referenced configs (admitted, disk-only, outside the root) are never read from the host (0 host fs calls)", (t) => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "n1-refs-"));
+  t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
+  const root = path.join(parent, "project");
+  fs.mkdirSync(path.join(parent, "outside"), { recursive: true });
+  fs.mkdirSync(root);
+  const decoy = "{ \"compilerOptions\": { \"paths\": { \"@/*\": [\"src/*\"] } } }\n";
+  for (const file of ["tsconfig.json", "tsconfig.app.json", "tsconfig.disk.json"]) fs.writeFileSync(path.join(root, file), decoy);
+  fs.writeFileSync(path.join(parent, "outside", "tsconfig.json"), decoy);
+  const files = { "tsconfig.json": "{ \"files\": [], \"references\": [{ \"path\": \"./tsconfig.app.json\" }, { \"path\": \"./tsconfig.disk.json\" }, { \"path\": \"../outside\" }] }\n",
+    "tsconfig.app.json": APP, ...BARREL_VIA_ALIAS };
+  const calls = [];
+  const methods = ["readFileSync", "existsSync", "statSync", "lstatSync", "readdirSync", "realpathSync", "openSync", "accessSync", "readFile", "stat", "readdir"];
+  const originals = methods.map((m) => [m, fs[m]]);
+  for (const [m, original] of originals) fs[m] = function spy(...args) { calls.push(`${m} ${String(args[0])}`); return original.apply(this, args); };
+  let g;
+  try { g = snapshotGraph(files, root); } finally { for (const [m, original] of originals) fs[m] = original; }
+  assert.deepEqual(calls, [], "no host file-system access during snapshot analysis");
+  assert.equal(g.edges.some((edge) => edge.startsWith("src/c.ts:")), false, "no referenced config is read, from the snapshot or the host");
+  assert.equal(g.unrep, 1);
+});
