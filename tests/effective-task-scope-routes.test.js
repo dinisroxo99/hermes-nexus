@@ -354,6 +354,18 @@ async function assertCreateRefused(operationIntent) {
   assert.deepEqual(calls, { config: 0, roots: 0, taskContext: 0, impact: 0, compose: 0 });
 }
 
+test("effective task scope route forwards the normalized task (sorted paths, empty symbols), never the raw body task", async () => {
+  const { pack, impact } = evidence();
+  const body = validBody();
+  body.task = { id: "fixture", title: "Adapter fixture", paths: ["src/z.js", "src/a.js"] };
+  let taskInput;
+  await invoke(body, {
+    buildProjectTaskContext(input) { taskInput = input; return pack; },
+    buildProjectImpact() { return impact; }
+  });
+  assert.deepEqual(taskInput, { projectId: PROJECT_ID, task: { id: "fixture", title: "Adapter fixture", paths: ["src/a.js", "src/z.js"], symbols: [] } });
+});
+
 test("R1 effective task scope route refuses a well-formed create intent with zero producer, config and compose calls", async () => {
   await assertCreateRefused({ kind: "create", targets: [{ oldPath: null, newPath: "src/a.js" }] });
 });

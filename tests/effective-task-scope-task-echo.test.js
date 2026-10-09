@@ -71,3 +71,31 @@ test("ETS route + real Context Pack builder: a single-path task is not an echo m
   assert.equal(result.payload.data.status, "rejected");
   assert.deepEqual(codes(result.payload.data), ["origin_form_mismatch"]);
 });
+
+test("ETS route + real Context Pack builder: paths the pack refuses -> 400 invalid_task_context_request, zero impact and compose calls", async (t) => {
+  const f = taskContextFixture(t);
+  const valid = etsBody(f, { id: "task-4", title: "Refused path", paths: ["src/one.ts", "src/unrelated.ts"] });
+  for (const refused of [".env", "src/.env", ".git/config", "node_modules/x.js", "id_rsa", "src/id_rsa"]) {
+    const calls = { taskContext: 0, impact: 0, compose: 0 };
+    const router = createRouter();
+    registerIntelligenceRoutes(router, {
+      getProjectConfig: () => ({ dataDir: f.root }),
+      getConfiguredProjectRoots: () => f.options.registry.roots,
+      buildProjectTaskContext(input, options) { calls.taskContext += 1; return buildProjectTaskContext(input, options); },
+      buildProjectImpact() { calls.impact += 1; throw new Error("impact must not be called"); },
+      composeEffectiveTaskScopeFromEnvelopes() { calls.compose += 1; throw new Error("compose must not be called"); }
+    });
+    const body = { ...valid, task: { ...valid.task, paths: ["src/one.ts", refused] } };
+    const req = Readable.from([JSON.stringify(body)]);
+    req.method = "POST";
+    req.url = `/api/intelligence/projects/${f.request.projectId}/effective-task-scope`;
+    req.headers = { host: "localhost" };
+    const res = { writeHead(status, headers) { this.status = status; this.headers = headers; }, end(text) { this.body = text; } };
+    assert.equal(await router.dispatch(req, res), true);
+    const payload = JSON.parse(res.body);
+    assert.equal(res.status, 400, `${refused}: ${res.body}`);
+    assert.equal(payload.error, "invalid_task_context_request", refused);
+    assert.deepEqual(calls, { taskContext: 1, impact: 0, compose: 0 }, refused);
+    assert.equal(res.body.includes(f.root), false);
+  }
+});
