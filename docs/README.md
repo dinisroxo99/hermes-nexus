@@ -28,8 +28,11 @@ direct-coupling producer (PR #51), [effective task scope HTTP route](effective-t
 (PR #54), docs follow-up (PR #55), [symbol-target completeness witness](symbol-target-completeness-witness.md)
 (PR #56), [ETS A1+completeness consume (Slice 4 bounded)](effective-task-scope-symbol-consume.md)
 (PR #57, merge `a277ee43`), [ETS adapter witness pass-through (C1, Slice 4 bounded)](effective-task-scope-adapter-witness-passthrough.md)
-(PR #59, merge `95ea6099`), and [ETS explicit create intent, refuse-only (C2, Slice 4 bounded)](effective-task-scope-create-intent.md)
-(PR #60, merge `6d570ab`); none of these is Step 4 complete. Roadmap Slice 4 product-wide readiness remains
+(PR #59, merge `95ea6099`), [ETS explicit create intent (C2, Slice 4 bounded)](effective-task-scope-create-intent.md)
+(PR #60, merge `6d570ab`; refuse-only at that merge), and the absence-witness track D0–D5
+([absence-witness producer](create-destination-absence-witness.md) PR #62, adapter allow-list PR #63,
+create lift PR #64, merge `f903230`; `step4-foundation-5`: create WRITE only when every target is
+proven absent, classification not authorization, no filesystem create); none of these is Step 4 complete. Roadmap Slice 4 product-wide readiness remains
 NOT STARTED (selection NO-GO; auth still NO). Step 4 remains INCOMPLETE and is
 **not** coordination/enforcement; v2 runtime exposure is NO. Step 5
 (Conflict Engine) and Step 6 (Guard) are NOT STARTED;
@@ -64,8 +67,8 @@ unchanged. This acceptance is not full technical validation or Step 4 authorizat
 - [Symbol-target completeness witness](symbol-target-completeness-witness.md) — in-repo ArchW completeness witness producer feature record.
 - [ETS A1+completeness consume](effective-task-scope-symbol-consume.md) — Slice 4 (bounded) ETS consume of A1+completeness witness (PR #57).
 - [ETS adapter witness pass-through](effective-task-scope-adapter-witness-passthrough.md) — Slice 4 (bounded) C1: adapter forwards an optional completeness-witness envelope (PR #59); not Step 4 complete.
-- [ETS explicit create intent](effective-task-scope-create-intent.md) — Slice 4 (bounded) C2: create intent recognized (PR #60, merge `6d570ab`, refuse-only); D3 (`step4-foundation-5`) adds the absence-witness lift: create WRITE only when every target is proven absent (classification, not authorization); not Step 4 complete.
-- [Create-destination absence witness](create-destination-absence-witness.md) — the pure-input absence witness v1 (S2a) producer (D1) and its composer consumption (D3); no FS create.
+- [ETS explicit create intent](effective-task-scope-create-intent.md) — Slice 4 (bounded) C2: create intent recognized (PR #60, merge `6d570ab`, refuse-only at that merge); D3 (PR #64, merge `f903230`, `step4-foundation-5`) adds the absence-witness lift: create WRITE only when every target is proven absent, all or nothing (classification, not authorization; single-target creates still fail with `origin_form_mismatch`); not Step 4 complete.
+- [Create-destination absence witness](create-destination-absence-witness.md) — the pure-input absence witness v1 (S2a) producer (D0+D1, PR #62), adapter allow-list (D2, PR #63) and composer consumption (D3, PR #64); no FS create.
 
 The tracked plugin is delivered in source, not automatically installed into the
 approved fleet. Legacy examples are archived, not the current procedure. For Hermes
