@@ -724,10 +724,14 @@ function createBarrelContext(tsProject, { rootPath, pathAliases, codePaths, file
 
 // N1 pure-barrel definition (verifiable, syntactic): a file is a PURE barrel iff it has at least one top-level
 // statement and EVERY top-level statement is a re-export declaration with a module specifier (`export * from`,
-// `export * as ns from`, `export { a, b as c } from`, `export type { T } from`). A pure barrel therefore declares
-// nothing, exports nothing of its own, imports nothing and runs no side-effect statement. Having no recognised graph
-// symbols is NOT sufficient: a symbol-less file with a re-export plus anything else (a lowercase `export const`, an
-// import, a local `export { x }`, a side-effect statement) is a MIXED barrel and never receives an anchor edge.
+// `export * as ns from`, `export { a, b as c } from`, and the type-only forms `export type * from` and
+// `export type { T } from`). The type-only forms are accepted because the relation they express is a structural
+// type-level dependency, not runtime execution. Local declarations (including local type declarations such as
+// `type T = …` or `interface I {}`) and local exports without `from` (`export {}`, `export { x }`, `export type { T }`)
+// stay outside the definition. A pure barrel therefore declares nothing, exports nothing of its own, imports nothing
+// and runs no side-effect statement. Having no recognised graph symbols is NOT sufficient: a symbol-less file with a
+// re-export plus anything else (a lowercase `export const`, an import, a local `export { x }` or `export {}`, a
+// side-effect statement) is a MIXED barrel and never receives an anchor edge.
 function isPureBarrel(sourceFile) {
   const statements = sourceFile.getStatements();
   return statements.length > 0 && statements.every((statement) => statement.getKindName() === 'ExportDeclaration'

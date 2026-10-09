@@ -17,18 +17,25 @@ policy, route and Impact are unchanged; `policyVersion` stays `step4-foundation-
 - **Barrel:** a code file with at least one `export … from '<module>'` declaration.
 - **Pure barrel** (verifiable, syntactic; `isPureBarrel` in the analyzer): a file is a PURE barrel iff it has at
   least one top-level statement and EVERY top-level statement is a re-export declaration with a module specifier
-  (`export * from`, `export * as ns from`, `export { a, b as c } from`, `export type { T } from`). A pure barrel
-  therefore declares nothing, exports nothing of its own, imports nothing and runs no side-effect statement.
+  (`export * from`, `export * as ns from`, `export { a, b as c } from`, and the type-only forms `export type * from`
+  and `export type { T } from`). The type-only forms are accepted because the relation they express is a structural
+  type-level dependency, not runtime execution. Local declarations (including local type declarations such as
+  `type T = …` or `interface I {}`) and local exports without `from` (`export {}`, `export { x }`,
+  `export type { T }`) stay outside the definition. A pure barrel therefore declares nothing, exports nothing of its
+  own, imports nothing and runs no side-effect statement.
 - Having no recognised graph symbols is **NOT** sufficient: a symbol-less file with a re-export plus anything else
-  (a lowercase `export const`, an import, a local `export { x }`, a side-effect statement) is a **mixed barrel** and
+  (a lowercase `export const`, an import, a local `export { x }` or `export {}`, a side-effect statement) is a **mixed barrel** and
   never receives an anchor edge. Files that do not re-export at all (side-effect-only, imports-only, type-only files
   with local `export type { T }` or type declarations) are not barrels.
 - A pure barrel has a module anchor (`kind: "module"`, label `<module>`) only under the F1 rule: it has no graph
   symbols and at least one of its re-exports resolves to a file in the snapshot.
 
-Pinned by `tests/typescript-barrel-boundaries.test.js` P-1…P-8 (positives: plain and type-only re-export barrels;
-negatives: imports-only, side-effect-only, mixed barrel with a symbol, four symbol-less mixed barrels, type-only files,
-and a symbol-less mixed barrel as Impact target).
+Pinned by `tests/typescript-barrel-boundaries.test.js` P-1…P-10 and N1-35 (positives: plain re-export barrels and the
+type-only forms `export type { T } from` (P-2) and `export type * from` (P-9); negatives: imports-only, side-effect-only,
+mixed barrel with a symbol, four symbol-less mixed barrels, local `export type { T }` and type declarations (P-7), a
+local type declaration next to a type-only re-export (P-10), `export {}` plus a re-export (N1-35), and a symbol-less
+mixed barrel as Impact target). N1-34 pins the barrel -> barrel guard: an outer barrel re-exporting through a mixed
+inner barrel that it does not link is counted, so the inner barrel as Impact target is partial, not silently complete.
 
 ## Anchor contract (D11, amends the F1 invariant)
 
