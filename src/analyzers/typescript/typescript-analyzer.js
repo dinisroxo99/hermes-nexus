@@ -486,10 +486,14 @@ function readPathAliases(rootPath, sourceText) {
 // except "no inputs" (the host lists no directories on purpose) is kept as an issue: an invalid config, an unresolved
 // `extends` or an `extends` cycle is counted as unrepresented (partial) and never collapses into an empty config;
 // whatever TypeScript could still read (own `paths`, a readable base) stays in use. Legacy mode keeps readPathAliases.
+// N1 B-2(b): only the root tsconfig.json is read. A root that has `references` (solution style, e.g. the Vite default
+// with `paths` in tsconfig.app.json) and a root jsconfig.json can hold aliases this reading does not see, so each is
+// counted as one issue (partial) instead of leaving their importers silently missing. Reading them is B-2(c).
 const TSCONFIG_NO_INPUTS = 18003;
 function readSnapshotTsConfig(rootPath, snapshot) {
   const entry = snapshot.find((file) => file.path === 'tsconfig.json');
-  if (!entry) return { aliases: typescriptPathAliasPrecedence([]), checkerOptions: {}, issues: 0 };
+  const unreadJsConfig = snapshot.some((file) => file.path === 'jsconfig.json') ? 1 : 0;
+  if (!entry) return { aliases: typescriptPathAliasPrecedence([]), checkerOptions: {}, issues: unreadJsConfig };
   const root = rootPath.replace(/\\/g, '/');
   const texts = new Map(snapshot.map((file) => [path.posix.join(root, file.path), file.text]));
   const host = {
@@ -501,8 +505,9 @@ function readSnapshotTsConfig(rootPath, snapshot) {
   const configFileName = path.posix.join(root, 'tsconfig.json');
   const sourceFile = ts.parseJsonText(configFileName, entry.text);
   const parsed = ts.parseJsonSourceFileConfigFileContent(sourceFile, host, root, undefined, configFileName);
+  const unreadReferences = parsed.projectReferences?.length ? 1 : 0;
   const issues = [...(sourceFile.parseDiagnostics || []), ...parsed.errors]
-    .filter((diagnostic) => diagnostic.code !== TSCONFIG_NO_INPUTS).length;
+    .filter((diagnostic) => diagnostic.code !== TSCONFIG_NO_INPUTS).length + unreadReferences + unreadJsConfig;
   const { paths, baseUrl, pathsBasePath } = parsed.options;
   if (!paths || typeof paths !== 'object') return { aliases: typescriptPathAliasPrecedence([]), checkerOptions: {}, issues };
   const base = baseUrl || pathsBasePath || root;
