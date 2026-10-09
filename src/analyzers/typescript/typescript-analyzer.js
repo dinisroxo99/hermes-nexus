@@ -5,7 +5,7 @@
  * Extracts imports, exports, React components, hooks, providers, types and interfaces.
  */
 
-import { Project } from 'ts-morph';
+import { Project, ts } from 'ts-morph';
 import fs from 'node:fs';
 import path from 'node:path';
 import { compareContextStrings, normalizeContextSources } from '../../lib/project-context-files.js';
@@ -64,10 +64,11 @@ export function analyzeTypeScriptProject(project, options = {}) {
 
   try {
     const tsConfigPath = path.join(rootPath, 'tsconfig.json');
+    const snapshotConfig = snapshot ? readSnapshotTsConfig(rootPath, snapshot) : null;
     const tsProject = new Project(snapshot ? {
       useInMemoryFileSystem: true,
       skipFileDependencyResolution: true,
-      compilerOptions: { allowJs: true, noLib: true, ...snapshotPathOptions(rootPath, snapshot) }
+      compilerOptions: { allowJs: true, noLib: true, ...snapshotConfig.checkerOptions }
     } : {
       tsConfigFilePath: fs.existsSync(tsConfigPath) ? tsConfigPath : undefined,
       skipAddingFilesFromTsConfig: true,
@@ -89,7 +90,7 @@ export function analyzeTypeScriptProject(project, options = {}) {
     const defaultSymbolByPath = new Map();
     const exportAliasesByPath = new Map();
     const pathAliases = snapshot
-      ? typescriptPathAliasPrecedence(readPathAliases(rootPath, snapshot.find((file) => file.path === 'tsconfig.json')?.text || '{}'))
+      ? snapshotConfig.aliases
       : readPathAliases(rootPath, undefined);
     const sourceFiles = tsProject.getSourceFiles().filter((sourceFile) => {
       const relativePath = normalizeRelativePath(rootPath, sourceFile.getFilePath());
@@ -167,8 +168,10 @@ export function analyzeTypeScriptProject(project, options = {}) {
     // F1: every local module reference the graph still cannot represent (namespace or side-effect import,
     // dynamic import/require, unregistered export name, symbol-less target, analyzer-ignored file) is counted
     // so the provider reports partial instead of a silently complete graph. Counted before any cap.
+    // N1 tsconfig: a snapshot tsconfig that could not be read completely (invalid JSONC or option, unresolved or
+    // cyclic `extends`) is counted too, so a missing alias can never leave the graph silently complete.
     const unrepresentedImports = snapshot
-      ? countUnrepresentedImports(tsProject.getSourceFiles(), { rootPath, nodes, edges, exportAliasesByPath, pathAliases, knownPaths: codePaths, barrel })
+      ? countUnrepresentedImports(tsProject.getSourceFiles(), { rootPath, nodes, edges, exportAliasesByPath, pathAliases, knownPaths: codePaths, barrel }) + snapshotConfig.issues
       : 0;
 
     const filteredNodes = filterNodes(nodes, { layers, features });
@@ -474,17 +477,42 @@ function readPathAliases(rootPath, sourceText) {
   }
 }
 
-// N1/D6a: the checker that resolves barrels sees the same tsconfig `paths` the analyzer already honours. The checker
-// runs on the in-memory file system that holds ONLY the snapshot sources (skipFileDependencyResolution, noLib), so a
-// path alias can only resolve to a file admitted to the snapshot; anything else stays unresolved and is counted.
-function snapshotPathOptions(rootPath, snapshot) {
-  try {
-    const compilerOptions = JSON.parse(stripJsonComments(snapshot.find((file) => file.path === 'tsconfig.json')?.text || '{}')).compilerOptions || {};
-    if (!compilerOptions.paths || typeof compilerOptions.paths !== 'object') return {};
-    return { baseUrl: path.posix.join(rootPath, String(compilerOptions.baseUrl || '.')), paths: compilerOptions.paths };
-  } catch {
-    return {};
-  }
+// N1 tsconfig (user option A, snapshot mode only): ONE reading of the snapshot's tsconfig.json, done by TypeScript's own
+// JSONC config parser (comments, trailing commas, `/*` or `*/` inside strings such as include globs) and config-file
+// semantics (`extends`, `paths` relative to the config that declares them, `baseUrl`). It feeds BOTH the alias
+// resolver (`aliases`, ordered by typescriptPathAliasPrecedence) and the D6a checker (`checkerOptions`), so the two
+// cannot disagree about the config. The parse host answers only from snapshot entries: `extends` resolves only to
+// configs admitted to the snapshot and nothing is read from the host file system (D6a). Every config diagnostic
+// except "no inputs" (the host lists no directories on purpose) is kept as an issue: an invalid config, an unresolved
+// `extends` or an `extends` cycle is counted as unrepresented (partial) and never collapses into an empty config;
+// whatever TypeScript could still read (own `paths`, a readable base) stays in use. Legacy mode keeps readPathAliases.
+const TSCONFIG_NO_INPUTS = 18003;
+function readSnapshotTsConfig(rootPath, snapshot) {
+  const entry = snapshot.find((file) => file.path === 'tsconfig.json');
+  if (!entry) return { aliases: typescriptPathAliasPrecedence([]), checkerOptions: {}, issues: 0 };
+  const root = rootPath.replace(/\\/g, '/');
+  const texts = new Map(snapshot.map((file) => [path.posix.join(root, file.path), file.text]));
+  const host = {
+    useCaseSensitiveFileNames: true,
+    readDirectory: () => [],
+    fileExists: (file) => texts.has(file),
+    readFile: (file) => texts.get(file)
+  };
+  const configFileName = path.posix.join(root, 'tsconfig.json');
+  const sourceFile = ts.parseJsonText(configFileName, entry.text);
+  const parsed = ts.parseJsonSourceFileConfigFileContent(sourceFile, host, root, undefined, configFileName);
+  const issues = [...(sourceFile.parseDiagnostics || []), ...parsed.errors]
+    .filter((diagnostic) => diagnostic.code !== TSCONFIG_NO_INPUTS).length;
+  const { paths, baseUrl, pathsBasePath } = parsed.options;
+  if (!paths || typeof paths !== 'object') return { aliases: typescriptPathAliasPrecedence([]), checkerOptions: {}, issues };
+  const base = baseUrl || pathsBasePath || root;
+  const aliases = Object.entries(paths).map(([pattern, targets]) => ({
+    pattern,
+    targets: (Array.isArray(targets) ? targets : [targets]).map((target) => {
+      return path.posix.relative(root, path.posix.resolve(base, String(target).replace(/\\/g, '/')));
+    })
+  }));
+  return { aliases: typescriptPathAliasPrecedence(aliases), checkerOptions: { paths, ...(baseUrl ? { baseUrl } : { pathsBasePath: base }) }, issues };
 }
 
 function stripJsonComments(value) {
@@ -910,6 +938,20 @@ function countUnrepresentedImports(allSourceFiles, { rootPath, nodes, edges, exp
       const reach = [target, ...[...(exportAliasesByPath.get(target)?.values() || [])].map((symbol) => symbol.file)];
       if (!reach.some((file) => linked.has(`${from}\u0000${file}`))) count += 1;
     }
+    count += unresolvedAliasImports(sourceFile, from, { pathAliases, knownPaths });
+  }
+  return count;
+}
+
+// N1 tsconfig: a non-relative specifier that matches a tsconfig `paths` pattern but resolves to no snapshot file is
+// counted, even when the global name fallback draws some edge for it: that edge is not a module resolution.
+function unresolvedAliasImports(sourceFile, relativePath, context) {
+  let count = 0;
+  for (const literal of sourceFile.getImportStringLiterals()) {
+    const specifier = literal.getLiteralValue();
+    if (specifier.startsWith('.') || specifier.startsWith('/')) continue;
+    if (!context.pathAliases.some((alias) => matchPathAlias(specifier, alias))) continue;
+    if (!resolveImportPath(relativePath, specifier, context)) count += 1;
   }
   return count;
 }
