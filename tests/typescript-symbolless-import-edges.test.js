@@ -104,5 +104,5 @@ test("F1-8 legacy (non-snapshot) analysis emits no module anchors (GREEN at base
 
 test("F1-9 native.typescript provider version is bumped for the changed graph (RED at base)", () => {
   const native = listAnalyzerProviders().find((p) => p.id === "native.typescript");
-  assert.equal(native.version, "2");
+  assert.equal(native.version, "3");
 });

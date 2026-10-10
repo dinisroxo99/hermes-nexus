@@ -47,7 +47,7 @@ export function listAnalyzerProviders(externalProviders = [], options = {}) {
   const capabilities = { boundedSourceAnalysis: "structural", detection: "structural", symbols: "structural", references: "structural", dependencies: "structural" };
   const providers = [
     normalizeProviderDescriptor({ id: "native.dotnet", version: "1", kind: "native", priority: 200, languages: ["csharp"], capabilities }),
-    normalizeProviderDescriptor({ id: "native.typescript", version: "2", kind: "native", priority: 190, languages: ["typescript", "javascript"], capabilities }),
+    normalizeProviderDescriptor({ id: "native.typescript", version: "3", kind: "native", priority: 190, languages: ["typescript", "javascript"], capabilities }),
     ...externalProviders.map((provider) => {
       if (provider?.kind !== "external") throw providerError();
       return normalizeProviderDescriptor(provider);

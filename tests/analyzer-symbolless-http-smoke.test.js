@@ -120,7 +120,7 @@ test("F1 HTTP smoke (read-only): MIXED main checkout: Pack and Impact report pro
   const p = pack.payload.data;
   assert.equal(p.analysis.status, "partial");
   assert.equal(p.analysis.provider.id, "native.typescript");
-  assert.equal(p.analysis.provider.version, "2");
+  assert.equal(p.analysis.provider.version, "3");
   assert.equal(p.observation.incomplete, true);
   assert.ok(p.sections.symbols.items.every((s) => s.kind !== "module" && s.name !== "<module>"));
 

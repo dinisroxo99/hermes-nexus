@@ -1,0 +1,236 @@
+import fs from "node:fs";
+import path from "node:path";
+import test from "node:test";
+import assert from "node:assert/strict";
+import { gitFixture } from "./helpers/git-fixture.js";
+import { buildProjectImpact } from "../src/lib/project-impact-service.js";
+import { analyzeTypeScriptProject } from "../src/analyzers/typescript/typescript-analyzer.js";
+
+// N1 addendum 1: a PURE barrel as the Impact TARGET (D10), with src/lib.js as the control target, plus chains,
+// cycles, mixed barrels (D10 guard), namespace imports (D5 revised), tsconfig-path re-exports (D6a), ambiguous
+// star names (D3a) and the amended anchor contract (D11 / A-1'). Real git fixture + real analyzer + real Impact.
+function project(t, files) {
+  const f = gitFixture(t, { committed: false });
+  f.write("package.json", "{\"type\":\"module\"}\n");
+  for (const [file, text] of Object.entries(files)) f.write(file, text);
+  f.write("tests/consumer.test.js", "import test from \"node:test\";\nimport { use } from \"../src/consumer.js\";\ntest(\"use\", () => use());\n");
+  f.commit();
+  const manualProjectsFile = path.join(f.root, "projects.json");
+  fs.writeFileSync(manualProjectsFile, JSON.stringify([{ name: "fixture", rootId: "test", relativePath: "main", projectId: "PrJ_N1B" }]));
+  const options = { registry: { roots: [{ id: "test", path: f.root }], manualProjectsFile, discoveredProjectsFile: path.join(f.root, "d.json") } };
+  return { impact: (origin) => buildProjectImpact("PrJ_N1B", { paths: [origin], includeTests: true }, options) };
+}
+const affected = (i) => i.affectedFiles.map((a) => a.path).sort();
+const testsOf = (i) => i.affectedTests.candidates.map((c) => c.path).sort();
+const reasons = (i) => Object.values(i.completeness).flat().sort();
+const LIB = "export function a() { return 1; }\n";
+const use = (names, from = "./index.js") => `import { ${names} } from "${from}";\nexport function use() { return [${names.replace(/\w+ as /g, "")}]; }\n`;
+const neverSilent = (i, file) => assert.ok(affected(i).includes(file) || i.status === "partial", `silently complete: ${i.status} ${JSON.stringify(affected(i))}`);
+const CONSUMER = ["src/consumer.js", "tests/consumer.test.js"];
+
+// N1-21..24 (+ N1-31 default-as): each re-export form; the pure barrel as target finds the consumer and its test,
+// and the control target src/lib.js finds consumer, barrel and test. Both available.
+for (const [k, name, index, names, lib] of [
+  ["21", "star", "export * from \"./lib.js\";\n", "a", LIB],
+  ["22", "named", "export { a } from \"./lib.js\";\n", "a", LIB],
+  ["23", "alias", "export { a as b } from \"./lib.js\";\n", "b", LIB],
+  ["24", "namespace re-export", "export * as ns from \"./lib.js\";\n", "ns", LIB],
+  ["31", "default-as", "export { default as b } from \"./lib.js\";\n", "b", "export default function A() { return 1; }\n"]
+]) {
+  test(`N1-${k} ${name}: pure barrel src/index.js as Impact target finds consumer and test (available); control target src/lib.js`, (t) => {
+    const p = project(t, { "src/lib.js": lib, "src/index.js": index, "src/consumer.js": use(names) });
+    const i = p.impact("src/index.js");
+    assert.deepEqual(affected(i), CONSUMER);
+    assert.deepEqual(testsOf(i), ["tests/consumer.test.js"]);
+    assert.equal(i.status, "available", JSON.stringify(reasons(i)));
+    const c = p.impact("src/lib.js");
+    assert.deepEqual(affected(c), ["src/consumer.js", "src/index.js", "tests/consumer.test.js"]);
+    assert.deepEqual(testsOf(c), ["tests/consumer.test.js"]);
+    assert.equal(c.status, "available", JSON.stringify(reasons(c)));
+  });
+}
+
+// N1-25 / N1-32: barrel -> barrel -> lib chains (star and alias). Every target finds the consumer; never silent.
+for (const [k, name, index, outer, names] of [
+  ["25", "star chain", "export * from \"./lib.js\";\n", "export * from \"./index.js\";\n", "a"],
+  ["32", "alias chain", "export { a as b } from \"./lib.js\";\n", "export { b as d } from \"./index.js\";\n", "d"]
+]) {
+  test(`N1-${k} ${name} (outer -> index -> lib): outer, inner barrel and control lib as target all find the consumer`, (t) => {
+    const p = project(t, { "src/lib.js": LIB, "src/index.js": index, "src/outer.js": outer, "src/consumer.js": use(names, "./outer.js") });
+    const o = p.impact("src/outer.js");
+    assert.deepEqual(affected(o), CONSUMER);
+    assert.equal(o.status, "available", JSON.stringify(reasons(o)));
+    const inner = p.impact("src/index.js");
+    // The test is three hops from the inner barrel: Impact reports the bounded traversal honestly (depth_limit).
+    assert.deepEqual(affected(inner), ["src/consumer.js", "src/outer.js"]);
+    assert.equal(inner.status, "partial");
+    assert.ok(reasons(inner).includes("depth_limit"), JSON.stringify(reasons(inner)));
+    const c = p.impact("src/lib.js");
+    assert.deepEqual(affected(c), ["src/consumer.js", "src/index.js", "src/outer.js", "tests/consumer.test.js"]);
+    assert.equal(c.status, "available", JSON.stringify(reasons(c)));
+  });
+}
+
+test("N1-33 pure-barrel export-star cycle (a <-> b, a -> lib): both barrels and control lib as target find the consumer; terminates", (t) => {
+  const p = project(t, { "src/lib.js": LIB, "src/a.js": "export * from \"./b.js\";\nexport * from \"./lib.js\";\n", "src/b.js": "export * from \"./a.js\";\n",
+    "src/consumer.js": use("a", "./b.js") });
+  const b = p.impact("src/b.js");
+  assert.deepEqual(affected(b), ["src/a.js", "src/consumer.js", "tests/consumer.test.js"]);
+  assert.equal(b.status, "available", JSON.stringify(reasons(b)));
+  const a = p.impact("src/a.js");
+  assert.ok(affected(a).includes("src/consumer.js"), JSON.stringify(affected(a)));
+  neverSilent(a, "src/consumer.js");
+  const c = p.impact("src/lib.js");
+  assert.deepEqual(affected(c), ["src/a.js", "src/b.js", "src/consumer.js", "tests/consumer.test.js"]);
+  assert.equal(c.status, "available", JSON.stringify(reasons(c)));
+});
+
+test("N1-26 mixed barrel (own symbol, consumer imports only a re-exported name) as target: never silently complete (partial)", (t) => {
+  const i = project(t, { "src/lib.js": LIB, "src/index.js": "export function helper() { return 0; }\nexport { a } from \"./lib.js\";\n", "src/consumer.js": use("a") }).impact("src/index.js");
+  neverSilent(i, "src/consumer.js");
+  assert.equal(i.status, "partial");
+  assert.ok(reasons(i).includes("provider_partial"));
+});
+
+test("N1-27 D5 namespace import from a barrel next to a named import of the same barrel: never silently complete", (t) => {
+  const p = project(t, { "src/lib.js": LIB, "src/y.js": "export function c() { return 3; }\n", "src/index.js": "export * from \"./lib.js\";\nexport * from \"./y.js\";\n",
+    "src/consumer.js": "import * as m from \"./index.js\";\nimport { c } from \"./index.js\";\nexport function use() { return [m.a(), c()]; }\n" });
+  neverSilent(p.impact("src/lib.js"), "src/consumer.js");
+  assert.ok(affected(p.impact("src/index.js")).includes("src/consumer.js"));
+});
+
+test("N1-28 D6a tsconfig-path re-exports resolve through the checker over snapshot files: dependant found, available", (t) => {
+  const i = project(t, { "tsconfig.json": "{\"compilerOptions\":{\"baseUrl\":\".\",\"paths\":{\"@lib/*\":[\"src/*\"]}}}\n", "src/lib.js": LIB, "src/y.js": "export function c() { return 3; }\n",
+    "src/index.js": "export { a as b } from \"@lib/lib.js\";\nexport * from \"./y.js\";\n", "src/consumer.js": use("b, c") }).impact("src/lib.js");
+  assert.ok(affected(i).includes("src/consumer.js"), JSON.stringify(affected(i)));
+  assert.equal(i.status, "available", JSON.stringify(reasons(i)));
+});
+
+test("N1-29 D3a ambiguous star name: every candidate and the barrel find the consumer AND every result is partial (conservative union, not a resolution)", (t) => {
+  const p = project(t, { "src/x.js": LIB, "src/y.js": "export function a() { return 2; }\n", "src/index.js": "export * from \"./x.js\";\nexport * from \"./y.js\";\n", "src/consumer.js": use("a") });
+  for (const origin of ["src/x.js", "src/y.js", "src/index.js"]) {
+    const i = p.impact(origin);
+    assert.ok(affected(i).includes("src/consumer.js"), origin);
+    assert.equal(i.status, "partial", origin);
+    assert.ok(reasons(i).includes("provider_partial"), origin);
+  }
+});
+
+test("N1-30 amended anchor contract A-1' (D11): only barrel importers/re-exporters point into an anchor, and only into a PURE BARREL's anchor", () => {
+  const sourceFiles = Object.entries({
+    "package.json": "{\"type\":\"module\"}\n", "src/lib.js": "export function helper() { return 1; }\n",
+    "src/symbolless.js": "import { helper } from \"./lib.js\";\nhelper();\n",
+    "src/index.js": "export * from \"./lib.js\";\n", "src/outer.js": "export * from \"./index.js\";\n",
+    "src/consumer.js": "import { helper } from \"./outer.js\";\nimport \"./symbolless.js\";\nexport function Use() { return helper(); }\n",
+    "src/caller.js": "import { \"<module>\" as anchor } from \"missing-pkg\";\nexport function Caller() { return anchor; }\n"
+  }).map(([file, text]) => ({ path: file, text }));
+  const graph = analyzeTypeScriptProject({ name: "snapshot", absolutePath: "/__project_context__" }, { nodeLimit: 2000, edgeLimit: 4000, sourceFiles });
+  const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+  const into = graph.edges.filter((edge) => byId.get(edge.to).kind === "module").map((edge) => `${byId.get(edge.from).file}:${byId.get(edge.from).label} -> ${byId.get(edge.to).file}`).sort();
+  assert.deepEqual(into, ["src/consumer.js:Use -> src/outer.js", "src/outer.js:<module> -> src/index.js"]);
+  assert.equal(graph.nodes.some((node) => node.kind === "module" && ["src/lib.js", "src/consumer.js"].includes(node.file)), false);
+});
+
+// N1-36 (review A-3): a barrel made only of `export { default } from './lib.js'`. The compiler gives the barrel its
+// own default export, so the analyzer registers a regular `default` symbol for it and the barrel has NO anchor. The
+// base linked the default import to that symbol and found the consumer; N1 must keep finding it with the barrel and
+// with lib.js as target, without broadening D11 (no anchor is involved at all). N1-31 (`export { default as b }`) is
+// the anchored control; N1-37 pins both shapes at graph level.
+const LIB_DEFAULT = "export default function A() { return 1; }\n";
+const DEFAULT_CONSUMER = "import A from \"./index.js\";\nexport function use() { return A(); }\n";
+test("N1-36 (review A-3) `export { default } from` barrel: barrel and control lib.js as Impact target find the consumer and its test (available)", (t) => {
+  const p = project(t, { "src/lib.js": LIB_DEFAULT, "src/index.js": "export { default } from \"./lib.js\";\n", "src/consumer.js": DEFAULT_CONSUMER });
+  const i = p.impact("src/index.js");
+  assert.deepEqual(affected(i), CONSUMER);
+  assert.deepEqual(testsOf(i), ["tests/consumer.test.js"]);
+  assert.equal(i.status, "available", JSON.stringify(reasons(i)));
+  const c = p.impact("src/lib.js");
+  assert.deepEqual(affected(c), ["src/consumer.js", "src/index.js", "tests/consumer.test.js"]);
+  assert.deepEqual(testsOf(c), ["tests/consumer.test.js"]);
+  assert.equal(c.status, "available", JSON.stringify(reasons(c)));
+});
+
+test("N1-37 (review A-3) graph level: `export { default } from` links the barrel's own default symbol (no anchor); `export { default as x } from` control stays a pure barrel with one anchor edge", () => {
+  const graphOf = (index, consumer) => {
+    const files = { "package.json": "{\"type\":\"module\"}\n", "src/lib.js": LIB_DEFAULT, "src/index.js": index, "src/consumer.js": consumer };
+    const r = analyzeTypeScriptProject({ name: "snapshot", absolutePath: "/__project_context__" },
+      { nodeLimit: 2000, edgeLimit: 4000, sourceFiles: Object.entries(files).map(([file, text]) => ({ path: file, text })) });
+    const byId = new Map(r.nodes.map((n) => [n.id, n]));
+    const name = (id) => `${byId.get(id).file}:${byId.get(id).label}`;
+    return { anchors: r.nodes.filter((n) => n.kind === "module").map((n) => n.file).sort(),
+      intoAnchors: r.edges.filter((e) => byId.get(e.to).kind === "module").map((e) => `${name(e.from)} -> ${name(e.to)}`).sort(),
+      edges: r.edges.map((e) => `${name(e.from)} -> ${name(e.to)}`).sort(), unrep: r.unrepresentedImports };
+  };
+  const d = graphOf("export { default } from \"./lib.js\";\n", DEFAULT_CONSUMER);
+  assert.deepEqual(d.anchors, []);
+  assert.deepEqual(d.intoAnchors, []);
+  assert.ok(d.edges.includes("src/consumer.js:use -> src/index.js:default"), JSON.stringify(d.edges));
+  assert.ok(d.edges.includes("src/index.js:default -> src/lib.js:A"), JSON.stringify(d.edges));
+  assert.equal(d.unrep, 0);
+  const x = graphOf("export { default as x } from \"./lib.js\";\n", "import { x } from \"./index.js\";\nexport function use() { return x(); }\n");
+  assert.deepEqual(x.anchors, ["src/index.js"]);
+  assert.deepEqual(x.intoAnchors, ["src/consumer.js:use -> src/index.js:<module>"]);
+  assert.ok(x.edges.includes("src/consumer.js:use -> src/lib.js:A"), JSON.stringify(x.edges));
+  assert.equal(x.unrep, 0);
+});
+
+// N1-38..41 (review B-1 / Tester MT2e): the A-3 boundary. The barrel's own default symbol is linked ONLY for a
+// `default` binding of a barrel that registered one; nothing else is linked in its place. Exact edge sets and exact
+// unrepresented counts are pinned (fixtures Z1, Z3, Z4 from the reviewer re-check, plus the star-only default case).
+function snapshotGraph(files) {
+  const all = { "package.json": "{\"type\":\"module\"}\n", ...files };
+  const r = analyzeTypeScriptProject({ name: "snapshot", absolutePath: "/__project_context__" },
+    { nodeLimit: 2000, edgeLimit: 4000, sourceFiles: Object.entries(all).map(([file, text]) => ({ path: file, text })) });
+  const byId = new Map(r.nodes.map((n) => [n.id, n]));
+  const name = (id) => `${byId.get(id).file}:${byId.get(id).label}`;
+  return { edges: r.edges.map((e) => `${name(e.from)} -> ${name(e.to)} [${e.label}]`).sort(),
+    intoAnchors: r.edges.filter((e) => byId.get(e.to).kind === "module").map((e) => `${name(e.from)} -> ${name(e.to)}`).sort(),
+    unrep: r.unrepresentedImports };
+}
+const LIB_HELPER_DEFAULT = "export function helper() { return 2; }\n" + LIB_DEFAULT;
+
+test("N1-38 (review Z1, MX2b) default import from a symbol-less MIXED barrel: no fallback to the barrel's anchor (D11), no edges, partial", (t) => {
+  const files = { "src/lib.js": LIB_DEFAULT, "src/index.js": "globalThis.booted = true;\nexport * from \"./lib.js\";\n", "src/consumer.js": DEFAULT_CONSUMER };
+  const g = snapshotGraph(files);
+  assert.deepEqual(g.intoAnchors, []);
+  assert.deepEqual(g.edges, []);
+  assert.equal(g.unrep, 3);
+  const i = project(t, files).impact("src/index.js");
+  assert.equal(i.status, "partial");
+  assert.ok(reasons(i).includes("provider_partial"), JSON.stringify(reasons(i)));
+});
+
+test("N1-39 (review Z3, MX1) named import of a symbol-less name through `export *`: the defining file's default is NOT linked; stays partial", (t) => {
+  const files = { "src/lib.js": "export const helper = 1;\n" + LIB_DEFAULT, "src/index.js": "export * from \"./lib.js\";\n",
+    "src/consumer.js": "import { helper } from \"./index.js\";\nexport function use() { return helper; }\n" };
+  const g = snapshotGraph(files);
+  assert.deepEqual(g.edges, ["src/consumer.js:use -> src/index.js:<module> [importa barrel]"]);
+  assert.equal(g.edges.some((edge) => edge.startsWith("src/consumer.js:use -> src/lib.js:A")), false);
+  assert.equal(g.unrep, 2);
+  const i = project(t, files).impact("src/index.js");
+  assert.equal(i.status, "partial");
+  assert.ok(reasons(i).includes("provider_partial"), JSON.stringify(reasons(i)));
+});
+
+test("N1-40 (review Z4, MX3 / Tester MT2e) named-only import from `export { default, helper } from`: no edge to the barrel's default symbol; stays partial (A-3 residual)", (t) => {
+  const files = { "src/lib.js": LIB_HELPER_DEFAULT, "src/index.js": "export { default, helper } from \"./lib.js\";\n",
+    "src/consumer.js": "import { helper } from \"./index.js\";\nexport function use() { return helper(); }\n" };
+  const g = snapshotGraph(files);
+  assert.deepEqual(g.edges, ["src/consumer.js:use -> src/lib.js:helper [importa]",
+    "src/index.js:default -> src/lib.js:A [re-exporta]", "src/index.js:default -> src/lib.js:helper [re-exporta]"]);
+  assert.equal(g.edges.includes("src/consumer.js:use -> src/index.js:default [importa]"), false);
+  assert.deepEqual(g.intoAnchors, []);
+  assert.equal(g.unrep, 1);
+  // Residual (documented): the barrel has its own `default` symbol, so no anchor; the named-only consumer is not
+  // linked to the barrel. Impact on the barrel misses it but reports partial, never silently complete.
+  const i = project(t, files).impact("src/index.js");
+  assert.equal(i.status, "partial");
+  assert.ok(reasons(i).includes("provider_partial"), JSON.stringify(reasons(i)));
+});
+
+test("N1-41 (review MX2) default import through a star-only pure barrel (`export *` excludes default): no edge to the star source's default; exact edge set, partial", () => {
+  const g = snapshotGraph({ "src/lib.js": LIB_HELPER_DEFAULT, "src/index.js": "export * from \"./lib.js\";\n", "src/consumer.js": DEFAULT_CONSUMER });
+  assert.deepEqual(g.edges, ["src/consumer.js:use -> src/index.js:<module> [importa barrel]", "src/index.js:<module> -> src/lib.js:helper [re-exporta]"]);
+  assert.deepEqual(g.intoAnchors, ["src/consumer.js:use -> src/index.js:<module>"]);
+  assert.equal(g.unrep, 1);
+});
