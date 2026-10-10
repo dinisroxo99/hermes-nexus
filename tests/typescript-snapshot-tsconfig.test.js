@@ -348,7 +348,9 @@ for (const [id, label, configs, pre] of [
   ["C-45", "Tester K9r: root TSConfig.json (case variant) with ONLY references, `paths` only in tsconfig.app.json (counted regardless of content)", { "TSConfig.json": "{ \"files\": [], \"references\": [{ \"path\": \"./tsconfig.app.json\" }] }\n", "tsconfig.app.json": APP }, ""],
   ["C-46", "Tester K9r: nested packages/a/tsconfig.json whose `paths` come only through `extends` (no paths text in the nested file)", { "packages/a/tsconfig.json": "{ \"extends\": \"../../tsconfig.base.json\" }\n", "tsconfig.base.json": "{ \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"@/*\": [\"packages/a/src/*\"] } } }\n" }, "packages/a/"],
   ["C-47", "Reviewer A-13: config in an admitted dot-dir, .storybook/tsconfig.json", { "tsconfig.json": "{ \"compilerOptions\": { \"allowJs\": true } }\n", ".storybook/tsconfig.json": NESTED }, ""],
-  ["C-47b", "Reviewer A-13: config in an admitted dot-dir, .github/jsconfig.json, no root config", { ".github/jsconfig.json": NESTED }, ""]
+  ["C-47b", "Reviewer A-13: config in an admitted dot-dir, .github/jsconfig.json, no root config", { ".github/jsconfig.json": NESTED }, ""],
+  ["C-47c", "Tester DD2: config in an admitted dot-dir, .cache/tsconfig.json", { "tsconfig.json": "{ \"compilerOptions\": { \"allowJs\": true } }\n", ".cache/tsconfig.json": NESTED }, ""],
+  ["C-47d", "Tester DD1: config in a dot-dir below the root, packages/a/.storybook/tsconfig.json", { "packages/a/.storybook/tsconfig.json": NESTED }, "packages/a/"]
 ]) {
   test(`${id} ${label}: not read, counted once, partial, never available while missing the importer`, (t) => {
     const files = { ...configs, ...UNDER(pre) };
