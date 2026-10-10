@@ -338,11 +338,17 @@ Route and analyzer follow-ups from the PR #72–#74 reviews (open, not done):
   specifiers, and `x.js` linked when both `x.js` and `x.ts` exist), relative
   `.d.ts` targets (alias `.d.ts` targets are now counted), `baseUrl`-only bare
   specifiers (B7), the `paths` overlap guard (B6) and an `export *` whose
-  source contributes no names (no file edge, no count). Follow-ups: B-2(c)
-  read the nearest config per directory and the referenced configs (today any
-  non-root `tsconfig.json`/`jsconfig.json` or root `references` only makes the
-  result partial); the catch-all `*` also counts `node:` builtins (precision
-  only).
+  source contributes no names (no file edge, no count). Also unmodelled
+  (B-4), so they can yield a false complete: `#subpath` imports
+  (`package.json` `imports`), package self-reference, symlinked workspaces,
+  `typesVersions`, `rootDirs`, `moduleSuffixes`, `allowArbitraryExtensions`,
+  folder imports via `package.json` `main`/`types`, `/// <reference>`,
+  `.mts`/`.cts`/`.mjs`/`.cjs` files, and targets under `bin/` and `dist/`.
+  Follow-ups: B-2(c) read the nearest config per directory and the referenced
+  configs (today any non-root `tsconfig.json`/`jsconfig.json` or root
+  `references` only makes the result partial); B-4 model or count the
+  unmodelled features above; the catch-all `*` also counts `node:` builtins
+  (precision only).
 - **SB-4 alphabetical cap bias:** the edge-cap prefix is alphabetical by `from`
   id, so test and route importers are dropped first, which biases affected tests
   (part of F2).

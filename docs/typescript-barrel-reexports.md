@@ -120,6 +120,7 @@ exact set of edges into anchors).
     `jsconfig.json`) and the referenced configs inside the snapshot. Today every such config only makes the result
     `partial`.
   - Exempt `node:` builtins (and declared dependencies) from the catch-all `*` count (precision only).
+  - B-4: model the unmodelled resolution features listed below, or count them so the result is `partial`.
 - Known open resolver gaps (not fixed in N1; can be silently complete):
   - `.js` / `.jsx` specifiers that the compiler maps to `.ts` / `.tsx` sources. Relative specifiers (`./index.js`
     for an `index.ts` barrel) resolve to nothing and are not counted. Alias specifiers in snapshot mode are now
@@ -130,6 +131,19 @@ exact set of edges into anchors).
   - B7: `baseUrl`-only bare specifiers (no `paths` pattern matches) are not resolved and not counted.
   - B6: the `paths` matcher has no prefix/suffix-overlap length guard (`ab*b` matches `ab`; TypeScript does not).
   - An `export *` whose source contributes no names gets no file edge and no count.
+  - B-4, unmodelled resolver features (not resolved and not counted, so they **can yield a false complete**:
+    Impact `available` while missing a dependant):
+    - `#subpath` imports (`package.json` `imports`);
+    - package self-reference (importing the package by its own `name`);
+    - symlinked workspaces;
+    - `typesVersions`;
+    - `rootDirs`;
+    - `moduleSuffixes`;
+    - `allowArbitraryExtensions`;
+    - folder imports through `package.json` `main` / `types`;
+    - `/// <reference>` directives;
+    - `.mts` / `.cts` / `.mjs` / `.cjs` files;
+    - targets under `bin/` and `dist/`, which the project scan excludes from the snapshot.
 - The remaining TypeScript analyzer findings (lowercase `export const` has no graph symbol and stays partial; legacy
   mode has no counter; per-member namespace imports) and F2 stay open.
 - The Context Pack still drops `kind === "module"` items, so anchors never become Pack symbols (N1-18).
