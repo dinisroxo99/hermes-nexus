@@ -343,7 +343,13 @@ Route and analyzer follow-ups from the PR #72–#74 reviews (open, not done):
   (`package.json` `imports`), package self-reference, symlinked workspaces,
   `typesVersions`, `rootDirs`, `moduleSuffixes`, `allowArbitraryExtensions`,
   folder imports via `package.json` `main`/`types`, `/// <reference>`,
-  `.mts`/`.cts`/`.mjs`/`.cjs` files, and targets under `bin/` and `dist/`.
+  `.mts`/`.cts`/`.mjs`/`.cjs` files. Importers in directories the scan
+  excludes (bin/, dist/, and the scan's other excluded directories) are not
+  collected, so Impact on a target elsewhere (for example src/x.ts) can report
+  available while missing those importers. The full excluded set
+  (`IGNORED_PROJECT_SCAN_DIRS` in `src/lib/project-scan-policy.js`): `.git`,
+  `.vs`, `.vscode`, `node_modules`, `bin`, `obj`, `dist`, `build`, `coverage`,
+  `.next`.
   Follow-ups: B-2(c) read the nearest config per directory and the referenced
   configs (today any non-root `tsconfig.json`/`jsconfig.json` or root
   `references` only makes the result partial); B-4 model or count the

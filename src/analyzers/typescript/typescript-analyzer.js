@@ -165,9 +165,9 @@ export function analyzeTypeScriptProject(project, options = {}) {
       });
     }
 
-    // F1: every local module reference the graph still cannot represent (namespace or side-effect import,
-    // dynamic import/require, unregistered export name, symbol-less target, analyzer-ignored file) is counted
-    // so the provider reports partial instead of a silently complete graph. Counted before any cap.
+    // References the analyzer models but cannot represent are counted, making the result partial. Resolution
+    // features it does not model (see the B-4 list in docs/typescript-barrel-reexports.md) are not counted and can
+    // leave the graph falsely complete.
     // N1 tsconfig: a snapshot tsconfig that could not be read completely (invalid JSONC or option, unresolved or
     // cyclic `extends`, root `references` or any other tsconfig.json/jsconfig.json, which are not read) is counted
     // too, once per project for the unread configs. This does not

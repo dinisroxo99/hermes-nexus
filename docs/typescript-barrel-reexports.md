@@ -143,7 +143,10 @@ exact set of edges into anchors).
     - folder imports through `package.json` `main` / `types`;
     - `/// <reference>` directives;
     - `.mts` / `.cts` / `.mjs` / `.cjs` files;
-    - targets under `bin/` and `dist/`, which the project scan excludes from the snapshot.
+    - Importers in directories the scan excludes (bin/, dist/, and the scan's other excluded directories) are not collected, so Impact on a target elsewhere (for example src/x.ts) can report available while missing those importers.
+      The full excluded set (`IGNORED_PROJECT_SCAN_DIRS` in `src/lib/project-scan-policy.js`, applied to every
+      path segment of a snapshot entry): `.git`, `.vs`, `.vscode`, `node_modules`, `bin`, `obj`, `dist`, `build`,
+      `coverage`, `.next`.
 - The remaining TypeScript analyzer findings (lowercase `export const` has no graph symbol and stays partial; legacy
   mode has no counter; per-member namespace imports) and F2 stay open.
 - The Context Pack still drops `kind === "module"` items, so anchors never become Pack symbols (N1-18).
