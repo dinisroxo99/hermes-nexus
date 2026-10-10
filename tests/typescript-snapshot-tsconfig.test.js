@@ -442,3 +442,21 @@ test("C-48 (Reviewer A-13) .vscode stays excluded: a .vscode/tsconfig.json is re
     assert.equal(i.status, "available", `${target} ${JSON.stringify(reasons(i))}`);
   }
 });
+
+// ---- Reviewer A-9 / A-10: pins for C-M9 and C-M12 ----
+test("C-49 (Reviewer A-9) the D6a checker gets `pathsBasePath`, not baseUrl = root: a barrel re-export through an alias whose `paths` are declared, without baseUrl, in a base config in a subdirectory resolves (available)", (t) => {
+  const files = { "tsconfig.json": "{ \"extends\": \"./config/base.json\" }\n", "config/base.json": "{ \"compilerOptions\": { \"paths\": { \"@lib/*\": [\"../src/*\"] } } }\n",
+    "src/lib.js": A(1), "src/index.js": "export { a as b } from \"@lib/lib.js\";\n", "src/consumer.js": "import { b } from \"./index.js\";\nexport function use() { return b(); }\n" };
+  const g = snapshotGraph(files);
+  assert.ok(g.edges.includes("src/consumer.js:use -> src/lib.js:a [importa]"), JSON.stringify(g.edges));
+  assert.equal(g.unrep, 0);
+  assertFound(project(t, files).impact("src/lib.js"), "src/lib.js");
+});
+
+test("C-50 (Reviewer A-10) unresolved alias specifiers are counted per literal: two in one file count 2, not 1", (t) => {
+  const files = { "tsconfig.json": tsconfig([["@lib/*", ["src/*"]]]), "src/x.js": A(1),
+    "src/consumer.js": "import { a } from \"@lib/missing1.js\";\nimport { a as b } from \"@lib/missing2.js\";\nexport function use() { return [a(), b()]; }\n" };
+  const g = snapshotGraph(files);
+  assert.equal(g.unrep, 2);
+  assertPartial(project(t, files).impact("src/x.js"), "src/x.js");
+});
