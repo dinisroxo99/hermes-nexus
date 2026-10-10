@@ -344,7 +344,11 @@ for (const [id, label, configs, pre] of [
   ["C-34", "Reviewer A-11 / Tester B9b: root TSConfig.json (case variant, not the root tsconfig.json) with references AND `paths` (never read, so no alias edge)", { "TSConfig.json": "{ \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"@/*\": [\"src/*\"] } }, \"files\": [], \"references\": [{ \"path\": \"./tsconfig.app.json\" }] }\n", "tsconfig.app.json": APP }, ""],
   ["C-35", "nested case variant packages/a/TsConfig.JSON", { "packages/a/TsConfig.JSON": NESTED }, "packages/a/"],
   ["C-42", "Tester B11: scoped monorepo package packages/@scope/a/tsconfig.json (3 directory levels)", { "tsconfig.json": "{ \"compilerOptions\": { \"allowJs\": true } }\n", "packages/@scope/a/tsconfig.json": NESTED }, "packages/@scope/a/"],
-  ["C-43", "Tester B11: a/b/c/d/e/jsconfig.json (5 directory levels), no root config", { "a/b/c/d/e/jsconfig.json": NESTED }, "a/b/c/d/e/"]
+  ["C-43", "Tester B11: a/b/c/d/e/jsconfig.json (5 directory levels), no root config", { "a/b/c/d/e/jsconfig.json": NESTED }, "a/b/c/d/e/"],
+  ["C-45", "Tester K9r: root TSConfig.json (case variant) with ONLY references, `paths` only in tsconfig.app.json (counted regardless of content)", { "TSConfig.json": "{ \"files\": [], \"references\": [{ \"path\": \"./tsconfig.app.json\" }] }\n", "tsconfig.app.json": APP }, ""],
+  ["C-46", "Tester K9r: nested packages/a/tsconfig.json whose `paths` come only through `extends` (no paths text in the nested file)", { "packages/a/tsconfig.json": "{ \"extends\": \"../../tsconfig.base.json\" }\n", "tsconfig.base.json": "{ \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"@/*\": [\"packages/a/src/*\"] } } }\n" }, "packages/a/"],
+  ["C-47", "Reviewer A-13: config in an admitted dot-dir, .storybook/tsconfig.json", { "tsconfig.json": "{ \"compilerOptions\": { \"allowJs\": true } }\n", ".storybook/tsconfig.json": NESTED }, ""],
+  ["C-47b", "Reviewer A-13: config in an admitted dot-dir, .github/jsconfig.json, no root config", { ".github/jsconfig.json": NESTED }, ""]
 ]) {
   test(`${id} ${label}: not read, counted once, partial, never available while missing the importer`, (t) => {
     const files = { ...configs, ...UNDER(pre) };
@@ -418,6 +422,17 @@ test("C-44 (Tester K3b) an empty root `references: []` names no config, so it is
   const g = snapshotGraph(files);
   assert.ok(g.edges.includes("src/c.ts:Use -> src/impl.ts:q [importa]"), JSON.stringify(g.edges));
   assert.equal(g.unrep, 0);
+  const p = project(t, files, { tests: false });
+  for (const target of ["src/impl.ts", "src/index.ts"]) {
+    const i = p.impact(target);
+    assert.ok(affected(i).includes("src/c.ts"), target);
+    assert.equal(i.status, "available", `${target} ${JSON.stringify(reasons(i))}`);
+  }
+});
+
+test("C-48 (Reviewer A-13) .vscode stays excluded: a .vscode/tsconfig.json is rejected as snapshot input and never collected from disk, so it is not counted", (t) => {
+  assert.throws(() => snapshotGraph({ "tsconfig.json": APP, ".vscode/tsconfig.json": NESTED, ...BARREL_VIA_ALIAS }), (error) => error.code === "invalid_context_sources");
+  const files = { "tsconfig.json": APP, ".vscode/tsconfig.json": NESTED, ...BARREL_VIA_ALIAS };
   const p = project(t, files, { tests: false });
   for (const target of ["src/impl.ts", "src/index.ts"]) {
     const i = p.impact(target);
