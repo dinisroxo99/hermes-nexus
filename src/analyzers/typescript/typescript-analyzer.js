@@ -444,7 +444,7 @@ function createSnapshotImportResolver(tsProject, rootPath, codePaths, matchesAli
   const root = rootPath.replace(/\\/g, '/');
   const cache = ts.createModuleResolutionCache(root, (file) => file, options);
   return (from, specifier) => {
-    if (!ts.isExternalModuleNameRelative(specifier) && !matchesAlias(specifier)) return null;
+    if (!options.baseUrl && !ts.isExternalModuleNameRelative(specifier) && !matchesAlias(specifier)) return null;
     const importer = path.posix.join(root, from);
     const { resolvedModule } = ts.resolveModuleName(specifier, importer, options, host, cache);
     if (!resolvedModule) return null;
@@ -522,9 +522,12 @@ function readSnapshotTsConfig(rootPath, snapshot) {
   const issues = [...(sourceFile.parseDiagnostics || []), ...parsed.errors]
     .filter((diagnostic) => diagnostic.code !== TSCONFIG_NO_INPUTS).length + Math.max(unreadReferences, unreadConfigs);
   const { paths, baseUrl, pathsBasePath } = parsed.options;
-  if (!paths || typeof paths !== 'object') return { checkerOptions: {}, issues };
-  const base = baseUrl || pathsBasePath || root;
-  return { checkerOptions: { paths, ...(baseUrl ? { baseUrl } : { pathsBasePath: base }) }, issues };
+  const checkerOptions = baseUrl ? { baseUrl } : {};
+  if (paths && typeof paths === 'object') {
+    checkerOptions.paths = paths;
+    if (!baseUrl) checkerOptions.pathsBasePath = pathsBasePath || root;
+  }
+  return { checkerOptions, issues };
 }
 
 function stripJsonComments(value) {

@@ -550,3 +550,62 @@ test("legacy analysis retains the JavaScript target when a TypeScript sibling ex
     .map((edge) => nodes.get(edge.to).file);
   assert.deepEqual(targets, ["src/x.js"]);
 });
+
+test("baseUrl-only Impact follows bare imports and re-exports to the exact files under the base", (t) => {
+  const p = project(t, {
+    "tsconfig.json": JSON.stringify({ compilerOptions: { baseUrl: "modules" } }),
+    "modules/source.ts": A(1),
+    "modules/api/index.ts": "export { a as selected } from 'source';",
+    "src/source.ts": A(2),
+    "src/consumer.js": "import { selected } from 'api'; export function use() { return selected(); }"
+  });
+  for (const target of ["modules/source.ts", "modules/api/index.ts"]) assertFound(p.impact(target), target);
+  assert.deepEqual(affected(p.impact("src/source.ts")), []);
+});
+
+test("an inherited baseUrl resolves bare names from its declaring directory and paths take precedence", () => {
+  const files = {
+    "tsconfig.json": JSON.stringify({ extends: "./config/base.json", compilerOptions: { paths: { alias: ["mapped"] } } }),
+    "config/base.json": JSON.stringify({ compilerOptions: { baseUrl: "./modules" } }),
+    "config/modules/alias.ts": A(1),
+    "config/modules/mapped.ts": A(2),
+    "config/modules/plain.ts": A(3),
+    "modules/plain.ts": A(4)
+  };
+  for (const [name, target] of [["alias", "mapped"], ["plain", "plain"]]) {
+    const g = snapshotGraph({ ...files, "src/consumer.js": CONSUMER(name) });
+    assert.deepEqual(consumerEdgesTo(g), [`config/modules/${target}.ts:a [importa]`]);
+    assert.equal(g.unrep, 0);
+  }
+});
+
+test("a baseUrl module that is present but has no representable edge makes Impact partial", (t) => {
+  const files = {
+    "tsconfig.json": JSON.stringify({ compilerOptions: { baseUrl: "src" } }),
+    "src/side.ts": "console.log('register');",
+    "src/consumer.js": "import 'side'; export function use() {}"
+  };
+  assert.equal(snapshotGraph(files).unrep, 1);
+  assertPartial(project(t, files).impact("src/side.ts"), "src/side.ts");
+});
+
+test("a baseUrl uses only snapshot files and does not count unmatched external packages or builtins", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-base-url-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "modules"));
+  fs.writeFileSync(path.join(root, "modules/pkg.ts"), A(1));
+  const files = {
+    "tsconfig.json": JSON.stringify({ compilerOptions: { baseUrl: "modules" } }),
+    "src/consumer.js": "import 'pkg'; import 'node:fs'; import 'third-party'; export function use() {}"
+  };
+  const hostCalls = ["existsSync", "readFileSync", "statSync", "readdirSync"].map((method) => t.mock.method(fs, method));
+  const g = snapshotGraph(files, root);
+  assert.deepEqual(g.edges, []);
+  assert.equal(g.unrep, 0);
+
+  const admitted = snapshotGraph({ ...files, "modules/pkg.ts": A(2),
+    "src/consumer.js": CONSUMER("pkg") + "import 'node:fs'; import 'third-party';" }, root);
+  assert.deepEqual(consumerEdgesTo(admitted), ["modules/pkg.ts:a [importa]"]);
+  assert.equal(admitted.unrep, 0);
+  for (const call of hostCalls) assert.equal(call.mock.callCount(), 0);
+});

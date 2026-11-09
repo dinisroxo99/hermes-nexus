@@ -8,7 +8,7 @@ Binding design: Architect note N1 (`hermes-nexus-arch-n1-export-star-barrel.md`)
 
 Snapshot (provider) mode of `src/analyzers/typescript/typescript-analyzer.js` only. Legacy (non-snapshot) analysis is
 byte-identical (D4). No new nodes or kinds (D9): N1 adds edges and changes `unrepresentedImports` only. N1 shipped as
-`native.typescript` version `3`. Version `4` adds the snapshot resolution described below. Its capability level is
+`native.typescript` version `3`. Version `4` added compiler-backed snapshot resolution, and version `5` includes `baseUrl` lookup. The capability level is
 `structural`. The ETS composer, adapter,
 policy, route and Impact are unchanged; `policyVersion` stays `step4-foundation-6`; caps are unchanged
 (2000 nodes / 4000 edges at the provider).
@@ -111,9 +111,10 @@ exact set of edges into anchors).
   also counts bare package imports, including `node:` builtins. This counts what the analyzer's resolver cannot resolve; it does not make every
   alias divergence from the compiler visible (see the open gaps below). Pinned by R1-1…R1-4, C-8…C-13.
 
-## Snapshot module resolution (provider version 4)
+## Snapshot module resolution (provider versions 4 and 5)
 
-For relative imports and configured path aliases, the analyzer calls TypeScript's module resolver on the same
+For relative imports, configured path aliases and bare specifiers with a configured `baseUrl`, the analyzer
+calls TypeScript's module resolver on the same
 in-memory project used to inspect exports. Imports, re-exports, module anchors and completeness checks all use
 that resolver. Results must name a code file admitted to the current snapshot.
 
@@ -130,6 +131,13 @@ coverage in that case. The same counter covers unresolved configured aliases. A 
 for its prefix and suffix (for example, `ab*b` does not match `ab`). The on-disk legacy analyzer retains its
 previous resolution behaviour. Regression fixtures are in [the snapshot tests](../tests/typescript-snapshot-tsconfig.test.js).
 
+In version 5, a project with `baseUrl: "modules"` and no `paths` can resolve an import of `"api"` to
+`modules/api/index.ts`. An inherited `baseUrl` is relative to the config that declared it. TypeScript applies
+configured `paths` mappings first. If a bare specifier resolves to an admitted module, the usual coverage checks
+apply, including for side-effect imports that the graph cannot represent. A failed `baseUrl` lookup alone does
+not establish that a package or builtin was a missing local dependency. Unresolved explicit aliases still count
+towards partial coverage.
+
 ## Not changed / still open
 
 - D7 (side bug S1): the global name fallback for unresolved non-barrel targets is unchanged. It can draw
@@ -142,7 +150,6 @@ previous resolution behaviour. Regression fixtures are in [the snapshot tests](.
   - Exempt `node:` builtins (and declared dependencies) from the catch-all `*` count (precision only).
   - B-4: model the unmodelled resolution features listed below, or count them so the result is `partial`.
 - Known open resolver gaps (not fixed in N1; can be silently complete):
-  - B7: `baseUrl`-only bare specifiers (no `paths` pattern matches) are not resolved and not counted.
   - An `export *` whose source contributes no names gets no file edge and no count.
   - B-4, unmodelled resolver features (not resolved and not counted, so they **can yield a false complete**:
     Impact `available` while missing a dependant):
