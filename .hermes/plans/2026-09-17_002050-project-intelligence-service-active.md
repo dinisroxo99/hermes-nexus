@@ -3,8 +3,10 @@
 ## Current checkpoint
 
 For the November implementation, see the [verified roadmap checkpoint](../../docs/CURRENT_STATUS.md#development-checkpoint-2026-11-09).
-It records operator-side scope observation, task comparison, Guard probes and diff audit, offline session
-telemetry and current-project retrieval. The historical flags below retain their original revision scope.
+It records file and directory operation evidence, cross-revision task comparisons, project-bound isolated
+Hermes edits, native run and worker usage observations, local cited synthesis, compact task briefs, paired experiments, and
+operational recovery. The original unrestricted runtime flags below retain their historical revision
+scope. Installing a gateway or accepting fleet-wide confinement requires distinct operational evidence.
 
 Operational status (current code vs reported install vs executed proofs vs
 limitations) is recorded in

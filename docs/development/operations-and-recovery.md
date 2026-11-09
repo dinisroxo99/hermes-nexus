@@ -21,7 +21,7 @@ Pass `--pid PID` on Linux to sample RSS and CPU time from an explicitly selected
 detects health/readiness failures, uptime resets, context lookup failures and excessive observation gaps.
 Partial Context Packs have their own count. The checkpoint shows `in_progress` until the window actually
 elapses; `healthy` or `degraded` describes only the probed Nexus service and interval. The result does not
-measure Hermes gateway, Kanban workers, GPU queues or Honcho uptime.
+measure Hermes gateway, Kanban workers, GPU queues or Honcho uptime unless a separate service observation is configured.
 
 A 180-second rehearsal on a disposable registered clone of Nexus issued seven project probes. All seven
 resolved the project and returned partial packs, with zero liveness/readiness failures or uptime resets.
@@ -72,4 +72,4 @@ Configure each installed endpoint's actual port, field and expected value. Accep
 `gateway`, `dispatcher`, `inference`, `memory` and `history`. Requests require a numeric loopback address
 and have a wall deadline. Redirects, credentials and query strings are excluded. Only failure counts are
 stored. A model listing checks availability without generating a completion. A successful component
-assertion is evidence for that endpoint; task recovery and model correctness have their own tests.
+assertion is evidence for that endpoint. A standalone probe observed the expected model ID from a real local llama.cpp server serving Qwen2.5-0.5B. Task recovery and model correctness have their own tests.
