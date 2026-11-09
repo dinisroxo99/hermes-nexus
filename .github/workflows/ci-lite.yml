@@ -39,6 +39,16 @@ jobs:
       - name: Install pinned Python deps
         run: pip install --disable-pip-version-check httpx==0.28.1 httpcore==1.0.9
 
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: npm ci
+        run: npm ci
+
       - name: Run plugin unittests (discover filtered, exclude host-hermes tests)
         run: |
           cat > /tmp/ci_plugin_filter.py << 'PYEOF'
@@ -104,16 +114,6 @@ jobs:
 
       - name: Run Guard compatibility probe unit tests
         run: python -B -m unittest discover -s tests -p 'test_hermes_guard_probe.py'
-
-      - name: Set up Node 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: package-lock.json
-
-      - name: npm ci
-        run: npm ci
 
       - name: Check operational recovery and paired evaluation
         run: |
