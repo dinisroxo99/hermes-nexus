@@ -38,3 +38,38 @@ export function answerProjectQuestion({ projectId, question, subject, worktree }
     ...(tests ? { testStatus: impact.affectedTests.status } : {}), evidence
   };
 }
+
+// Keep the deterministic producer synchronous for existing callers. Optional synthesis is an additional observation.
+export async function askProject(input, options = {}) {
+  const historyRequested = input.question === "validated-history" || options.includeHistory;
+  let history;
+  if (historyRequested) {
+    const { queryValidatedHistory } = await import("./project-validated-history.js");
+    history = queryValidatedHistory(input, options);
+  }
+  let result;
+  if (input.question === "validated-history") {
+    const count = history.historicalEvidence.length;
+    const answer = history.status === "unavailable" ? "Validated history is unavailable for this query."
+      : `Found ${count} active validated run receipt(s) for the requested project and commit.`;
+    result = { schemaVersion: 1, projectId: input.projectId, project: history.project, revision: history.revision,
+      question: input.question, answer, evidence: [], validatedHistory: history };
+  } else {
+    result = answerProjectQuestion(input, options);
+    if (history) {
+      const comparable = ["commitSha", "repositoryIdentity", "worktreeId", "status"]
+        .every((key) => history.revision[key] === result.revision[key]);
+      if (!comparable) history = { ...history, status: "unavailable", relation: "unknown", historicalEvidence: [],
+        warnings: ["history_observation_changed"] };
+      if (comparable && history.relation === "head_commit" && result.revision.dirty === true) {
+        history = { ...history, relation: "base_of_dirty_working_tree", warnings: [...history.warnings, "working_tree_dirty"] };
+      }
+      result = { ...result, validatedHistory: history };
+    }
+  }
+  if (options.synthesize) {
+    const { synthesizeProjectAnswer } = await import("./local-project-synthesis.js");
+    result = { ...result, synthesis: await synthesizeProjectAnswer(result, history, options.localModel) };
+  }
+  return result;
+}
