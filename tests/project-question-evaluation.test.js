@@ -68,4 +68,9 @@ test("the CLI exits nonzero on an incorrect frozen expectation", (t) => {
   assert.equal(report.passed, false);
   assert.deepEqual(report.cases[0].missing, ["alt/namesake.ts"]);
   assert.deepEqual(report.cases[0].unexpected, ["src/shared.ts"]);
+  altered.cases = [];
+  fs.writeFileSync(path.join(root, file), JSON.stringify(altered));
+  const empty = spawnSync(process.execPath, [script], { cwd: root, encoding: "utf8" });
+  assert.equal(empty.status, 1);
+  assert.deepEqual(JSON.parse(empty.stderr), { error: "golden_evaluation_failed" });
 });

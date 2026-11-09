@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { answerProjectQuestion } from "../src/lib/project-question.js";
 import { createQuestionProjects } from "./fixtures/project-question-projects.mjs";
 
@@ -31,12 +32,12 @@ function scoreCase(example, answer, head, error) {
   const missing = [...example.evidence];
   const unexpected = [];
   for (const item of observed) {
-    const position = missing.findIndex((expected) => JSON.stringify(expected) === JSON.stringify(item));
+    const position = missing.findIndex((expected) => isDeepStrictEqual(expected, item));
     if (position === -1) unexpected.push(item);
     else missing.splice(position, 1);
   }
   // History also promises newest-first order. Other citation lists are scored as multisets.
-  if (example.question === "history") checks.historyOrder = JSON.stringify(observed) === JSON.stringify(example.evidence);
+  if (example.question === "history") checks.historyOrder = isDeepStrictEqual(observed, example.evidence);
   const failedChecks = Object.entries(checks).filter(([, ok]) => !ok).map(([key]) => key);
   return { id: example.id, question: example.question, projectId: example.projectId, subject: example.subject,
     passed: !error && !failedChecks.length && !missing.length && !unexpected.length, failedChecks, error,
@@ -55,6 +56,10 @@ function summarize(cases) {
 }
 
 export function evaluateProjectQuestions(answer = answerProjectQuestion) {
+  if (!kinds.every((kind) => golden.cases.some((c) => c.question === kind && c.evidence.length)) ||
+      new Set(golden.cases.map((c) => c.id)).size !== golden.cases.length) {
+    throw new Error("Golden cases require unique IDs and positive evidence for each question kind.");
+  }
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hermes-project-question-golden-"));
   try {
     const options = createQuestionProjects(root);
