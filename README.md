@@ -44,8 +44,8 @@ Task + Project Identity / Git Revision + ICM
 
 This is deterministic evidence selection, not arbitrary LLM summarization.
 Packs carry provenance, limits and incomplete-coverage signals. The separate
-Impact v2 operation adds bounded change-impact evidence; scope, conflict and
-validated-history layers remain planned, not implemented by the current pack.
+Impact v2 operation adds bounded change-impact evidence. The effective-scope and task-conflict routes
+consume these observations. The current-project question CLI retrieves symbol, test, file-impact and Git-history evidence.
 
 ## Hermes relationship
 
@@ -70,9 +70,21 @@ WRITE / RESERVED / WATCH / IMPACT · Conflict Intelligence · Project Expert.
 
 ## Current status
 
-Implementation checkpoint: [current verified status](docs/CURRENT_STATUS.md)
-is the primary summary of current code, reported install, executed proofs, and
-limitations. This README is not a personal operational inventory.
+For a registered project, you can now:
+
+- Compare two proposed tasks and inspect file overlaps, including confirmed shared writes in sibling worktrees.
+  [Task conflict requests](docs/development/task-conflicts.md)
+- Observe proposed file creates and audit the final Git diff against a captured task scope.
+  [Create observation](docs/development/create-observation.md) · [Diff audit](docs/development/task-diff-audit.md)
+- Ask which symbols, dependent files and candidate tests the current checkout exposes, or which commits touched a file.
+  [Ask about a project](docs/development/project-symbol-location.md)
+- Compare two collect-forward logs or read measured token counters from an explicit Hermes session database snapshot.
+  [Capture comparison](docs/development/log-inspector.md) · [Native session usage](docs/development/session-usage.md)
+
+Run `node scripts/evaluate-project-questions.mjs` to score project questions against fixed expectations in disposable Git projects. [Evaluation guide](docs/development/project-question-evaluation.md)
+
+The [current development checkpoint](docs/CURRENT_STATUS.md#development-checkpoint-2026-11-09) records the
+remaining product and runtime dependencies. Historical installation records follow.
 
 Public code checkpoint `050540d0ebb3899198a5695eaec913de59cb1b8d` (merge of
 PR #38) is included in this revision; the PR #38 docs/code delta is **not
@@ -106,14 +118,9 @@ plugin Python; Step 4 enforcement is not started.
 - **Composer checkpoint (read-only):** `compose_effective_task_scope` exists in plugin at `e9faf6a3f1e18224479e45b0f1afa2f1ac8405c5` (main@ff1093e7...); read-only local, sem tool/rota/schemas; labels only WRITE and WATCH; RESERVED/IMPACT `not_emitted`. `feat/legacy-project-map-t_d032c9fe@787f662df941ea8461efeb0db86f51ad569a461c` / adapter 1A do not enter this delta. Step 4 not initiated as coordination/enforcement.
 - **ETS caller exposure (dated 2026-09-25, not live):** pin, `scope_enabled`, SOUL and proofs in [ETS profile exposure](docs/ETS_PROFILE_EXPOSURE.md). Pin `6ebb7aaa7ae7027c3e590a51bdbf5b5935651776`; hide-by-omit — `register()` adds `project_effective_task_scope` only when `scope_enabled` is exactly true (omitted/false ≠ true). `provides_tools` stays exactly the two core tools; the ETS name does not enter the global yaml. Independent pinned copies (not symlinks) with `scope_enabled: true` on orchestrator, architect, implementer, tester, reviewer and documenter. `default` and `workspace-manager` excluded; workspace-manager has no flag. ETS is read-only classification; WRITE is not authorization. `includeTests` omitted in the plugin ≠ true; SOUL is instructions, not a wrapper. When obtaining ETS: Context, then Impact and ETS with `includeTests` true; standalone Impact keeps the tool default. Orchestrator card `t_8318a878` is the old TUI / long session (tools not loaded; `ETS_ORCHESTRATOR_EXPOSE_LIVE_PROOF_JS_NOT_EXECUTED`). After that TUI quit, a new session ran the live proof; operator-authorized record only: `evidence_found`; ETS `incomplete`; WRITE 1; WATCH 5. Incomplete ≠ safety; WRITE does not authorize.
 Operator-authorized implementer, tester, and reviewer SOUL hashes and inspect live proofs for ETS profile exposure are recorded in [ETS profile exposure](docs/ETS_PROFILE_EXPOSURE.md).
-- **Next, not initiated:** Step 4 — Effective Task Scope as coordination/enforcement.
-  ETS classification exists; Guard remains planned. Publication/adoption are
-  already accepted and do not open this step.
-- **Planned:** effective scope, conflicts, Hermes guard integration, project
-  telemetry/validated history, Project Expert and learning/evaluation.
-- **Implemented, opt-in:** sandboxed Serena/Pyright semantic symbols, definitions
-  and references for Python. [Pinned image and runtime guide](docker/serena-python/README.md).
-  No runtime network, live-repository mount, editor, memory or agent operations.
+- **In development:** ETS exposes bound task classifications and a read-only comparison of two scopes.
+  The operator can retrieve source evidence, audit a Git diff and inspect offline telemetry. Runtime
+  confinement and validated historical outcomes remain open. [Development checkpoint](docs/CURRENT_STATUS.md#development-checkpoint-2026-11-09)
 
 Native C#/.NET, TypeScript, JavaScript/JSX and Node.js analysis is **structural**,
 not compiler-grade semantic analysis. Node.js remains classified as `nodejs`, but
@@ -179,10 +186,10 @@ Development verification: `npm test` and `npm run check`.
 COMPLETE: Project foundation → Project Identity / Revision
           → Task Context Pack → Analyzer Provider Layer
           → Impact v2
-NEXT / NOT INITIATED: Effective Task Scope as coordination/enforcement
-PLANNED: Conflict Engine → Hermes Guard integration
-         → Telemetry / validated project history → Project Expert
-         → Learning / evaluation
+IMPLEMENTED IN PART: Effective Task Scope → file-level conflict evidence
+                     → guard verification and final-diff audit
+                     → offline telemetry and current-project retrieval
+OPEN: Runtime enforcement, validated run history and matched outcome evaluation
 ```
 
 This follows the [active implementation plan](.hermes/plans/2026-09-17_002050-project-intelligence-service-active.md),

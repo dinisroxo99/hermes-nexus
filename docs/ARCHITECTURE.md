@@ -73,34 +73,21 @@ validated historical knowledge.
 
 ## Task flow
 
-The **current composition** joins task, identity/revision, ICM and normalized
-code evidence. The separate **planned integration** adds Impact v2, effective
-scope and conflicts before Hermes runtime execution. Step 3 — Impact v2 is next
-and not started. Existing node-based graph impact is a separate current capability.
+The Context Pack and Impact v2 observe registered project sources and bind results to a revision.
+The ETS service uses both results for one task. The comparison route builds the evidence for
+two tasks and returns observed overlaps to its caller.
 
 ```mermaid
-flowchart TB
-    subgraph CURRENT["IMPLEMENTED: context composition"]
-        T[Task] --> P["Bounded Task Context Pack"]
-        R["Project identity and Git/worktree revision"] --> P
-        ICM["ICM declarations and contextual documents"] --> P
-        S["Authorized bounded source snapshot"] --> AP["Analyzer Provider Layer"]
-        AP --> E["Normalized evidence, capabilities and coverage"]
-        E --> P
-    end
-    subgraph FUTURE["PLANNED: coordination and runtime integration"]
-        I["Impact v2: NEXT, NOT STARTED"] -.-> ES["Effective Task Scope"]
-        ES -.-> F["Conflict Check"]
-        F -.-> H["Hermes guard and dispatch integration"]
-        H -.-> A["Agent execution in Hermes"]
-    end
-    P -.-> I
+flowchart TD
+    S["Bounded project sources"] --> P["Task Context Pack"]
+    S --> I["Impact v2"]
+    P --> E["Effective task scope"]
+    I --> E
+    E --> C["Task conflict comparison"]
+    C -.-> H["Future Hermes scheduling integration"]
 ```
 
-This is a conceptual sequence, not a series of endpoints to call today. Impact
-can also feed back into context selection. In the intended integration, a
-conflict result may lead Hermes to block, serialize or request replanning rather
-than starting the agent.
+[Task conflicts](development/task-conflicts.md) documents the same-snapshot and sibling-worktree cases.
 
 ## Provider independence
 
@@ -156,26 +143,25 @@ would require their own approval, pinned dependencies and capability tests.
 ## Scope and parallel work
 
 Workspace scope declares general responsibility. Effective task scope is the
-planned revision-bound interpretation for a particular change:
+revision-bound interpretation for a particular change:
 
-- **WRITE:** allowed mutation targets.
+- **WRITE:** explicit classified mutation targets.
 - **RESERVED:** strongly coupled areas protected from another task's writes.
 - **WATCH:** affected areas where policy may allow concurrency with revalidation.
 - **IMPACT:** informational effects, not locks by default.
 
 Worktrees isolate working directories; these semantics address logically
-incompatible changes across them. Project Intelligence would return conflict
-evidence, while Hermes owns scheduling and enforcement. Runtime checks must
+incompatible changes across them. The task comparison returns conflict evidence. Hermes owns scheduling and enforcement. Runtime checks must
 also address shell mutations and final diff validation; file-tool hooks alone
 are not a sandbox.
 
 See the [parallel-agent diagram and example](CONCEPTS.md#write--reserved--watch--impact)
 and [scope/impact/conflict design](project-intelligence/06_SCOPE_IMPACT_CONFLICTS.md).
 
-## Future Project Expert
+## Project Expert
 
-**Entire capability planned.** The Project Expert is a read-only consumer of
-project evidence, not a coder or a new authority over the repository.
+The [project question CLI](development/project-symbol-location.md) returns revision-bound symbol, impact, test and
+Git-history evidence. Model-based synthesis and validated run history are future parts of the design.
 
 ```mermaid
 flowchart LR

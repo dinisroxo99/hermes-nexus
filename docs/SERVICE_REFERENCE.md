@@ -148,9 +148,13 @@ POST /api/intelligence/discover/register
 GET  /api/intelligence/projects/:name/overview
 POST /api/intelligence/projects/:projectId/task-context
 POST /api/intelligence/projects/:projectId/impact
+POST /api/intelligence/projects/:projectId/effective-task-scope
+POST /api/intelligence/projects/:projectId/task-conflicts
 ```
 
-Implemented ICM support is on-demand and bounded: a canonical `AGENT.md` parser, Workspace Index, contextual ICM Document Index, combined Project ICM Index, compact overview ICM summary, and revision-aware Task Context Pack. Impact v2 is separately implemented as bounded evidence. Not implemented yet: task routing, Git-diff impact, Effective Scope/conflicts, Hermes high-level `project_*` tools, and Hermes guard integration.
+ICM discovery and Context Pack construction use bounded project evidence. Impact v2 exposes the
+project's change evidence. The [scope route](effective-task-scope-http-route.md) classifies one task.
+The [task-conflicts route](development/task-conflicts.md) compares two tasks using fresh scope observations.
 
 ### Task Context Pack
 
