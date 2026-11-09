@@ -89,9 +89,13 @@ export function analyzeTypeScriptProject(project, options = {}) {
     const fileSymbolsByPath = new Map();
     const defaultSymbolByPath = new Map();
     const exportAliasesByPath = new Map();
-    const pathAliases = snapshot
-      ? snapshotConfig.aliases
-      : readPathAliases(rootPath, undefined);
+    const codePaths = snapshot && new Set(files.map((file) => normalizeRelativePath(rootPath, file)));
+    const pathAliases = snapshot ? null : readPathAliases(rootPath, undefined);
+    const aliasPatterns = Object.keys(snapshotConfig?.checkerOptions.paths || {});
+    const matchesSnapshotAlias = (specifier) => aliasPatterns.some((pattern) => matchesSnapshotPath(pattern, specifier));
+    const resolveImport = snapshot
+      ? createSnapshotImportResolver(tsProject, rootPath, codePaths, matchesSnapshotAlias)
+      : (from, specifier) => resolveImportPath(from, specifier, { fileSymbolsByPath, pathAliases });
     const sourceFiles = tsProject.getSourceFiles().filter((sourceFile) => {
       const relativePath = normalizeRelativePath(rootPath, sourceFile.getFilePath());
       return !shouldIgnorePath(relativePath);
@@ -106,7 +110,6 @@ export function analyzeTypeScriptProject(project, options = {}) {
         fileSymbolsByPath,
         defaultSymbolByPath,
         exportAliasesByPath,
-        pathAliases,
         rootPath
       });
     }
@@ -122,12 +125,11 @@ export function analyzeTypeScriptProject(project, options = {}) {
     // imports-only, type-only files without `from` such as a local `export type { T }`, symbol-less mixed
     // barrels, any non-barrel) receive no edges. Type-only RE-EXPORT files (`export type * from`,
     // `export type { T } from`) are pure barrels and do receive them.
-    const codePaths = snapshot ? new Set(snapshot.map((file) => file.path).filter((file) => /\.(ts|tsx|js|jsx)$/i.test(file))) : null;
     const anchorByPath = new Map();
     if (snapshot) {
       for (const sourceFile of sourceFiles) {
         const relativePath = normalizeRelativePath(rootPath, sourceFile.getFilePath());
-        if (fileSymbolsByPath.has(relativePath) || localModuleTargets(sourceFile, relativePath, { pathAliases, knownPaths: codePaths }).size === 0) continue;
+        if (fileSymbolsByPath.has(relativePath) || localModuleTargets(sourceFile, relativePath, resolveImport).size === 0) continue;
         const anchor = createModuleAnchor(relativePath);
         seenNodeKeys.add(`${relativePath}:${anchor.label}`);
         nodes.push(anchor);
@@ -138,7 +140,7 @@ export function analyzeTypeScriptProject(project, options = {}) {
     // N1: re-exporting modules ("barrels": any code file with at least one `export … from '<module>'`) are resolved
     // name-by-name through the compiler's export table (stars, chains, cycles, aliases, default-as, `export * as ns`,
     // type-only), snapshot only. Only PURE barrels (isPureBarrel) may receive the D10/D11 anchor edges.
-    const barrel = snapshot ? createBarrelContext(tsProject, { rootPath, pathAliases, codePaths, fileSymbolsByPath, defaultSymbolByPath }) : null;
+    const barrel = snapshot ? createBarrelContext(tsProject, { rootPath, resolveImport, fileSymbolsByPath, defaultSymbolByPath }) : null;
 
     for (const sourceFile of sourceFiles) {
       const relativePath = normalizeRelativePath(rootPath, sourceFile.getFilePath());
@@ -146,7 +148,7 @@ export function analyzeTypeScriptProject(project, options = {}) {
         fileSymbolsByPath,
         defaultSymbolByPath,
         exportAliasesByPath,
-        pathAliases
+        resolveImport
       });
     }
 
@@ -158,9 +160,9 @@ export function analyzeTypeScriptProject(project, options = {}) {
         fileSymbolsByPath,
         anchorByPath,
         barrel,
+        resolveImport,
         defaultSymbolByPath,
         exportAliasesByPath,
-        pathAliases,
         rootPath
       });
     }
@@ -173,7 +175,7 @@ export function analyzeTypeScriptProject(project, options = {}) {
     // too, once per project for the unread configs. This does not
     // make every alias divergence visible: the open resolver gaps in docs/typescript-barrel-reexports.md remain.
     const unrepresentedImports = snapshot
-      ? countUnrepresentedImports(tsProject.getSourceFiles(), { rootPath, nodes, edges, exportAliasesByPath, pathAliases, knownPaths: codePaths, barrel }) + snapshotConfig.issues
+      ? countUnrepresentedImports(tsProject.getSourceFiles(), { rootPath, nodes, edges, exportAliasesByPath, resolveImport, matchesSnapshotAlias, barrel }) + snapshotConfig.issues
       : 0;
 
     const filteredNodes = filterNodes(nodes, { layers, features });
@@ -209,7 +211,7 @@ export function analyzeTypeScriptProject(project, options = {}) {
         totalEdges: retainedEdges.length,
         analyzer: typeScriptAnalyzer.name,
         capabilities: typeScriptAnalyzer.capabilities,
-        pathAliasCount: pathAliases.length
+        pathAliasCount: snapshot ? aliasPatterns.length : pathAliases.length
       }
     };
   } catch (error) {
@@ -416,7 +418,7 @@ function resolveRelativeImportPath(fromRelativePath, moduleSpecifier, knownPaths
 }
 
 function resolveImportPath(fromRelativePath, moduleSpecifier, context) {
-  const knownPaths = context.knownPaths || new Set(context.fileSymbolsByPath.keys());
+  const knownPaths = context.fileSymbolsByPath;
 
   if (moduleSpecifier.startsWith('.') || moduleSpecifier.startsWith('/')) {
     return resolveRelativeImportPath(fromRelativePath, moduleSpecifier, knownPaths);
@@ -430,28 +432,33 @@ function resolveImportPath(fromRelativePath, moduleSpecifier, context) {
       const resolved = resolveFromProjectRoot(target, knownPaths);
       if (resolved) return resolved;
     }
-    // Snapshot (N1 review P1): TypeScript tries only the best-matching pattern's targets, never a later pattern.
-    if (context.pathAliases.bestMatchOnly) return null;
   }
 
   return null;
 }
 
-// N1 review P1 (snapshot mode only): order tsconfig `paths` patterns the way TypeScript selects among patterns that
-// match one specifier: an exact pattern (no `*`) before any wildcard, then the wildcard with the longest prefix before
-// the `*`; ties keep the tsconfig order (stable sort). With `bestMatchOnly`, resolveImportPath tries only the first
-// matching pattern, so imports, re-exports, anchors and the unrepresented counter all select the module the compiler
-// selects. Only snapshot-admitted paths are candidates (D6a: no host reads). Legacy analysis keeps its order.
-function typescriptPathAliasPrecedence(aliases) {
-  const rank = (alias) => {
-    const star = alias.pattern.indexOf('*');
-    return star === -1 ? Number.POSITIVE_INFINITY : star;
+// Resolve against the same in-memory project as the export checker. The cache belongs to this snapshot only.
+function createSnapshotImportResolver(tsProject, rootPath, codePaths, matchesAlias) {
+  const options = tsProject.getCompilerOptions();
+  const host = tsProject.getModuleResolutionHost();
+  const root = rootPath.replace(/\\/g, '/');
+  const cache = ts.createModuleResolutionCache(root, (file) => file, options);
+  return (from, specifier) => {
+    if (!ts.isExternalModuleNameRelative(specifier) && !matchesAlias(specifier)) return null;
+    const importer = path.posix.join(root, from);
+    const { resolvedModule } = ts.resolveModuleName(specifier, importer, options, host, cache);
+    if (!resolvedModule) return null;
+    const target = normalizeRelativePath(rootPath, resolvedModule.resolvedFileName);
+    return codePaths.has(target) ? target : null;
   };
-  const ordered = aliases.map((alias, index) => ({ alias, index }))
-    .sort((left, right) => rank(right.alias) - rank(left.alias) || left.index - right.index)
-    .map(({ alias }) => alias);
-  Object.defineProperty(ordered, 'bestMatchOnly', { value: true });
-  return ordered;
+}
+
+// TypeScript paths allow a single wildcard. Its prefix and suffix must not overlap.
+function matchesSnapshotPath(pattern, specifier) {
+  const star = pattern.indexOf('*');
+  if (star === -1) return specifier === pattern;
+  return specifier.length >= pattern.length - 1 && specifier.startsWith(pattern.slice(0, star))
+    && specifier.endsWith(pattern.slice(star + 1));
 }
 
 function readPathAliases(rootPath, sourceText) {
@@ -481,8 +488,8 @@ function readPathAliases(rootPath, sourceText) {
 
 // N1 tsconfig (user option A, snapshot mode only): ONE reading of the snapshot's tsconfig.json, done by TypeScript's own
 // JSONC config parser (comments, trailing commas, `/*` or `*/` inside strings such as include globs) and config-file
-// semantics (`extends`, `paths` relative to the config that declares them, `baseUrl`). It feeds BOTH the alias
-// resolver (`aliases`, ordered by typescriptPathAliasPrecedence) and the D6a checker (`checkerOptions`), so the two
+// semantics (`extends`, `paths` relative to the config that declares them, `baseUrl`). It feeds BOTH the module
+// resolver and the D6a checker (`checkerOptions`), so the two
 // cannot disagree about the config. The parse host answers only from snapshot entries: `extends` resolves only to
 // configs admitted to the snapshot and nothing is read from the host file system (D6a). Every config diagnostic
 // except "no inputs" (the host lists no directories on purpose) is kept as an issue: an invalid config, an unresolved
@@ -499,7 +506,7 @@ const UNREAD_PROJECT_CONFIG = /^(tsconfig|jsconfig)\.json$/i;
 function readSnapshotTsConfig(rootPath, snapshot) {
   const entry = snapshot.find((file) => file.path === 'tsconfig.json');
   const unreadConfigs = snapshot.some((file) => file.path !== 'tsconfig.json' && UNREAD_PROJECT_CONFIG.test(file.path.slice(file.path.lastIndexOf('/') + 1))) ? 1 : 0;
-  if (!entry) return { aliases: typescriptPathAliasPrecedence([]), checkerOptions: {}, issues: unreadConfigs };
+  if (!entry) return { checkerOptions: {}, issues: unreadConfigs };
   const root = rootPath.replace(/\\/g, '/');
   const texts = new Map(snapshot.map((file) => [path.posix.join(root, file.path), file.text]));
   const host = {
@@ -515,15 +522,9 @@ function readSnapshotTsConfig(rootPath, snapshot) {
   const issues = [...(sourceFile.parseDiagnostics || []), ...parsed.errors]
     .filter((diagnostic) => diagnostic.code !== TSCONFIG_NO_INPUTS).length + Math.max(unreadReferences, unreadConfigs);
   const { paths, baseUrl, pathsBasePath } = parsed.options;
-  if (!paths || typeof paths !== 'object') return { aliases: typescriptPathAliasPrecedence([]), checkerOptions: {}, issues };
+  if (!paths || typeof paths !== 'object') return { checkerOptions: {}, issues };
   const base = baseUrl || pathsBasePath || root;
-  const aliases = Object.entries(paths).map(([pattern, targets]) => ({
-    pattern,
-    targets: (Array.isArray(targets) ? targets : [targets]).map((target) => {
-      return path.posix.relative(root, path.posix.resolve(base, String(target).replace(/\\/g, '/')));
-    })
-  }));
-  return { aliases: typescriptPathAliasPrecedence(aliases), checkerOptions: { paths, ...(baseUrl ? { baseUrl } : { pathsBasePath: base }) }, issues };
+  return { checkerOptions: { paths, ...(baseUrl ? { baseUrl } : { pathsBasePath: base }) }, issues };
 }
 
 function stripJsonComments(value) {
@@ -660,7 +661,7 @@ function extractImportEdges(sourceFile, relativePath, context) {
       addBarrelAnchorEdge(context, sourceSymbols, barrelPath, moduleSpecifier, 'importa barrel');
       continue;
     }
-    const targetPath = resolveImportPath(relativePath, moduleSpecifier, context);
+    const targetPath = context.resolveImport(relativePath, moduleSpecifier);
 
     for (const element of importDeclaration.getNamedImports()) {
       const importName = element.getAliasNode()?.getText() || element.getName();
@@ -689,18 +690,15 @@ function extractReExportEdges(sourceFile, relativePath, context, sourceSymbols) 
       continue;
     }
 
+    const targetPath = context.resolveImport(relativePath, moduleSpecifier);
+    if (!targetPath) continue;
     if (context.barrel) {
-      const targetPath = resolveImportPath(relativePath, moduleSpecifier, { ...context, knownPaths: context.barrel.codePaths });
-      if (!targetPath) continue;
       for (const origin of reExportOrigins(context.barrel, exportDeclaration, targetPath)) {
         addImportEdges(context.edges, sourceSymbols, origin.symbols, origin.name, 're-exporta');
       }
       if (context.barrel.barrelPaths.has(targetPath)) addBarrelAnchorEdge(context, sourceSymbols, targetPath, moduleSpecifier, 're-exporta barrel');
       continue;
     }
-
-    const targetPath = resolveImportPath(relativePath, moduleSpecifier, context);
-    if (!targetPath) continue;
 
     const namedExports = exportDeclaration.getNamedExports();
 
@@ -722,7 +720,7 @@ function collectReExportAliases(sourceFile, relativePath, context) {
     const moduleSpecifier = exportDeclaration.getModuleSpecifierValue?.();
     if (!moduleSpecifier) continue;
 
-    const targetPath = resolveImportPath(relativePath, moduleSpecifier, context);
+    const targetPath = context.resolveImport(relativePath, moduleSpecifier);
     if (!targetPath) continue;
 
     if (!context.exportAliasesByPath.has(relativePath)) {
@@ -771,7 +769,7 @@ function addBarrelAnchorEdge(context, sourceSymbols, barrelPath, moduleSpecifier
   if (anchor) addImportEdges(context.edges, sourceSymbols, [anchor], moduleSpecifier, label);
 }
 
-function createBarrelContext(tsProject, { rootPath, pathAliases, codePaths, fileSymbolsByPath, defaultSymbolByPath }) {
+function createBarrelContext(tsProject, { rootPath, resolveImport, fileSymbolsByPath, defaultSymbolByPath }) {
   const sourceFileByPath = new Map();
   const barrelPaths = new Set();
   const pureBarrelPaths = new Set();
@@ -781,7 +779,7 @@ function createBarrelContext(tsProject, { rootPath, pathAliases, codePaths, file
     if (sourceFile.getExportDeclarations().some((declaration) => declaration.getModuleSpecifierValue?.())) barrelPaths.add(relativePath);
     if (isPureBarrel(sourceFile)) pureBarrelPaths.add(relativePath);
   }
-  return { rootPath, pathAliases, codePaths, fileSymbolsByPath, defaultSymbolByPath, sourceFileByPath, barrelPaths, pureBarrelPaths, exportTables: new Map() };
+  return { rootPath, resolveImport, fileSymbolsByPath, defaultSymbolByPath, sourceFileByPath, barrelPaths, pureBarrelPaths, exportTables: new Map() };
 }
 
 // N1 pure-barrel definition (verifiable, syntactic): a file is a PURE barrel iff it has at least one top-level
@@ -802,7 +800,7 @@ function isPureBarrel(sourceFile) {
 
 function barrelTargetPath(barrel, fromRelativePath, moduleSpecifier) {
   if (!barrel || !barrel.barrelPaths.size) return null;
-  const target = resolveImportPath(fromRelativePath, moduleSpecifier, { pathAliases: barrel.pathAliases, knownPaths: barrel.codePaths });
+  const target = barrel.resolveImport(fromRelativePath, moduleSpecifier);
   return target && target !== fromRelativePath && barrel.barrelPaths.has(target) ? target : null;
 }
 
@@ -850,7 +848,7 @@ function originDeclarations(barrel, targetPath, name, seen) {
     && !declaration.getNamedExports().length && !declaration.getNamespaceExport?.());
   if (stars.length > 1) {
     for (const star of stars) {
-      const starPath = resolveImportPath(targetPath, star.getModuleSpecifierValue(), { pathAliases: barrel.pathAliases, knownPaths: barrel.codePaths });
+      const starPath = barrel.resolveImport(targetPath, star.getModuleSpecifierValue());
       if (!starPath || starPath === targetPath) continue;
       for (const declaration of originDeclarations(barrel, starPath, name, seen)) if (!declarations.includes(declaration)) declarations.push(declaration);
     }
@@ -900,7 +898,7 @@ function barrelRequiredFiles(barrel, sourceFile, from) {
   for (const exportDeclaration of sourceFile.getExportDeclarations()) {
     const specifier = exportDeclaration.getModuleSpecifierValue?.();
     if (!specifier) continue;
-    const target = resolveImportPath(from, specifier, { pathAliases: barrel.pathAliases, knownPaths: barrel.codePaths });
+    const target = barrel.resolveImport(from, specifier);
     if (!target || target === from) continue;
     for (const origin of reExportOrigins(barrel, exportDeclaration, target)) add(target, ambiguityGuard(origin.files));
     if (barrel.barrelPaths.has(target)) add(target, [target]);
@@ -921,16 +919,16 @@ function createModuleAnchor(relativePath) {
   return createNode({ name: MODULE_ANCHOR_LABEL, kind: 'module', relativePath, fileName: path.basename(relativePath), start: 0, category: 'module' });
 }
 
-function localModuleTargets(sourceFile, relativePath, context) {
+function localModuleTargets(sourceFile, relativePath, resolveImport) {
   const targets = new Set();
   for (const literal of sourceFile.getImportStringLiterals()) {
-    const target = resolveImportPath(relativePath, literal.getLiteralValue(), context);
+    const target = resolveImport(relativePath, literal.getLiteralValue());
     if (target && target !== relativePath) targets.add(target);
   }
   return targets;
 }
 
-function countUnrepresentedImports(allSourceFiles, { rootPath, nodes, edges, exportAliasesByPath, pathAliases, knownPaths, barrel }) {
+function countUnrepresentedImports(allSourceFiles, { rootPath, nodes, edges, exportAliasesByPath, resolveImport, matchesSnapshotAlias, barrel }) {
   const fileById = new Map(nodes.map((node) => [node.id, node.file]));
   const linked = new Set(edges.map((edge) => `${fileById.get(edge.from)}\u0000${fileById.get(edge.to)}`));
   let count = 0;
@@ -944,25 +942,18 @@ function countUnrepresentedImports(allSourceFiles, { rootPath, nodes, edges, exp
         if (!files.length || !files.some((file) => file === from || linked.has(`${from}\u0000${file}`))) count += 1;
       }
     }
-    for (const target of localModuleTargets(sourceFile, from, { pathAliases, knownPaths })) {
+    for (const target of localModuleTargets(sourceFile, from, resolveImport)) {
       if (perName.has(target)) continue;
       const reach = [target, ...[...(exportAliasesByPath.get(target)?.values() || [])].map((symbol) => symbol.file)];
       if (!reach.some((file) => linked.has(`${from}\u0000${file}`))) count += 1;
     }
-    count += unresolvedAliasImports(sourceFile, from, { pathAliases, knownPaths });
-  }
-  return count;
-}
-
-// N1 tsconfig: a non-relative specifier that matches a tsconfig `paths` pattern but resolves to no snapshot file is
-// counted, even when the global name fallback draws some edge for it: that edge is not a module resolution.
-function unresolvedAliasImports(sourceFile, relativePath, context) {
-  let count = 0;
-  for (const literal of sourceFile.getImportStringLiterals()) {
-    const specifier = literal.getLiteralValue();
-    if (specifier.startsWith('.') || specifier.startsWith('/')) continue;
-    if (!context.pathAliases.some((alias) => matchPathAlias(specifier, alias))) continue;
-    if (!resolveImportPath(relativePath, specifier, context)) count += 1;
+    // A same-name fallback edge cannot establish that a missing module was resolved.
+    for (const literal of sourceFile.getImportStringLiterals()) {
+      const specifier = literal.getLiteralValue();
+      const relative = ts.isExternalModuleNameRelative(specifier);
+      const expected = relative ? /\.[jt]sx?$/i.test(specifier) : matchesSnapshotAlias(specifier);
+      if (expected && !resolveImport(from, specifier)) count += 1;
+    }
   }
   return count;
 }

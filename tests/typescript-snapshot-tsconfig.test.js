@@ -460,3 +460,93 @@ test("C-50 (Reviewer A-10) unresolved alias specifiers are counted per literal: 
   assert.equal(g.unrep, 2);
   assertPartial(project(t, files).impact("src/x.js"), "src/x.js");
 });
+
+test("Impact follows emitted .js specifiers through a TypeScript barrel and ignores its JavaScript shadow", (t) => {
+  const files = {
+    "src/impl.ts": A(1),
+    "src/impl.js": A(2),
+    "src/index.ts": "export { a as b } from './impl.js';",
+    "src/consumer.js": "import { b } from './index.js'; export function use() { return b(); }"
+  };
+  const p = project(t, files);
+  for (const target of ["src/index.ts", "src/impl.ts"]) assertFound(p.impact(target), target);
+  assert.deepEqual(affected(p.impact("src/impl.js")), []);
+});
+
+test("snapshot .jsx selects .tsx and .js selects .ts when the candidates coexist", () => {
+  const files = { "src/x.ts": A(1), "src/x.tsx": A(2), "src/x.js": A(3), "src/x.jsx": A(4) };
+  for (const [specifier, expected] of [["./x.jsx", "x.tsx"], ["./x.js", "x.ts"]]) {
+    const g = snapshotGraph({ ...files, "src/consumer.js": CONSUMER(specifier) });
+    assert.deepEqual(consumerEdgesTo(g), [`src/${expected}:a [importa]`]);
+    assert.equal(g.unrep, 0);
+  }
+});
+
+test("wildcard paths substitute emitted extensions while an explicit existing .js target stays exact", () => {
+  const files = {
+    "tsconfig.json": tsconfig([["@/*", ["src/*"]], ["@exact", ["src/x.js"]]]),
+    "src/x.ts": A(1), "src/x.js": A(2)
+  };
+  for (const [specifier, expected] of [["@/x.js", "x.ts"], ["@exact", "x.js"]]) {
+    const g = snapshotGraph({ ...files, "src/consumer.js": CONSUMER(specifier) });
+    assert.deepEqual(consumerEdgesTo(g), [`src/${expected}:a [importa]`]);
+    assert.equal(g.unrep, 0);
+  }
+});
+
+test("an unresolved relative .js specifier keeps Impact partial even with a same-name fallback", (t) => {
+  const files = { "src/unrelated.ts": A(1), "src/consumer.js": CONSUMER("./missing.js") };
+  assert.equal(snapshotGraph(files).unrep, 1);
+  assertPartial(project(t, files).impact("src/unrelated.ts"), "missing.js");
+});
+
+test("a declaration file takes precedence over JavaScript for a relative emitted specifier", () => {
+  const g = snapshotGraph({
+    "src/x.d.ts": "export declare function a(): number;",
+    "src/x.js": A(1),
+    "src/consumer.js": CONSUMER("./x.js")
+  });
+  assert.deepEqual(consumerEdgesTo(g), ["src/x.d.ts:a [importa]"]);
+  assert.equal(g.unrep, 0);
+});
+
+test("explicit imports of admitted files with uppercase source extensions cannot be silently complete", () => {
+  for (const extension of ["JS", "Ts", "JSX", "TSX"]) {
+    const target = `src/X.${extension}`;
+    const g = snapshotGraph({ [target]: A(1), "src/c.ts": `import './X.${extension}';` });
+    assert.equal(g.unrep, 1, target);
+  }
+});
+
+test("a tsconfig wildcard cannot overlap its own prefix and suffix", () => {
+  const g = snapshotGraph({
+    "tsconfig.json": tsconfig([["ab*b", ["src/*x.js"]]]),
+    "src/x.js": A(1),
+    "src/consumer.js": 'import "ab";'
+  });
+  assert.deepEqual(g.edges, []);
+  assert.equal(g.unrep, 0);
+});
+
+test("a sibling .ts on disk cannot influence resolution inside a bounded snapshot", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "snapshot-js-extension-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "src"));
+  fs.writeFileSync(path.join(root, "src/x.ts"), A(1));
+  const files = { "src/consumer.js": CONSUMER("./x.js") };
+  const missing = snapshotGraph(files, root);
+  assert.equal(missing.unrep, 1);
+  assert.deepEqual(missing.edges, []);
+  const admitted = snapshotGraph({ ...files, "src/x.jsx": A(2) }, root);
+  assert.deepEqual(consumerEdgesTo(admitted), ["src/x.jsx:a [importa]"]);
+  assert.equal(admitted.unrep, 0);
+});
+
+test("legacy analysis retains the JavaScript target when a TypeScript sibling exists", (t) => {
+  const p = project(t, { "src/x.ts": A(1), "src/x.js": A(2), "src/consumer.js": CONSUMER("./x.js") }, { tests: false });
+  const legacy = analyzeTypeScriptProject({ name: "legacy", absolutePath: p.repo }, LIMITS);
+  const nodes = new Map(legacy.nodes.map((node) => [node.id, node]));
+  const targets = legacy.edges.filter((edge) => nodes.get(edge.from).file === "src/consumer.js")
+    .map((edge) => nodes.get(edge.to).file);
+  assert.deepEqual(targets, ["src/x.js"]);
+});
