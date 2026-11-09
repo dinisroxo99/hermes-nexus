@@ -31,6 +31,7 @@ import {
   handleClearSymbolCache,
   handleSymbolCacheStats
 } from "./routes/cache.routes.js";
+import { handleReadiness } from "./routes/readiness.routes.js";
 import { registerIntelligenceRoutes } from "./routes/intelligence.routes.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -42,6 +43,7 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 const router = createRouter();
 
 router.add("GET", "/api/health", handleHealth);
+router.add("GET", "/api/ready", handleReadiness);
 router.add("GET", "/api/projects", handleListProjects);
 router.add("GET", "/api/projects/:name/structure", handleGetProjectStructure);
 router.add("GET", "/api/projects/:name", handleGetProject);
