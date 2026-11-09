@@ -96,6 +96,11 @@ jobs:
       - name: npm ci
         run: npm ci
 
+      - name: Check operational recovery and paired evaluation
+        run: |
+          python -B -m unittest discover -s tests -p test_nexus_operations.py
+          python -B -m unittest discover -s tests -p test_paired_hermes_benchmark.py
+
       - name: Run npm test (Serena/Docker tests must stay skipped)
         env:
           SERENA_DOCKER_TESTS: ''
