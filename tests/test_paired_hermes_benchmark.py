@@ -1,3 +1,5 @@
+import hashlib
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -6,7 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "benchmarks"))
 from paired_cases import CASES, mentions_expected_paths, validate_answer
-from paired_hermes import evidence_turn, finish, git, setup_problem, summarize
+from paired_hermes import evidence_turn, git, retain_native_snapshot, setup_problem
+from paired_metrics import finish, summarize, value
 
 
 class PairedBenchmarkTests(unittest.TestCase):
@@ -69,3 +72,28 @@ class PairedBenchmarkTests(unittest.TestCase):
         self.assertEqual(finish(report)["measurement"]["observedTriplets"], 1)
         rows.pop()
         self.assertEqual(finish(report)["measurement"]["observedTriplets"], 0)
+
+    def test_canonical_prompt_includes_cache_and_zero_is_distinct_from_missing(self):
+        usage = {"positiveTokenCountObserved":True, "counters":{"input_tokens":10, "cache_read_tokens":40,
+                                                                  "cache_write_tokens":0, "output_tokens":2}}
+        self.assertEqual(value({"usage":usage}, "prompt_tokens"), 50)
+        del usage["counters"]["cache_read_tokens"]
+        self.assertIsNone(value({"usage":usage}, "prompt_tokens"))
+        self.assertIsNone(value({"usage":None}, "api_call_count"))
+
+    def test_snapshot_retention_uses_distinct_files_and_verifiable_hashes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.sqlite"
+            db = sqlite3.connect(source)
+            db.execute("CREATE TABLE fixture (n INTEGER)")
+            db.commit()
+            db.close()
+            directory = root / "sessions"
+            directory.mkdir()
+            record = retain_native_snapshot(directory, source, "synthetic")
+            self.assertEqual(record["status"], "retained")
+            self.assertEqual(record["sha256"], hashlib.sha256(source.read_bytes()).hexdigest())
+            self.assertEqual((directory / record["file"]).read_bytes(), source.read_bytes())
+            with self.assertRaises(FileExistsError):
+                retain_native_snapshot(directory, source, "synthetic")

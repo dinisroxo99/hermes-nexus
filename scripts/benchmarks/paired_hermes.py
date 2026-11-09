@@ -1,12 +1,11 @@
 """Run a matched, loopback-only Hermes evaluation on an independently scored disposable repository."""
 import argparse
-from collections import Counter
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 import socket
-import statistics
 import subprocess
 import sys
 import tempfile
@@ -16,11 +15,10 @@ from contextlib import contextmanager, ExitStack
 from itertools import permutations
 
 from paired_cases import CASES, FILES, mentions_expected_paths, task_prompt, validate_answer
+from paired_metrics import finish, summarize
 
 HERE = Path(__file__).resolve().parent
 HERMES_PIN = "903a57c540917cedd30c7d971938f1af7bdf60e2"
-METRICS = ("prompt_tokens", "input_tokens", "cache_read_tokens", "cache_write_tokens", "output_tokens",
-           "reasoning_tokens", "api_call_count", "fixtureReadCalls", "seconds")
 
 
 def run_command(args, cwd, env=None, data=None):
@@ -115,6 +113,18 @@ def evidence_turn(arm, evidence):
                       f"{evidence['finding']}; sourceIncomplete={str(evidence['sourceIncomplete']).lower()}"])
 
 
+def retain_native_snapshot(directory, source, session):
+    # The worker has closed SessionDB and successfully read this standalone DB via the native usage reader.
+    if source.stat().st_size > 32 * 1024 * 1024:
+        return {"status": "unavailable", "reason": "native_snapshot_file_limit"}
+    output = directory / (session + ".sqlite")
+    with source.open("rb") as src, output.open("xb") as dst:
+        shutil.copyfileobj(src, dst)
+    output.chmod(0o600)
+    with output.open("rb") as stored:
+        return {"status": "retained", "file": output.name, "sha256": hashlib.file_digest(stored, "sha256").hexdigest()}
+
+
 def run_arm(args, root, work, revision, endpoint, example, evidence, arm, repeat):
     session = f"bench-{repeat}-{example['id']}-{arm}"
     home = root / session
@@ -142,69 +152,15 @@ def run_arm(args, root, work, revision, endpoint, example, evidence, arm, repeat
             return {**row, "execution": "worker_error", "exitCode": proc.returncode, "error": error[0][:360],
                     "usage": None, "score": "not_evaluated"}
     except subprocess.TimeoutExpired:
-        return {**row, "execution": "timeout", "score": "not_evaluated"}
+        return {**row, "execution": "timeout", "timeoutSeconds": 135, "usage": None, "score": "not_evaluated"}
     result = json.loads((home / "result.json").read_text())
     if git(["rev-parse", "HEAD"], work) != revision or git(["status", "--porcelain"], work):
         raise RuntimeError("fixture_changed")
     score = validate_answer(example, result["answer"]) if result["execution"] == "completed" else "not_evaluated"
+    if args.session_dir and result.get("usage", {}).get("status") == "present":
+        result["nativeSnapshot"] = retain_native_snapshot(args.session_dir, home / "benchmark.sqlite", session)
     mentions = mentions_expected_paths(example, result["answer"]) if result["execution"] == "completed" else None
     return {**row, **result, "score": score, "mentionsExpectedPaths": mentions}
-
-
-def value(row, metric):
-    if metric in ("fixtureReadCalls", "seconds"):
-        return row.get(metric)
-    usage = row.get("usage") or {}
-    counters = usage.get("counters") or {}
-    # An empty persisted session does not demonstrate a zero-cost model call.
-    if not usage.get("positiveTokenCountObserved"):
-        return None
-    if metric == "prompt_tokens":
-        parts = [counters.get(k) for k in ("input_tokens", "cache_read_tokens", "cache_write_tokens")]
-        return sum(parts) if None not in parts else None
-    return counters.get(metric)
-
-
-def distribution(numbers):
-    return {"count": len(numbers), "min": min(numbers), "median": statistics.median(numbers), "max": max(numbers)} if numbers else None
-
-
-def contrasts(rows, left_arm, right_arm):
-    pairs = {(r["repeat"], r["task"], r["arm"]): r for r in rows}
-    deltas = {key: [] for key in METRICS}
-    for (repeat, task, arm), left in pairs.items():
-        right = pairs.get((repeat, task, right_arm))
-        if arm != left_arm or not right or left["execution"] != "completed" or right["execution"] != "completed":
-            continue
-        for metric in METRICS:
-            a, b = value(left, metric), value(right, metric)
-            if a is not None and b is not None:
-                deltas[metric].append(round(b - a, 3))
-    return {k: distribution(v) for k, v in deltas.items()}
-
-
-def summarize(rows, compact=False):
-    arms = ("baseline", "nexus", "compact") if compact else ("baseline", "nexus")
-    result = {"pairedNexusMinusBaseline": contrasts(rows, "baseline", "nexus"),
-              "scores": {arm: dict(Counter(r["score"] for r in rows if r["arm"] == arm)) for arm in arms}}
-    if compact:
-        result["pairedCompactMinusBaseline"] = contrasts(rows, "baseline", "compact")
-        result["pairedCompactMinusNexus"] = contrasts(rows, "nexus", "compact")
-    return result
-
-
-def finish(report):
-    rows = report["rows"]
-    measured = {(r["repeat"], r["task"], r["arm"]) for r in rows
-                if r["execution"] == "completed" and (value(r, "api_call_count") or 0) > 0}
-    arms = ("baseline", "nexus", "compact") if report.get("compactCohort") else ("baseline", "nexus")
-    count = sum(1 for repeat, task, arm in measured
-                if arm == "baseline" and all((repeat, task, name) in measured for name in arms))
-    expected = len(CASES) * report["repeats"]
-    unit = "Triplets" if len(arms) == 3 else "Pairs"
-    report["measurement"] = {"status": "complete" if count == expected else "partial" if count else "unavailable",
-                             "expected" + unit: expected, "observed" + unit: count}
-    return report
 
 
 def setup_problem(args):
@@ -262,6 +218,7 @@ def main():
     parser.add_argument("--model", default="qwen2.5-0.5b")
     parser.add_argument("--threads", type=int, choices=range(1, 17), default=3)
     parser.add_argument("--repeats", type=int, choices=range(1, 9), default=2)
+    parser.add_argument("--session-dir", type=Path, help="new private directory to retain only this run's synthetic native DBs")
     parser.add_argument("--compact-cohort", action="store_true", help="run the fixed stronger three-arm protocol")
     args = parser.parse_args()
     if args.output.resolve() in {args.hermes.resolve(), args.python.resolve(), args.gguf.resolve(), args.llama_server.resolve()}:
@@ -290,6 +247,13 @@ def main():
             save(report, args.output)
             raise SystemExit(2)
     report["nexusBaseRevision"] = git(["rev-parse", "HEAD"], HERE)
+    if args.session_dir:
+        try:
+            args.session_dir.mkdir(mode=0o700)
+        except OSError:
+            report["measurement"] = {"status": "unavailable", "reason": "session_directory_must_be_new"}
+            save(report, args.output)
+            raise SystemExit(2)
     try:
         evaluate(args, report)
     except (OSError, subprocess.SubprocessError, RuntimeError) as err:

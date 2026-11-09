@@ -1,0 +1,905 @@
+{
+  "format": "nexus-paired-hermes-v1",
+  "hermesRevision": "903a57c540917cedd30c7d971938f1af7bdf60e2",
+  "model": "qwen2.5-coder-1.5b",
+  "repeats": 2,
+  "threads": 3,
+  "compactCohort": true,
+  "serverContextTokens": 65536,
+  "ropeScaling": "yarn",
+  "ropeScale": 2,
+  "originalContext": 32768,
+  "temperature": 0,
+  "seed": 42,
+  "maxOutputTokens": 160,
+  "rows": [
+    {
+      "repeat": 1,
+      "task": "local-fix",
+      "arm": "baseline",
+      "promptSha256": "86d207819af12492cf1426023ff58bc72aee2a0b3bdbe209e9be65561f438f6f",
+      "evidenceBytes": 0,
+      "evidenceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fixtureRevision": "0894ac84d787d907bec32f1d76e0797fdd233b7a",
+      "sessionId": "bench-1-local-fix-baseline",
+      "execution": "completed",
+      "error": null,
+      "answer": "{\"operator\":\"ROUND\"}",
+      "turnExitReason": "text_response(finish_reason=stop)",
+      "turnApiCalls": 1,
+      "seconds": 46.334,
+      "usage": {
+        "sessionId": "bench-1-local-fix-baseline",
+        "status": "present",
+        "counters": {
+          "input_tokens": 2895,
+          "output_tokens": 6,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 0,
+          "api_call_count": 1
+        },
+        "positiveTokenCountObserved": true
+      },
+      "fixtureReadCalls": 0,
+      "filesRead": [],
+      "score": "invalid_answer",
+      "mentionsExpectedPaths": null,
+      "nativeSnapshot": {
+        "status": "retained",
+        "file": "bench-1-local-fix-baseline.sqlite",
+        "sha256": "dc042599dc0a7e7f52ad26769b7db35c9347910a410ce1e711305be5b99937f4"
+      }
+    },
+    {
+      "repeat": 1,
+      "task": "local-fix",
+      "arm": "nexus",
+      "promptSha256": "86d207819af12492cf1426023ff58bc72aee2a0b3bdbe209e9be65561f438f6f",
+      "evidenceBytes": 850,
+      "evidenceSha256": "61b865c57641736c873628f58902c024d76285770cb515fd5b2e34e0a35a9593",
+      "fixtureRevision": "0894ac84d787d907bec32f1d76e0797fdd233b7a",
+      "sessionId": "bench-1-local-fix-nexus",
+      "execution": "completed",
+      "error": null,
+      "answer": "{\"operator\":\"round\"}",
+      "turnExitReason": "text_response(finish_reason=stop)",
+      "turnApiCalls": 1,
+      "seconds": 36.881,
+      "usage": {
+        "sessionId": "bench-1-local-fix-nexus",
+        "status": "present",
+        "counters": {
+          "input_tokens": 3110,
+          "output_tokens": 6,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 0,
+          "api_call_count": 1
+        },
+        "positiveTokenCountObserved": true
+      },
+      "fixtureReadCalls": 0,
+      "filesRead": [],
+      "score": "wrong_answer",
+      "mentionsExpectedPaths": null,
+      "nativeSnapshot": {
+        "status": "retained",
+        "file": "bench-1-local-fix-nexus.sqlite",
+        "sha256": "2b0c92d924b4288558591dd64e58a9e0da025220736589f2c060dbe4e5516c64"
+      }
+    },
+    {
+      "repeat": 1,
+      "task": "local-fix",
+      "arm": "compact",
+      "promptSha256": "86d207819af12492cf1426023ff58bc72aee2a0b3bdbe209e9be65561f438f6f",
+      "evidenceBytes": 278,
+      "evidenceSha256": "ff1087204c4208743bd3414bca4e9e152b51e59a63e8abd9c27a6632fa6a302f",
+      "fixtureRevision": "0894ac84d787d907bec32f1d76e0797fdd233b7a",
+      "sessionId": "bench-1-local-fix-compact",
+      "execution": "completed",
+      "error": null,
+      "answer": "{\"operator\":\"ROUND\"}",
+      "turnExitReason": "text_response(finish_reason=stop)",
+      "turnApiCalls": 1,
+      "seconds": 37.671,
+      "usage": {
+        "sessionId": "bench-1-local-fix-compact",
+        "status": "present",
+        "counters": {
+          "input_tokens": 2968,
+          "output_tokens": 6,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 0,
+          "api_call_count": 1
+        },
+        "positiveTokenCountObserved": true
+      },
+      "fixtureReadCalls": 0,
+      "filesRead": [],
+      "score": "invalid_answer",
+      "mentionsExpectedPaths": null,
+      "nativeSnapshot": {
+        "status": "retained",
+        "file": "bench-1-local-fix-compact.sqlite",
+        "sha256": "468cd08627be8a7598b3b92f46de0d000edbfe7249a527d742924a7e8087afc6"
+      }
+    },
+    {
+      "repeat": 1,
+      "task": "impact",
+      "arm": "baseline",
+      "promptSha256": "9808046f46edfbf1dc3f0aa4a913181698a14426414c4d7274b93f9280b67d4f",
+      "evidenceBytes": 0,
+      "evidenceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fixtureRevision": "0894ac84d787d907bec32f1d76e0797fdd233b7a",
+      "sessionId": "bench-1-impact-baseline",
+      "execution": "completed",
+      "error": null,
+      "answer": "```json\n{\n  \"paths\": [\n    \"src/invoice.js\",\n    \"src/print.js\",\n    \"tests/invoice.test.js\",\n    \"tests/print.test.js\"\n  ]\n}\n```",
+      "turnExitReason": "text_response(finish_reason=stop)",
+      "turnApiCalls": 1,
+      "seconds": 46.166,
+      "usage": {
+        "sessionId": "bench-1-impact-baseline",
+        "status": "present",
+        "counters": {
+          "input_tokens": 2888,
+          "output_tokens": 42,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 0,
+          "api_call_count": 1
+        },
+        "positiveTokenCountObserved": true
+      },
+      "fixtureReadCalls": 0,
+      "filesRead": [],
+      "score": "wrong_answer",
+      "mentionsExpectedPaths": true,
+      "nativeSnapshot": {
+        "status": "retained",
+        "file": "bench-1-impact-baseline.sqlite",
+        "sha256": "8eb48de8695ab887e51701775cd279a28324aab7bc1ec85f4de72eafa22a9ab2"
+      }
+    },
+    {
+      "repeat": 1,
+      "task": "impact",
+      "arm": "compact",
+      "promptSha256": "9808046f46edfbf1dc3f0aa4a913181698a14426414c4d7274b93f9280b67d4f",
+      "evidenceBytes": 278,
+      "evidenceSha256": "ff1087204c4208743bd3414bca4e9e152b51e59a63e8abd9c27a6632fa6a302f",
+      "fixtureRevision": "0894ac84d787d907bec32f1d76e0797fdd233b7a",
+      "sessionId": "bench-1-impact-compact",
+      "execution": "completed",
+      "error": null,
+      "answer": "```json\n{\n  \"paths\": [\n    \"src/invoice.js\",\n    \"src/print.js\",\n    \"tests/invoice.test.js\"\n  ]\n}\n```",
+      "turnExitReason": "text_response(finish_reason=stop)",
+      "turnApiCalls": 1,
+      "seconds": 48.017,
+      "usage": {
+        "sessionId": "bench-1-impact-compact",
+        "status": "present",
+        "counters": {
+          "input_tokens": 2961,
+          "output_tokens": 35,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 0,
+          "api_call_count": 1
+        },
+        "positiveTokenCountObserved": true
+      },
+      "fixtureReadCalls": 0,
+      "filesRead": [],
+      "score": "wrong_answer",
+      "mentionsExpectedPaths": true,
+      "nativeSnapshot": {
+        "status": "retained",
+        "file": "bench-1-impact-compact.sqlite",
+        "sha256": "d5079c0f9d0cdd39b42ec74ab8547c8958ff23299b981d2f3de01c35f8db05ee"
+      }
+    },
+    {
+      "repeat": 1,
+      "task": "impact",
+      "arm": "nexus",
+      "promptSha256": "9808046f46edfbf1dc3f0aa4a913181698a14426414c4d7274b93f9280b67d4f",
+      "evidenceBytes": 850,
+      "evidenceSha256": "61b865c57641736c873628f58902c024d76285770cb515fd5b2e34e0a35a9593",
+      "fixtureRevision": "0894ac84d787d907bec32f1d76e0797fdd233b7a",
+      "sessionId": "bench-1-impact-nexus",
+      "execution": "completed",
+      "error": null,
+      "answer": "```json\n{\n  \"paths\": [\n    \"src/invoice.js\",\n    \"src/print.js\",\n    \"tests/invoice.test.js\"\n  ]\n}\n```",
+      "turnExitReason": "text_response(finish_reason=stop)",
+      "turnApiCalls": 1,
+      "seconds": 53.138,
+      "usage": {
+        "sessionId": "bench-1-impact-nexus",
+        "status": "present",
+        "counters": {
+          "input_tokens": 3103,
+          "output_tokens": 35,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 0,
+          "api_call_count": 1
+        },
+        "positiveTokenCountObserved": true
+      },
+      "fixtureReadCalls": 0,
+      "filesRead": [],
+      "score": "wrong_answer",
+      "mentionsExpectedPaths": true,
+      "nativeSnapshot": {
+        "status": "retained",
+        "file": "bench-1-impact-nexus.sqlite",
+        "sha256": "6ac86ed21eae8e0b58534073e0344e14a6c95565b9ed47ba47e4b67ae4aa76fd"
+      }
+    },
+    {
+      "repeat": 1,
+      "task": "tests",
+      "arm": "nexus",
+      "promptSha256": "807efafb2c4e74c5c77d55089a45195bbaa214914bdb58e16ef764bf0f90e666",
+      "evidenceBytes": 832,
+      "evidenceSha256": "1af825faae01ca4903941b57f433c67965be68b132526032cbc5e367d5e5a00e",
+      "fixtureRevision": "0894ac84d787d907bec32f1d76e0797fdd233b7a",
+      "sessionId": "bench-1-tests-nexus",
+      "execution": "completed",
+      "error": null,
+      "answer": "```json\n{\n  \"paths\": [\"tests/invoice.test.js\"]\n}\n```",
+      "turnExitReason": "text_response(finish_reason=stop)",
+      "turnApiCalls": 1,
+      "seconds": 55.889,
+      "usage": {
+        "sessionId": "bench-1-tests-nexus",
+        "status": "present",
+        "counters": {
+          "input_tokens": 3084,
+          "output_tokens": 18,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 0,
+          "api_call_count": 1
+        },
+        "positiveTokenCountObserved": true
+      },
+      "fixtureReadCalls": 0,
+      "filesRead": [],
+      "score": "pass",
+      "mentionsExpectedPaths": true,
+      "nativeSnapshot": {
+        "status": "retained",
+        "file": "bench-1-tests-nexus.sqlite",
+        "sha256": "82a65714c8197f28e0fde5aa757bfa87a6b4fb473e00a8e79ca9202e3dc040f0"
+      }
+    },
+    {
+      "repeat": 1,
+      "task": "tests",
+      "arm": "baseline",
+      "promptSha256": "807efafb2c4e74c5c77d55089a45195bbaa214914bdb58e16ef764bf0f90e666",
+      "evidenceBytes": 0,
+      "evidenceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fixtureRevision": "0894ac84d787d907bec32f1d76e0797fdd233b7a",
+      "sessionId": "bench-1-tests-baseline",
+      "execution": "completed",
+      "error": null,
+      "answer": "```json\n{\n  \"paths\": [\n    \"tests/invoice.test.js\"\n  ]\n}\n```",
+      "turnExitReason": "text_response(finish_reason=stop)",
+      "turnApiCalls": 1,
+      "seconds": 50.47,
+      "usage": {
+        "sessionId": "bench-1-tests-baseline",
+        "status": "present",
+        "counters": {
+          "input_tokens": 2877,
+          "output_tokens": 22,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 0,
+          "api_call_count": 1
+        },
+        "positiveTokenCountObserved": true
+      },
+      "fixtureReadCalls": 0,
+      "filesRead": [],
+      "score": "pass",
+      "mentionsExpectedPaths": true,
+      "nativeSnapshot": {
+        "status": "retained",
+        "file": "bench-1-tests-baseline.sqlite",
+        "sha256": "031c13a7563b316817a38afd07539ab89b57fff99347b2602f052ca130279da3"
+      }
+    },
+    {
+      "repeat": 1,
+      "task": "tests",
+      "arm": "compact",
+      "promptSha256": "807efafb2c4e74c5c77d55089a45195bbaa214914bdb58e16ef764bf0f90e666",
+      "evidenceBytes": 244,
+      "evidenceSha256": "aface130b903b5b1deb5eb48275d16d41eedfa578b332a669396e2245ef5ee55",
+      "fixtureRevision": "0894ac84d787d907bec32f1d76e0797fdd233b7a",
+      "sessionId": "bench-1-tests-compact",
+      "execution": "completed",
+      "error": null,
+      "answer": "```json\n{\n  \"paths\": [\n    \"tests/invoice.test.js\"\n  ]\n}\n```",
+      "turnExitReason": "text_response(finish_reason=stop)",
+      "turnApiCalls": 1,
+      "seconds": 50.118,
+      "usage": {
+        "sessionId": "bench-1-tests-compact",
+        "status": "present",
+        "counters": {
+          "input_tokens": 2938,
+          "output_tokens": 22,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 0,
+          "api_call_count": 1
+        },
+        "positiveTokenCountObserved": true
+      },
+      "fixtureReadCalls": 0,
+      "filesRead": [],
+      "score": "pass",
+      "mentionsExpectedPaths": true,
+      "nativeSnapshot": {
+        "status": "retained",
+        "file": "bench-1-tests-compact.sqlite",
+        "sha256": "dca07b8774f1ddaeb065545ba2ff33d1fd696df2da9e06d0ef119421136144c9"
+      }
+    },
+    {
+      "repeat": 2,
+      "task": "local-fix",
+      "arm": "nexus",
+      "promptSha256": "86d207819af12492cf1426023ff58bc72aee2a0b3bdbe209e9be65561f438f6f",
+      "evidenceBytes": 850,
+      "evidenceSha256": "61b865c57641736c873628f58902c024d76285770cb515fd5b2e34e0a35a9593",
+      "fixtureRevision": "0894ac84d787d907bec32f1d76e0797fdd233b7a",
+      "sessionId": "bench-2-local-fix-nexus",
+      "execution": "completed",
+      "error": null,
+      "answer": "{\"operator\":\"round\"}",
+      "turnExitReason": "text_response(finish_reason=stop)",
+      "turnApiCalls": 1,
+      "seconds": 51.986,
+      "usage": {
+        "sessionId": "bench-2-local-fix-nexus",
+        "status": "present",
+        "counters": {
+          "input_tokens": 3110,
+          "output_tokens": 6,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 0,
+          "api_call_count": 1
+        },
+        "positiveTokenCountObserved": true
+      },
+      "fixtureReadCalls": 0,
+      "filesRead": [],
+      "score": "wrong_answer",
+      "mentionsExpectedPaths": null,
+      "nativeSnapshot": {
+        "status": "retained",
+        "file": "bench-2-local-fix-nexus.sqlite",
+        "sha256": "2ea48547bcfc257fe6c9b0cf975285ca2e8ef5da422fed225c15f73d1ea592ef"
+      }
+    },
+    {
+      "repeat": 2,
+      "task": "local-fix",
+      "arm": "compact",
+      "promptSha256": "86d207819af12492cf1426023ff58bc72aee2a0b3bdbe209e9be65561f438f6f",
+      "evidenceBytes": 278,
+      "evidenceSha256": "ff1087204c4208743bd3414bca4e9e152b51e59a63e8abd9c27a6632fa6a302f",
+      "fixtureRevision": "0894ac84d787d907bec32f1d76e0797fdd233b7a",
+      "sessionId": "bench-2-local-fix-compact",
+      "execution": "completed",
+      "error": null,
+      "answer": "{\"operator\":\"ROUND\"}",
+      "turnExitReason": "text_response(finish_reason=stop)",
+      "turnApiCalls": 1,
+      "seconds": 42.091,
+      "usage": {
+        "sessionId": "bench-2-local-fix-compact",
+        "status": "present",
+        "counters": {
+          "input_tokens": 2968,
+          "output_tokens": 6,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 0,
+          "api_call_count": 1
+        },
+        "positiveTokenCountObserved": true
+      },
+      "fixtureReadCalls": 0,
+      "filesRead": [],
+      "score": "invalid_answer",
+      "mentionsExpectedPaths": null,
+      "nativeSnapshot": {
+        "status": "retained",
+        "file": "bench-2-local-fix-compact.sqlite",
+        "sha256": "5be395651792a66f9cdceb0ca7eed80c1d5e8ee468ee70c6dfdcb0278b012db5"
+      }
+    },
+    {
+      "repeat": 2,
+      "task": "local-fix",
+      "arm": "baseline",
+      "promptSha256": "86d207819af12492cf1426023ff58bc72aee2a0b3bdbe209e9be65561f438f6f",
+      "evidenceBytes": 0,
+      "evidenceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fixtureRevision": "0894ac84d787d907bec32f1d76e0797fdd233b7a",
+      "sessionId": "bench-2-local-fix-baseline",
+      "execution": "completed",
+      "error": null,
+      "answer": "{\"operator\":\"ROUND\"}",
+      "turnExitReason": "text_response(finish_reason=stop)",
+      "turnApiCalls": 1,
+      "seconds": 54.735,
+      "usage": {
+        "sessionId": "bench-2-local-fix-baseline",
+        "status": "present",
+        "counters": {
+          "input_tokens": 2895,
+          "output_tokens": 6,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 0,
+          "api_call_count": 1
+        },
+        "positiveTokenCountObserved": true
+      },
+      "fixtureReadCalls": 0,
+      "filesRead": [],
+      "score": "invalid_answer",
+      "mentionsExpectedPaths": null,
+      "nativeSnapshot": {
+        "status": "retained",
+        "file": "bench-2-local-fix-baseline.sqlite",
+        "sha256": "38f4b71a79fba08b2cc6762e1be83d01308354066048acb1c9ebbe0a22d11a91"
+      }
+    },
+    {
+      "repeat": 2,
+      "task": "impact",
+      "arm": "compact",
+      "promptSha256": "9808046f46edfbf1dc3f0aa4a913181698a14426414c4d7274b93f9280b67d4f",
+      "evidenceBytes": 278,
+      "evidenceSha256": "ff1087204c4208743bd3414bca4e9e152b51e59a63e8abd9c27a6632fa6a302f",
+      "fixtureRevision": "0894ac84d787d907bec32f1d76e0797fdd233b7a",
+      "sessionId": "bench-2-impact-compact",
+      "execution": "completed",
+      "error": null,
+      "answer": "```json\n{\n  \"paths\": [\n    \"src/invoice.js\",\n    \"tests/invoice.test.js\",\n    \"src/print.js\",\n    \"tests/print.test.js\"\n  ]\n}\n```",
+      "turnExitReason": "text_response(finish_reason=stop)",
+      "turnApiCalls": 1,
+      "seconds": 55.815,
+      "usage": {
+        "sessionId": "bench-2-impact-compact",
+        "status": "present",
+        "counters": {
+          "input_tokens": 2961,
+          "output_tokens": 42,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 0,
+          "api_call_count": 1
+        },
+        "positiveTokenCountObserved": true
+      },
+      "fixtureReadCalls": 0,
+      "filesRead": [],
+      "score": "wrong_answer",
+      "mentionsExpectedPaths": true,
+      "nativeSnapshot": {
+        "status": "retained",
+        "file": "bench-2-impact-compact.sqlite",
+        "sha256": "9eedab2a82b135c6ff4f88430c5512064fc5df1d00200e780672709f1d7746bd"
+      }
+    },
+    {
+      "repeat": 2,
+      "task": "impact",
+      "arm": "baseline",
+      "promptSha256": "9808046f46edfbf1dc3f0aa4a913181698a14426414c4d7274b93f9280b67d4f",
+      "evidenceBytes": 0,
+      "evidenceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fixtureRevision": "0894ac84d787d907bec32f1d76e0797fdd233b7a",
+      "sessionId": "bench-2-impact-baseline",
+      "execution": "completed",
+      "error": null,
+      "answer": "```json\n{\n  \"paths\": [\n    \"src/invoice.js\",\n    \"src/print.js\",\n    \"tests/invoice.test.js\"\n  ]\n}\n```",
+      "turnExitReason": "text_response(finish_reason=stop)",
+      "turnApiCalls": 1,
+      "seconds": 46.121,
+      "usage": {
+        "sessionId": "bench-2-impact-baseline",
+        "status": "present",
+        "counters": {
+          "input_tokens": 2888,
+          "output_tokens": 35,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 0,
+          "api_call_count": 1
+        },
+        "positiveTokenCountObserved": true
+      },
+      "fixtureReadCalls": 0,
+      "filesRead": [],
+      "score": "wrong_answer",
+      "mentionsExpectedPaths": true,
+      "nativeSnapshot": {
+        "status": "retained",
+        "file": "bench-2-impact-baseline.sqlite",
+        "sha256": "29dc7791b7bba49e80fcd9089c57e5b8fdaf952f210dd199bd3a8fad98afed50"
+      }
+    },
+    {
+      "repeat": 2,
+      "task": "impact",
+      "arm": "nexus",
+      "promptSha256": "9808046f46edfbf1dc3f0aa4a913181698a14426414c4d7274b93f9280b67d4f",
+      "evidenceBytes": 850,
+      "evidenceSha256": "61b865c57641736c873628f58902c024d76285770cb515fd5b2e34e0a35a9593",
+      "fixtureRevision": "0894ac84d787d907bec32f1d76e0797fdd233b7a",
+      "sessionId": "bench-2-impact-nexus",
+      "execution": "completed",
+      "error": null,
+      "answer": "```json\n{\n  \"paths\": [\n    \"src/invoice.js\",\n    \"src/print.js\",\n    \"tests/invoice.test.js\"\n  ]\n}\n```",
+      "turnExitReason": "text_response(finish_reason=stop)",
+      "turnApiCalls": 1,
+      "seconds": 46.088,
+      "usage": {
+        "sessionId": "bench-2-impact-nexus",
+        "status": "present",
+        "counters": {
+          "input_tokens": 3103,
+          "output_tokens": 35,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 0,
+          "api_call_count": 1
+        },
+        "positiveTokenCountObserved": true
+      },
+      "fixtureReadCalls": 0,
+      "filesRead": [],
+      "score": "wrong_answer",
+      "mentionsExpectedPaths": true,
+      "nativeSnapshot": {
+        "status": "retained",
+        "file": "bench-2-impact-nexus.sqlite",
+        "sha256": "9045c89eb41c618d9a2c6cd34bde2700aeb5c68eb742807571946932eafad19e"
+      }
+    },
+    {
+      "repeat": 2,
+      "task": "tests",
+      "arm": "compact",
+      "promptSha256": "807efafb2c4e74c5c77d55089a45195bbaa214914bdb58e16ef764bf0f90e666",
+      "evidenceBytes": 244,
+      "evidenceSha256": "aface130b903b5b1deb5eb48275d16d41eedfa578b332a669396e2245ef5ee55",
+      "fixtureRevision": "0894ac84d787d907bec32f1d76e0797fdd233b7a",
+      "sessionId": "bench-2-tests-compact",
+      "execution": "completed",
+      "error": null,
+      "answer": "```json\n{\n  \"paths\": [\n    \"tests/invoice.test.js\"\n  ]\n}\n```",
+      "turnExitReason": "text_response(finish_reason=stop)",
+      "turnApiCalls": 1,
+      "seconds": 42.688,
+      "usage": {
+        "sessionId": "bench-2-tests-compact",
+        "status": "present",
+        "counters": {
+          "input_tokens": 2938,
+          "output_tokens": 22,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 0,
+          "api_call_count": 1
+        },
+        "positiveTokenCountObserved": true
+      },
+      "fixtureReadCalls": 0,
+      "filesRead": [],
+      "score": "pass",
+      "mentionsExpectedPaths": true,
+      "nativeSnapshot": {
+        "status": "retained",
+        "file": "bench-2-tests-compact.sqlite",
+        "sha256": "6fe24b2fc7b4674f4aa83a6364868c94b9733e26ae5456174e7e0f56f93f36d1"
+      }
+    },
+    {
+      "repeat": 2,
+      "task": "tests",
+      "arm": "nexus",
+      "promptSha256": "807efafb2c4e74c5c77d55089a45195bbaa214914bdb58e16ef764bf0f90e666",
+      "evidenceBytes": 832,
+      "evidenceSha256": "1af825faae01ca4903941b57f433c67965be68b132526032cbc5e367d5e5a00e",
+      "fixtureRevision": "0894ac84d787d907bec32f1d76e0797fdd233b7a",
+      "sessionId": "bench-2-tests-nexus",
+      "execution": "completed",
+      "error": null,
+      "answer": "```json\n{\n  \"paths\": [\"tests/invoice.test.js\"]\n}\n```",
+      "turnExitReason": "text_response(finish_reason=stop)",
+      "turnApiCalls": 1,
+      "seconds": 36.446,
+      "usage": {
+        "sessionId": "bench-2-tests-nexus",
+        "status": "present",
+        "counters": {
+          "input_tokens": 3084,
+          "output_tokens": 18,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 0,
+          "api_call_count": 1
+        },
+        "positiveTokenCountObserved": true
+      },
+      "fixtureReadCalls": 0,
+      "filesRead": [],
+      "score": "pass",
+      "mentionsExpectedPaths": true,
+      "nativeSnapshot": {
+        "status": "retained",
+        "file": "bench-2-tests-nexus.sqlite",
+        "sha256": "6f82e5dbe2958568b6d60645fba43d9443769a1310ab3df6db100e8b072e21e4"
+      }
+    },
+    {
+      "repeat": 2,
+      "task": "tests",
+      "arm": "baseline",
+      "promptSha256": "807efafb2c4e74c5c77d55089a45195bbaa214914bdb58e16ef764bf0f90e666",
+      "evidenceBytes": 0,
+      "evidenceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fixtureRevision": "0894ac84d787d907bec32f1d76e0797fdd233b7a",
+      "sessionId": "bench-2-tests-baseline",
+      "execution": "completed",
+      "error": null,
+      "answer": "```json\n{\n  \"paths\": [\n    \"tests/invoice.test.js\"\n  ]\n}\n```",
+      "turnExitReason": "text_response(finish_reason=stop)",
+      "turnApiCalls": 1,
+      "seconds": 53.717,
+      "usage": {
+        "sessionId": "bench-2-tests-baseline",
+        "status": "present",
+        "counters": {
+          "input_tokens": 2877,
+          "output_tokens": 22,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": 0,
+          "api_call_count": 1
+        },
+        "positiveTokenCountObserved": true
+      },
+      "fixtureReadCalls": 0,
+      "filesRead": [],
+      "score": "pass",
+      "mentionsExpectedPaths": true,
+      "nativeSnapshot": {
+        "status": "retained",
+        "file": "bench-2-tests-baseline.sqlite",
+        "sha256": "8d1ed0e0fb7c7e3fae25d210e4bff0119ce8dba9b285ac0eea6a7f31d980c8ca"
+      }
+    }
+  ],
+  "unmeasured": [
+    "human_acceptance",
+    "coordination_incidents",
+    "paid_cost",
+    "runtime_retry_count"
+  ],
+  "modelSha256": "f530705d447660a4336c329981af164b471b60b974b1d808d57e8ec9fe23b239",
+  "engineSha256": "523c55e2d680718afd84b0ac980f852531d96fea93a9a9762ab4ae52ce094422",
+  "protocolSha256": "07aed5635c69b73372f72825ff9dcf0a6f96ed3885c2e53139663c0e4e22f85a",
+  "nexusBaseRevision": "b06b7c9d2926f3451cc8a9c710df941738d7280c",
+  "fixtureRevision": "0894ac84d787d907bec32f1d76e0797fdd233b7a",
+  "evidencePreparationSecondsAllCases": 1.263,
+  "engineVersion": "version: 0.9.0-dev (build 12230, commit a4d4f2fd4)\nbuilt with GNU 11.4.0 for Linux x86_64",
+  "summary": {
+    "pairedNexusMinusBaseline": {
+      "prompt_tokens": {
+        "count": 6,
+        "min": 207,
+        "median": 215.0,
+        "max": 215
+      },
+      "input_tokens": {
+        "count": 6,
+        "min": 207,
+        "median": 215.0,
+        "max": 215
+      },
+      "cache_read_tokens": {
+        "count": 6,
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "cache_write_tokens": {
+        "count": 6,
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "output_tokens": {
+        "count": 6,
+        "min": -7,
+        "median": -2.0,
+        "max": 0
+      },
+      "reasoning_tokens": {
+        "count": 6,
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "api_call_count": {
+        "count": 6,
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "fixtureReadCalls": {
+        "count": 6,
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "seconds": {
+        "count": 6,
+        "min": -17.271,
+        "median": -1.391,
+        "max": 6.972
+      }
+    },
+    "scores": {
+      "baseline": {
+        "invalid_answer": 2,
+        "wrong_answer": 2,
+        "pass": 2
+      },
+      "nexus": {
+        "wrong_answer": 4,
+        "pass": 2
+      },
+      "compact": {
+        "invalid_answer": 2,
+        "wrong_answer": 2,
+        "pass": 2
+      }
+    },
+    "pairedCompactMinusBaseline": {
+      "prompt_tokens": {
+        "count": 6,
+        "min": 61,
+        "median": 73.0,
+        "max": 73
+      },
+      "input_tokens": {
+        "count": 6,
+        "min": 61,
+        "median": 73.0,
+        "max": 73
+      },
+      "cache_read_tokens": {
+        "count": 6,
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "cache_write_tokens": {
+        "count": 6,
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "output_tokens": {
+        "count": 6,
+        "min": -7,
+        "median": 0.0,
+        "max": 7
+      },
+      "reasoning_tokens": {
+        "count": 6,
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "api_call_count": {
+        "count": 6,
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "fixtureReadCalls": {
+        "count": 6,
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "seconds": {
+        "count": 6,
+        "min": -12.644,
+        "median": -4.5075,
+        "max": 9.694
+      }
+    },
+    "pairedCompactMinusNexus": {
+      "prompt_tokens": {
+        "count": 6,
+        "min": -146,
+        "median": -142.0,
+        "max": -142
+      },
+      "input_tokens": {
+        "count": 6,
+        "min": -146,
+        "median": -142.0,
+        "max": -142
+      },
+      "cache_read_tokens": {
+        "count": 6,
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "cache_write_tokens": {
+        "count": 6,
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "output_tokens": {
+        "count": 6,
+        "min": 0,
+        "median": 2.0,
+        "max": 7
+      },
+      "reasoning_tokens": {
+        "count": 6,
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "api_call_count": {
+        "count": 6,
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "fixtureReadCalls": {
+        "count": 6,
+        "min": 0,
+        "median": 0.0,
+        "max": 0
+      },
+      "seconds": {
+        "count": 6,
+        "min": -9.895,
+        "median": -2.1655,
+        "max": 9.727
+      }
+    }
+  },
+  "measurement": {
+    "status": "complete",
+    "expectedTriplets": 6,
+    "observedTriplets": 6
+  }
+}

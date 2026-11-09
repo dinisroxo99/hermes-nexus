@@ -83,6 +83,7 @@ time, including across arm boundaries. Two repeats on a small fixture cannot est
 
 ## Stronger-model protocol
 
+The [Coder results and per-run comparisons](paired-hermes-coder-results.md) cover all 18 sessions.
 The [preregistered Coder follow-up](paired-hermes-coder-protocol.md) uses the same tasks and oracles. Its
 `--compact-cohort` mode runs all six orders of the three arms and starts a fresh model server for each
 session. The full evidence rendering is the original pilot rendering. Compact keeps the symbol names and
@@ -94,3 +95,9 @@ To reproduce, use the pinned Coder GGUF in the protocol and add `--compact-cohor
 to the command above. Missing inputs produce an `unavailable` JSON report and exit code 2. An incompatible
 Hermes checkout or mismatched preregistered model/settings produces `unsupported`. Individual worker, agent
 or inference failures remain in the per-session rows. Gold correctness is independent of system availability.
+
+Pass `--session-dir /path/to/new-private-directory` to retain synthetic Hermes SQLite snapshots for independent
+counter verification. The runner creates the directory, records the file name and SHA-256 beside each matching
+row, and copies the database after Hermes closes it. These files include generated fixture conversations. Without
+that option, only the measured counters and result rows persist. The first 0.5B pilot retains counters and exit
+reasons but no raw SQLite files.
