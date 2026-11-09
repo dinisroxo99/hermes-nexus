@@ -21,7 +21,6 @@ from __future__ import annotations
 import json
 import os
 import stat
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +65,7 @@ def inspect_jsonl_log(
     max_bytes: int = 10 * 1024 * 1024,
     max_records: int = 10000,
     max_line_bytes: int = 1024 * 1024,
+    max_groups: int = 20,
 ) -> dict[str, Any]:
     """Read-only streaming validation of the JSONL.
 
@@ -73,6 +73,14 @@ def inspect_jsonl_log(
     If the file changes size/mtime while reading, sets changed_during_read and limited.
     Incomplete last line (no trailing newline + unparsable) is limited, not corruption.
     """
+    report, _ = read_jsonl_capture(input_path, max_bytes=max_bytes, max_records=max_records,
+                                   max_line_bytes=max_line_bytes, max_groups=max_groups)
+    return report
+
+
+def read_jsonl_capture(input_path: str | Path, *, max_bytes: int, max_records: int, max_line_bytes: int,
+                       max_groups: int) -> tuple[dict[str, Any], tuple[int, int] | None]:
+    """Return the public observation and the separately held identity of the file actually read."""
     p = Path(input_path)
     report: dict[str, Any] = {
         "examined": 0,
@@ -103,36 +111,49 @@ def inspect_jsonl_log(
     if not p.exists():
         report["status"] = "error"
         report["error"] = "no_such_file"
-        return report
+        return report, None
     if not _is_regular_file(p):
         report["status"] = "error"
         report["error"] = "not_regular_file_or_symlink"
-        return report
+        return report, None
 
     try:
-        size_before = p.stat().st_size
-        mtime_before = p.stat().st_mtime
+        before = p.lstat()
+        size_before = before.st_size
     except OSError as e:
         report["status"] = "error"
         report["error"] = f"stat_failed: {e}"
-        return report
+        return report, None
 
     report["file_size_before"] = size_before
 
     seen_corrs: set[tuple[str, str, str]] = set()
-    groups: dict[str, dict[str, Any]] = {}
+    groups: dict[tuple[str, str], dict[str, Any]] = {}
     invalids: list[dict[str, Any]] = []
     bytes_obs = 0
     rec_obs = 0
     limited = False
     limited_reason: str | None = None
     incomplete_last = False
-    last_line_was_invalid_json = False  # for O2-INCOMPLETE-HEURISTIC: track only final examined line
 
     try:
-        with p.open("r", encoding="utf-8", newline="") as f:
-            for lineno, raw_line in enumerate(f, 1):
-                line_bytes = len(raw_line.encode("utf-8"))
+        def open_for_read(name, flags):
+            return os.open(name, flags | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+
+        # Latin-1 is a lossless byte view for bounded Universal Newline reads. Decode admitted lines as UTF-8 below.
+        with open(p, "r", encoding="latin-1", newline="", opener=open_for_read) as f:
+            opened = os.fstat(f.fileno())
+            if not stat.S_ISREG(opened.st_mode) or not os.path.samestat(before, opened):
+                report.update(status="error", error="not_regular_file_or_symlink")
+                return report, None
+            while True:
+                remaining = max_bytes - bytes_obs
+                read_limit = 1 if rec_obs >= max_records else max(1, min(max_line_bytes, remaining) + 1)
+                raw_line = f.readline(read_limit)
+                if not raw_line:
+                    break
+                line_bytes = len(raw_line)
+                lineno = rec_obs + 1
 
                 if rec_obs + 1 > max_records:
                     limited = True
@@ -153,9 +174,7 @@ def inspect_jsonl_log(
                 report["records_observed"] = rec_obs
                 report["examined"] = rec_obs
 
-                last_line_was_invalid_json = False  # clear at start of each examined line; set true ONLY on JSONDecodeError (O2-INCOMPLETE-HEURISTIC fix)
-
-                stripped = raw_line.rstrip("\n\r")
+                stripped = raw_line.encode("latin-1").decode("utf-8").rstrip("\n\r")
                 if not stripped:
                     # blank line: treat as examined but invalid? per contract, skip or invalid
                     # contract expects records, blank is invalid json context
@@ -168,11 +187,15 @@ def inspect_jsonl_log(
                 except json.JSONDecodeError:
                     invalids.append({"line": lineno, "code": "invalid_json"})
                     report["invalid"] += 1
-                    last_line_was_invalid_json = True
-                    # if this is last and no \n originally? but since rstrip, check later
+                    incomplete_last = not raw_line.endswith(("\n", "\r"))
                     continue
                 except _DuplicateKeyError as e:
                     invalids.append({"line": lineno, "code": "duplicate_keys", "field": e.key})
+                    report["invalid"] += 1
+                    continue
+
+                except (RecursionError, ValueError):
+                    invalids.append({"line": lineno, "code": "invalid_json"})
                     report["invalid"] += 1
                     continue
 
@@ -230,8 +253,14 @@ def inspect_jsonl_log(
                 # structured group identity (tuple) to avoid colon-collision in profile or sha (O2-GROUP-COLLIDE)
                 gkey = (profile, sha)
                 if gkey not in groups:
-                    groups[gkey] = {"count": 0, "run_ids": set()}
+                    groups[gkey] = {
+                        "count": 0, "run_ids": set(), "nexus_tools_true_records": 0,
+                        "declared_write_path_entries": 0, "declared_watch_path_entries": 0,
+                    }
                 groups[gkey]["count"] += 1
+                groups[gkey]["nexus_tools_true_records"] += nexus_tools
+                groups[gkey]["declared_write_path_entries"] += len(write_paths)
+                groups[gkey]["declared_watch_path_entries"] += len(watch_paths)
                 groups[gkey]["run_ids"].add(run_id)
 
                 report["declared_write_path_entries"] += len(write_paths)
@@ -240,44 +269,27 @@ def inspect_jsonl_log(
                 # do not abort read on diagnostic cap (invalids already truncated on report);
                 # continue so later valids are counted (O2-READ-CAP)
 
-    except OSError as e:
+    except (OSError, UnicodeDecodeError) as e:
         report["status"] = "error"
         report["error"] = f"read_failed: {e}"
-        return report
+        return report, None
 
     # post check for change / truncate
     try:
-        size_after = p.stat().st_size
-        mtime_after = p.stat().st_mtime
+        after = p.lstat()
+        size_after = after.st_size
+        changed = (not os.path.samestat(before, after) or size_after != size_before
+                   or after.st_mtime_ns != before.st_mtime_ns)
     except OSError:
-        size_after = size_before
-        mtime_after = mtime_before
+        size_after = None
+        changed = True
 
     report["file_size_after"] = size_after
-    if size_after != size_before or mtime_after != mtime_before:
+    if changed:
         report["changed_during_read"] = True
         limited = True
         if limited_reason is None:
             limited_reason = "file_changed_during_read"
-
-    # if we broke on last partial line without full parse, mark
-    # heuristic: if limited on record limit or bytes, and last attempt failed parse, already counted invalid
-    # for truncated file ending without \n that caused json fail on last:
-    if limited and limited_reason in (None, "max_bytes_exceeded", "max_records_exceeded"):
-        # already set
-        pass
-
-    # O2-INCOMPLETE-HEURISTIC: set only when the *final examined line* failed JSON *and* file had no trailing newline
-    if last_line_was_invalid_json:
-        try:
-            with p.open("rb") as fb:
-                fb.seek(max(0, size_before - 4096))
-                tail = fb.read()
-            if tail and not tail.endswith(b"\n") and not tail.endswith(b"\r"):
-                # final examined line was the unterminated json fail
-                incomplete_last = True
-        except Exception:
-            pass
 
     report["incomplete_last_line"] = incomplete_last
     report["limited"] = limited
@@ -292,22 +304,27 @@ def inspect_jsonl_log(
     # groups: cap
     # use safe str key from structured tuple gkey so colon in profile/sha cannot collide (O2-GROUP-COLLIDE)
     capped_groups: dict[str, Any] = {}
-    for gk, gv in list(groups.items())[:20]:
+    for gk, gv in list(groups.items())[:max_groups]:
         if isinstance(gk, tuple) and len(gk) == 2:
             gk_str = json.dumps([gk[0], gk[1]], ensure_ascii=True)
         else:
             gk_str = str(gk)
         capped_groups[gk_str] = {
             "count": gv["count"],
+            "distinct_correlation_keys": len(gv["run_ids"]),
+            "nexus_tools_true_records": gv["nexus_tools_true_records"],
+            "declared_write_path_entries": gv["declared_write_path_entries"],
+            "declared_watch_path_entries": gv["declared_watch_path_entries"],
             "run_ids_sample": sorted(list(gv["run_ids"]))[:5],
         }
     report["profile_sha_groups"] = capped_groups
-    if len(groups) > 20:
+    if len(groups) > max_groups:
         report["profile_sha_groups_truncated"] = True
 
     report["distinct_correlation_keys"] = len(seen_corrs)
     report["status"] = "ok"
-    return report
+    identity = (opened.st_dev, opened.st_ino) if opened.st_ino else None
+    return report, identity
 
 
 def _escape_controls_for_text(s: Any) -> str:

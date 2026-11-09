@@ -41,12 +41,16 @@ export function readProjectRevision(project, options = {}) {
       const ref = run(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
       if (!ref.error || ref.error.status !== 1) return result;
     }
-    const statusRes = run(["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none"]);
-    if (statusRes.error) throw statusRes.error;
-    const status = statusRes.output; // raw porcelain v1 -z; required() trimming kept only for metadata
+    // Committed-history callers need the checkout identity without reading worktree files or running clean filters.
+    let dirty = null;
+    if (options.metadataOnly !== true) {
+      const status = run(["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none"]);
+      if (status.error) throw status.error;
+      dirty = porcelainIndicatesDirty(status.output);
+    }
     Object.assign(result, {
       status: head.error ? "unborn" : "available",
-      commitSha: head.error ? null : head.output.trim(), branch, dirty: porcelainIndicatesDirty(status),
+      commitSha: head.error ? null : head.output.trim(), branch, dirty,
       repositoryIdentity: digest([gitCommonDir]),
       worktreeId: digest([gitDir, gitRoot]),
       isLinkedWorktree: gitDir !== gitCommonDir

@@ -350,7 +350,7 @@ test("adapter: composition performs no network, filesystem, process, logging or 
   } finally { t.mock.restoreAll(); }
 });
 
-test("adapter: no runtime/provider/IO imports or production consumers", () => {
+test("adapter: pure imports and only the scope service and create observer consume it", () => {
   const root = new URL("../", import.meta.url);
   const source = readFileSync(new URL("src/lib/effective-task-scope-adapter.js", root), "utf8");
   const imports = [...source.matchAll(/from\s+"([^"]+)"/g)].map(match => match[1]).sort();
@@ -361,8 +361,8 @@ test("adapter: no runtime/provider/IO imports or production consumers", () => {
       const url = new URL(entry.name + (entry.isDirectory() ? "/" : ""), directory);
       if (entry.isDirectory()) inspect(url);
       else if (/\.(?:js|py|json|yaml)$/.test(entry.name) && entry.name !== "effective-task-scope-adapter.js") {
-        const allowedConsumer = new URL("src/routes/effective-task-scope.routes.js", root);
-        if (url.href !== allowedConsumer.href) {
+        const consumers = ["src/lib/effective-task-scope-service.js", "src/lib/project-create-observation.js"];
+        if (!consumers.some((name) => new URL(name, root).href === url.href)) {
           assert.doesNotMatch(readFileSync(url, "utf8"), /effective-task-scope-adapter|composeEffectiveTaskScopeFromEnvelopes/);
         }
       }

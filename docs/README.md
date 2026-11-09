@@ -9,7 +9,12 @@
 | Why does this project exist? | [Vision](VISION.md) |
 | What do the terms mean? | [Concepts](CONCEPTS.md) |
 | How does it fit with Hermes? | [Public architecture](ARCHITECTURE.md) |
-| What can I use now? | [Current status](CURRENT_STATUS.md) |
+| What can I use now? | [November checkpoint](CURRENT_STATUS.md#development-checkpoint-2026-11-09) |
+| Do two tasks overlap? | [Task conflicts](development/task-conflicts.md) |
+| Where is a symbol, or which tests might be affected? | [Project questions](development/project-symbol-location.md) |
+| Which paths changed, or is a proposed destination absent? | [Diff audit](development/task-diff-audit.md) · [Create observation](development/create-observation.md) |
+| What can I measure from actual sessions and logs? | [Session usage](development/session-usage.md) · [Log comparison](development/log-inspector.md) |
+| How is question retrieval evaluated? | [Frozen question suite](development/project-question-evaluation.md) |
 | What defects remain open or deferred? | [Known issues and deferred technical debt](KNOWN_ISSUES.md) |
 | How do I run it or call the API? | [Service reference](SERVICE_REFERENCE.md) |
 | How is bounded specialist work planned and admitted? | [Orchestration V1](orchestration/00_OVERVIEW.md) |

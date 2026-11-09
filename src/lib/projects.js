@@ -6,7 +6,7 @@ import {
   isSupportedProjectType
 } from "../analyzers/common/analyzer-detection.js";
 import { resolveProjectConfig } from "./project-config.js";
-import { resolveProjectLocation, validateRelativeProjectPath } from "./project-roots.js";
+import { getConfiguredProjectRoots, resolveProjectLocation, validateRelativeProjectPath } from "./project-roots.js";
 import { readProjectRevision, isLinkedProjectWorktree } from "./project-revision.js";
 import {
   mergeProjectRegistries,
@@ -53,7 +53,7 @@ export function getProjectByIdForIntelligence(projectId, options = {}) {
   return resolveIntelligenceProject(selectProject("projectId", projectId, options), options);
 }
 
-export function resolveProjectWorktree(projectId, locator, options = {}) {
+export function resolveProjectWorktree(projectId, locator, options = {}, revisionOptions = {}) {
   if (projectId === undefined || projectId === null) {
     const error = new Error("A persisted parent projectId is required.");
     error.code = "project_identity_required";
@@ -62,7 +62,7 @@ export function resolveProjectWorktree(projectId, locator, options = {}) {
   const parent = getProjectByIdForIntelligence(projectId, options);
   const absolutePath = resolveProjectLocation(locator, options.roots);
   const candidate = { ...parent, absolutePath };
-  if (!isLinkedProjectWorktree(readProjectRevision(parent), readProjectRevision(candidate))) {
+  if (!isLinkedProjectWorktree(readProjectRevision(parent, revisionOptions), readProjectRevision(candidate, revisionOptions), revisionOptions)) {
     const error = new Error("Worktree does not match the registered parent project.");
     error.code = "worktree_parent_mismatch";
     throw error;
@@ -106,20 +106,43 @@ export function listProjects(options = {}) {
   });
 }
 
+// A registration reserves its lexical location even when a checkout deletes it or replaces it with a symlink.
+// Include physical aliases of the nearest resolvable prefix so overlapping configured roots agree as well.
+function registeredLocations(locator, roots) {
+  const relative = validateRelativeProjectPath(locator?.relativePath);
+  const matches = roots.filter((root) => root.id === (locator?.rootId || "default"));
+  if (!relative.valid || matches.length !== 1 || !matches[0].path) return [];
+  const parts = relative.relativePath.split("/");
+  const locations = new Set([path.resolve(matches[0].path, ...parts)]);
+  try { locations.add(path.join(fs.realpathSync(matches[0].path), ...parts)); } catch { /* Keep the lexical registration. */ }
+  for (let end = parts.length; end > 0; end--) {
+    try {
+      const prefix = { rootId: locator.rootId, relativePath: parts.slice(0, end).join("/") };
+      const resolved = resolveProjectLocation(prefix, roots, { allowMissing: true });
+      locations.add(path.join(resolved, ...parts.slice(end)));
+      break;
+    } catch { /* The leaf may be a file or dangling link; its ancestor can still have a physical alias. */ }
+  }
+  return [...locations];
+}
+
 export function getNestedProjectPaths(project, options = {}) {
-  const bases = [project.absolutePath];
-  if (project.canonicalLocation) bases.push(resolveProjectLocation(project.canonicalLocation, options.roots));
-  const excluded = [];
+  const roots = options.roots || getConfiguredProjectRoots();
+  const bases = new Set([project.absolutePath, ...registeredLocations(project, roots)]);
+  if (project.canonicalLocation) {
+    for (const location of registeredLocations(project.canonicalLocation, roots)) bases.add(location);
+  }
+  const excluded = new Set();
   for (const entry of readProjectsFile(options)) {
     if (entry.projectId && entry.projectId === project.projectId) continue;
-    let location;
-    try { location = resolveProjectLocation(entry, options.roots); } catch { continue; }
-    for (const base of bases) {
-      const relative = path.relative(base, location).replaceAll("\\", "/");
-      if (relative && relative !== ".." && !relative.startsWith("../") && !path.isAbsolute(relative)) excluded.push(relative);
+    for (const location of registeredLocations(entry, roots)) {
+      for (const base of bases) {
+        const relative = path.relative(base, location).replaceAll("\\", "/");
+        if (relative && relative !== ".." && !relative.startsWith("../") && !path.isAbsolute(relative)) excluded.add(relative);
+      }
     }
   }
-  return [...new Set(excluded)].sort();
+  return [...excluded].sort();
 }
 
 export function listProjectSummaries() {
