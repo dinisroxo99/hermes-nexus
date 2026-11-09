@@ -7,8 +7,9 @@ Binding design: Architect note N1 (`hermes-nexus-arch-n1-export-star-barrel.md`)
 ## Scope
 
 Snapshot (provider) mode of `src/analyzers/typescript/typescript-analyzer.js` only. Legacy (non-snapshot) analysis is
-byte-identical (D4). No new nodes or kinds (D9): N1 adds edges and changes `unrepresentedImports` only. The provider
-`native.typescript` version is `3` (D8); capability levels are unchanged (`structural`). The ETS composer, adapter,
+byte-identical (D4). No new nodes or kinds (D9): N1 adds edges and changes `unrepresentedImports` only. N1 shipped as
+`native.typescript` version `3`. Version `4` adds the snapshot resolution described below. Its capability level is
+`structural`. The ETS composer, adapter,
 policy, route and Impact are unchanged; `policyVersion` stays `step4-foundation-6`; caps are unchanged
 (2000 nodes / 4000 edges at the provider).
 
@@ -110,6 +111,25 @@ exact set of edges into anchors).
   also counts bare package imports, including `node:` builtins. This counts what the analyzer's resolver cannot resolve; it does not make every
   alias divergence from the compiler visible (see the open gaps below). Pinned by R1-1…R1-4, C-8…C-13.
 
+## Snapshot module resolution (provider version 4)
+
+For relative imports and configured path aliases, the analyzer calls TypeScript's module resolver on the same
+in-memory project used to inspect exports. Imports, re-exports, module anchors and completeness checks all use
+that resolver. Results must name a code file admitted to the current snapshot.
+
+For example, `import { b } from "./index.js"` can refer to `index.ts`, which can in turn re-export `b` from
+`impl.ts` via `"./impl.js"`. Impact on either TypeScript file includes the consumer and its dependent test. If
+`impl.js` exists alongside `impl.ts`, the relative import still selects the TypeScript source. A `.jsx` specifier
+prefers `.tsx`, and an admitted declaration such as `x.d.ts` can precede `x.js`. TypeScript also distinguishes
+a wildcard substitution such as `"@/*": ["src/*"]` from an explicitly configured existing target such as
+`"@exact": ["src/x.js"]`, which it selects directly.
+
+An unresolved local specifier with an explicit JS, JSX, TS or TSX extension counts once per literal, including
+case variants and imports for which the name fallback produces an edge elsewhere. Impact reports partial provider
+coverage in that case. The same counter covers unresolved configured aliases. A wildcard requires enough characters
+for its prefix and suffix (for example, `ab*b` does not match `ab`). The on-disk legacy analyzer retains its
+previous resolution behaviour. Regression fixtures are in [the snapshot tests](../tests/typescript-snapshot-tsconfig.test.js).
+
 ## Not changed / still open
 
 - D7 (side bug S1): the global name fallback for unresolved non-barrel targets is unchanged. It can draw
@@ -122,14 +142,7 @@ exact set of edges into anchors).
   - Exempt `node:` builtins (and declared dependencies) from the catch-all `*` count (precision only).
   - B-4: model the unmodelled resolution features listed below, or count them so the result is `partial`.
 - Known open resolver gaps (not fixed in N1; can be silently complete):
-  - `.js` / `.jsx` specifiers that the compiler maps to `.ts` / `.tsx` sources. Relative specifiers (`./index.js`
-    for an `index.ts` barrel) resolve to nothing and are not counted. Alias specifiers in snapshot mode are now
-    counted (partial). When both `x.js` and `x.ts` exist, the analyzer links `x.js` while the compiler picks `x.ts`,
-    so Impact on `x.ts` can be `available` without the importer.
-  - `.d.ts` targets are not resolved. Through a `paths` alias in snapshot mode they are now counted (partial); a
-    relative `.d.ts` reference is not.
   - B7: `baseUrl`-only bare specifiers (no `paths` pattern matches) are not resolved and not counted.
-  - B6: the `paths` matcher has no prefix/suffix-overlap length guard (`ab*b` matches `ab`; TypeScript does not).
   - An `export *` whose source contributes no names gets no file edge and no count.
   - B-4, unmodelled resolver features (not resolved and not counted, so they **can yield a false complete**:
     Impact `available` while missing a dependant):

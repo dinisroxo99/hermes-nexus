@@ -129,5 +129,5 @@ test("N1-19 legacy (non-snapshot) analysis is unchanged by N1: no anchors, no ba
 });
 
 test("N1-20 native.typescript provider version is bumped for the changed graph (RED at base)", () => {
-  assert.equal(listAnalyzerProviders().find((p) => p.id === "native.typescript").version, "3");
+  assert.equal(listAnalyzerProviders().find((p) => p.id === "native.typescript").version, "4");
 });
