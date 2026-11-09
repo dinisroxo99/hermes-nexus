@@ -110,3 +110,45 @@ Exceeding any budget during streaming read marks `limited` + reason. The observa
 - This tool does not redefine D3; it only observes persisted records against the contract published by `collect_forward_log`.
 
 See also: `docs/CURRENT_STATUS.md` (D3 section), collector contract, and task `t_debe5242`.
+
+## Compare two captures
+
+From the repository root, supply two offline captures explicitly.
+
+```sh
+python3 -B -m scripts.nexus_log_compare --baseline baseline.jsonl --candidate candidate.jsonl
+```
+
+The command prints JSON. Both roles are assigned by the caller. It reads each capture through the
+D3 inspector, groups valid records by the exact `(profile, sha)` tuple, and reports these observed counts.
+
+| Metric | What is counted |
+| --- | --- |
+| `records` | Valid persisted rows, including repeats |
+| `distinct_correlation_keys` | Distinct `(profile, sha, runId)` tuples |
+| `nexus_tools_true_records`, `nexus_tools_false_records` | Rows carrying each value of the collector flag |
+| `declared_write_path_entries`, `declared_watch_path_entries` | Caller-declared list entries, including duplicates |
+
+Each capture has its own quality summary and totals. The `observed_cohorts` section gives the number of
+shared and one-sided groups. `candidate_minus_baseline` subtracts baseline counts from candidate counts
+within shared groups. The aggregate includes every shared group. The row display includes up to twenty
+groups in lexicographic order, with profile and SHA up to 128 characters each. `shared_omitted` counts
+groups outside those display limits. The comparison output contains counts and cohort labels. Declared paths
+and run IDs stay out of the report.
+
+`status: compared` requires two distinct readable files with at least one shared group, valid records in
+both, and complete reads. The reader checks distinctness using the two open file identities, so hard links
+to one capture remain a single-file observation even if a path changes later. Invalid records, truncation, exceeded budgets, detected concurrent changes,
+empty captures and disjoint groups produce `not_comparable` with specific reasons. Observed counts
+remain available for inspection, and deltas are null. An input error sets `status: input_error`, leaves
+unavailable observations null and exits 1. Completed comparisons and inconclusive observations exit 0.
+Invalid CLI arguments exit 2. Supply `--max-bytes`, `--max-records`, or `--max-line-bytes` to lower the
+per-capture budgets from their maxima of 10 MiB, 10,000 records and 1 MiB per line.
+
+For example, if the same profile and revision has two baseline records declaring four write entries and one
+candidate record declaring a single write entry, its deltas are `records: -1` and
+`declared_write_path_entries: -3`. The captures contain no project ID, task assignment, timestamps,
+token usage or result evidence. Identical profile and revision support a descriptive comparison only.
+The benchmark in [Acceptance Tests and Benchmarks](../project-intelligence/15_ACCEPTANCE_AND_BENCHMARKS.md)
+also requires matched workloads and runtime-native measurements. This command reports those missing
+observations in `unavailable_from_d3`.
