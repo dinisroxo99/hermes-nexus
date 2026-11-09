@@ -20,6 +20,8 @@ committed rows. A reader of that copy cannot recover or establish its acquisitio
 
 Input is limited to one regular file of at most 64 MiB. The reader opens directory components and the file without
 following symlinks and checks its identity, size, timestamps, parent directory and sidecars across the read.
+After reading, it reopens the complete absolute path and compares the current file and parent to the captured
+descriptors, so a directory renamed out of the requested path cannot silently supply the report.
 It deserializes the bounded bytes into a private in-memory SQLite connection. For a checkpointed WAL-mode
 main file it adjusts the two SQLite format-version bytes in that RAM copy so SQLite can read it without a WAL.
 The original file and directory receive no database writes or SQLite sidecars. Queries have a work budget.

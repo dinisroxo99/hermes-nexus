@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from scripts.nexus_session_usage import snapshot
 from scripts.nexus_session_usage.report import COUNTERS, report_usage
 from scripts.nexus_session_usage.snapshot import MAX_BYTES, UsageError
 
@@ -110,6 +111,34 @@ class SessionUsageTests(unittest.TestCase):
             output.truncate(MAX_BYTES + 1)
         with self.assertRaisesRegex(UsageError, "database_too_large"):
             report_usage(self.path, "left")
+
+    def test_replacing_grandparent_during_capture_refuses_detached_original(self):
+        current, replacement = (self.root / name for name in ("current", "replacement"))
+        for directory in (current, replacement):
+            (directory / "data").mkdir(parents=True)
+        source = current / "data" / "state.db"
+        self.path.rename(source)
+        replacement_file = replacement / "data" / "state.db"
+        replacement_file.write_bytes(source.read_bytes())
+        with sqlite3.connect(replacement_file) as db:
+            db.execute("UPDATE sessions SET input_tokens=999 WHERE id='left'")
+        db.close()
+
+        check_journals = snapshot._no_journals
+        calls = 0
+
+        def swap_after_read(directory, name):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                current.rename(self.root / "detached")
+                replacement.rename(current)
+            return check_journals(directory, name)
+
+        with patch.object(snapshot, "_no_journals", side_effect=swap_after_read):
+            with self.assertRaisesRegex(UsageError, "^snapshot_changed$"):
+                report_usage(source, "left")
+        self.assertEqual(report_usage(source, "left")["sessions"][0]["counters"]["input_tokens"], 999)
 
     def test_schema_and_values_are_verified(self):
         db = sqlite3.connect(self.path)

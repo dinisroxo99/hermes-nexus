@@ -14,13 +14,9 @@ class UsageError(Exception):
 
 
 @contextmanager
-def _parent(path):
+def _parent(absolute):
     if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
         raise UsageError("secure_path_open_unavailable")
-    target = Path(path)
-    if not target.name or ".." in target.parts:
-        raise UsageError("invalid_input_path")
-    absolute = target.absolute()
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     directory = os.open(absolute.anchor, flags)
     try:
@@ -46,9 +42,25 @@ def _stamp(st):
     return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
 
 
-def snapshot_bytes(path):
+def _verify_current_path(absolute, parent_stamp, file_stamp):
+    # A renamed ancestor detaches an open directory without changing the held parent or file.
     try:
-        with _parent(path) as (directory, name):
+        with _parent(absolute) as (directory, name):
+            _no_journals(directory, name)
+            actual_file = os.stat(name, dir_fd=directory, follow_symlinks=False)
+            if _stamp(actual_file) != file_stamp or _stamp(os.fstat(directory)) != parent_stamp:
+                raise UsageError("snapshot_changed")
+    except OSError:
+        raise UsageError("snapshot_changed") from None
+
+
+def snapshot_bytes(path):
+    target = Path(path)
+    if not target.name or ".." in target.parts:
+        raise UsageError("invalid_input_path")
+    try:
+        absolute = target.absolute()
+        with _parent(absolute) as (directory, name):
             parent_stamp = _stamp(os.fstat(directory))
             _no_journals(directory, name)
             entry = os.stat(name, dir_fd=directory, follow_symlinks=False)
@@ -67,6 +79,7 @@ def snapshot_bytes(path):
                 _no_journals(directory, name)
                 if len(data) != before.st_size or _stamp(before) != _stamp(after) or parent_stamp != _stamp(os.fstat(directory)):
                     raise UsageError("snapshot_changed")
+                _verify_current_path(absolute, parent_stamp, _stamp(before))
     except OSError:
         raise UsageError("input_unavailable") from None
     if len(data) < 100 or data[:16] != b"SQLite format 3\0" or data[18:20] not in (b"\1\1", b"\2\2"):
