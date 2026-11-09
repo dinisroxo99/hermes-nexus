@@ -3,7 +3,6 @@ import datetime as dt
 import http.client
 import ipaddress
 import json
-import math
 import os
 import socket
 import threading
@@ -104,7 +103,7 @@ def verify_service(url, seconds, interval, project_id=None, pid=None, checkpoint
         health = get_json(origin, "/api/health") or {}
         uptime = health.get("uptime")
         if (health.get("status") != "ok" or type(uptime) not in (int, float)
-                or not math.isfinite(uptime) or uptime < 0):
+                or not 0 <= uptime <= 2**53):
             report["livenessFailures"] += 1
         else:
             # Measure at receipt, so latency in unrelated endpoints cannot create a spurious restart.
@@ -117,9 +116,11 @@ def verify_service(url, seconds, interval, project_id=None, pid=None, checkpoint
         if project_id:
             pack = get_json(origin, "/api/intelligence/projects/" + quote(project_id, safe="") + "/task-context",
                             {"task": {"title": "Operational readiness sample"}, "limits": {"maxBytes": 16384}})
-            if not pack or pack.get("projectId") != project_id or pack.get("analysisVersion") != "task-context-v1":
+            observation = pack.get("observation") if pack else None
+            if (not isinstance(observation, dict) or type(observation.get("incomplete")) is not bool
+                    or pack.get("projectId") != project_id or pack.get("analysisVersion") != "task-context-v1"):
                 report["contextProbeFailures"] += 1
-            elif pack.get("observation", {}).get("incomplete") is True:
+            elif observation["incomplete"]:
                 report["contextPartialSamples"] += 1
         if components:
             for component, healthy in sample_components(components).items():

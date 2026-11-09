@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from zipfile import ZipFile
 
 from scripts.nexus_operations.soak import get_json, verify_service
@@ -137,6 +138,13 @@ class OperationsTests(unittest.TestCase):
             self.assertFalse(destination.exists())
             restore(archive, pin, destination)
             self.assertEqual((destination / "projects.json").read_text(), "[]")
+
+    def test_malformed_context_or_uptime_counts_a_failure_without_stopping_collection(self):
+        health = {"status": "ok", "uptime": 10**400}
+        pack = {"projectId": "PrJ_Proof", "analysisVersion": "task-context-v1", "observation": []}
+        with patch("scripts.nexus_operations.soak.get_json", side_effect=[health, {"ready": True}, pack]):
+            report = verify_service("http://127.0.0.1:8770", 0, 60, "PrJ_Proof")
+        self.assertEqual((report["status"], report["livenessFailures"], report["contextProbeFailures"]), ("degraded", 1, 1))
 
     def test_trickling_service_cannot_extend_the_probe_deadline(self):
         class Slow(BaseHTTPRequestHandler):
