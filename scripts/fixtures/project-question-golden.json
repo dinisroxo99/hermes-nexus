@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "heads": {
+    "PrJ_GoldenAlpha": "edb76257b8a04d8a9dd4eeec30854af482c87b3b",
+    "PrJ_GoldenBeta": "7e9456b6a55981aa1cd057f75710aaea847f4680"
+  },
+  "cases": [
+    {"id":"symbol-alpha","projectId":"PrJ_GoldenAlpha","question":"symbol","subject":"Shared",
+     "finding":"located","incomplete":false,"evidence":["src/shared.ts"]},
+    {"id":"symbol-beta","projectId":"PrJ_GoldenBeta","question":"symbol","subject":"Shared",
+     "finding":"located","incomplete":true,"evidence":["alt/namesake.ts"]},
+    {"id":"symbol-unsupported","projectId":"PrJ_GoldenBeta","question":"symbol","subject":"PythonOnly",
+     "finding":"unknown","incomplete":true,"evidence":[]},
+    {"id":"tests-shared","projectId":"PrJ_GoldenAlpha","question":"tests","subject":"src/shared.ts",
+     "finding":"evidence_found","incomplete":false,"evidence":["tests/shared.test.ts"]},
+    {"id":"tests-independent","projectId":"PrJ_GoldenAlpha","question":"tests","subject":"src/independent.ts",
+     "finding":"no_evidence_found","incomplete":false,"evidence":[]},
+    {"id":"impact-shared","projectId":"PrJ_GoldenAlpha","question":"impact","subject":"src/shared.ts",
+     "finding":"evidence_found","incomplete":false,"evidence":["src/use.ts","tests/shared.test.ts"]},
+    {"id":"impact-deleted","projectId":"PrJ_GoldenAlpha","question":"impact","subject":"src/old.ts",
+     "finding":"not_evaluated","incomplete":true,"evidence":[]},
+    {"id":"history-deleted","projectId":"PrJ_GoldenAlpha","question":"history","subject":"src/old.ts",
+     "finding":"evidence_found","incomplete":false,"evidence":[
+       {"path":"src/old.ts","commitSha":"edb76257b8a04d8a9dd4eeec30854af482c87b3b","change":"deleted"},
+       {"path":"src/old.ts","commitSha":"554b3574b38b596019268a41248595b61635a3be","change":"modified"},
+       {"path":"src/old.ts","commitSha":"fb1b2239b0db27e2517bfaa3a06ecb1f4354d092","change":"added"}
+     ]},
+    {"id":"history-beta-isolated","projectId":"PrJ_GoldenBeta","question":"history","subject":"src/old.ts",
+     "finding":"no_evidence_found","incomplete":false,"evidence":[]}
+  ]
+}
