@@ -83,6 +83,9 @@ jobs:
           exec(textwrap.dedent(src))
           "
 
+      - name: Run Guard compatibility probe unit tests
+        run: python -B -m unittest discover -s tests -p 'test_hermes_guard_probe.py'
+
       - name: Set up Node 22
         uses: actions/setup-node@v4
         with:
