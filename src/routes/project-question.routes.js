@@ -1,8 +1,6 @@
-import path from "node:path";
 import { askProject } from "../lib/project-question.js";
-import { resolveProjectConfig } from "../lib/project-config.js";
 import { validateProjectId } from "../lib/project-registry.js";
-import { getConfiguredProjectRoots } from "../lib/project-roots.js";
+import { projectEvidenceOptions } from "./project-evidence-options.js";
 import { readJsonBody } from "../utils/request-body.js";
 import { sendError, sendOk } from "../utils/response.js";
 
@@ -41,15 +39,10 @@ export function createProjectQuestionHandler(dependencies = {}) {
         return;
       }
       if (question.synthesize) synthesisBusy = reservedModel = true;
-      const config = (dependencies.getProjectConfig || resolveProjectConfig)();
-      const registry = { roots: (dependencies.getConfiguredProjectRoots || getConfiguredProjectRoots)(),
-        manualProjectsFile: path.join(config.dataDir, "projects.json"),
-        discoveredProjectsFile: path.join(config.dataDir, "discovered-projects.json") };
       const result = await (dependencies.askProject || askProject)(question.input, {
-        registry, includeHistory: question.includeHistory, synthesize: question.synthesize,
+        ...projectEvidenceOptions(dependencies), includeHistory: question.includeHistory, synthesize: question.synthesize,
         historyStore: process.env.NEXUS_RUN_HISTORY_STORE,
-        localModel: { port: Number(process.env.NEXUS_LOCAL_MODEL_PORT), model: process.env.NEXUS_LOCAL_MODEL_ID },
-        ...(config.serenaPythonImage ? { analyzer: { serena: { image: config.serenaPythonImage } } } : {})
+        localModel: { port: Number(process.env.NEXUS_LOCAL_MODEL_PORT), model: process.env.NEXUS_LOCAL_MODEL_ID }
       });
       sendOk(res, 200, result, "Project evidence retrieved.");
     } catch (error) {

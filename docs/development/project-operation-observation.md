@@ -83,3 +83,19 @@ error code to standard error, exits 1 and emits no manifest. Common refusals are
 
 The digest checks the integrity of the report. File and directory observations are bracketed reads
 and describe a point in time. Hermes owns subsequent execution decisions.
+
+The same read-only producer is callable through
+`POST /api/intelligence/projects/:projectId/operation-observation`. Use the CLI request body with
+`projectId` omitted; the URL binds the registered project. For example:
+
+```json
+{
+  "task": {"id":"move-api","title":"Move the API directory"},
+  "worktree": {"rootId":"dev","relativePath":"task-checkout"},
+  "operation": {"kind":"move_directory","oldPath":"src/api","newPath":"modules/api"}
+}
+```
+
+A successful response includes the bounded evidence and digest. Supply `expectedCommitSha` and
+`expectedEvidenceDigest` on a retry. Stale observations return 409, and an operation that cannot be
+established from the available filesystem evidence returns 422. Clients cannot supply their own witnesses.

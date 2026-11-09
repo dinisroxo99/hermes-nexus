@@ -19,6 +19,7 @@ import { parseLimit, validateProjectName } from "../utils/validation.js";
 import { createProjectImpactHandler } from "./project-impact.routes.js";
 import { createTaskContextHandler } from "./task-context.routes.js";
 import { createEffectiveTaskScopeHandler } from "./effective-task-scope.routes.js";
+import { createProjectOperationHandler } from "./project-operation.routes.js";
 import { createProjectQuestionHandler } from "./project-question.routes.js";
 import { createTaskConflictsHandler } from "./task-conflicts.routes.js";
 
@@ -31,6 +32,7 @@ export function registerIntelligenceRoutes(router, dependencies = {}) {
   router.add("GET", "/api/intelligence/projects/:name/overview", createProjectOverviewHandler(dependencies));
   router.add("POST", "/api/intelligence/projects/:projectId/task-context", createTaskContextHandler(dependencies));
   router.add("POST", "/api/intelligence/projects/:projectId/impact", createProjectImpactHandler(dependencies));
+  router.add("POST", "/api/intelligence/projects/:projectId/operation-observation", createProjectOperationHandler(dependencies));
   router.add("POST", "/api/intelligence/projects/:projectId/ask-project", createProjectQuestionHandler(dependencies));
   router.add("POST", "/api/intelligence/projects/:projectId/task-conflicts", createTaskConflictsHandler(dependencies));
   router.add("POST", "/api/intelligence/projects/:projectId/effective-task-scope", createEffectiveTaskScopeHandler(dependencies));
