@@ -251,3 +251,65 @@ test("sibling evidence has independent byte and value-count budgets for its two 
   leftImpact.padding = "x".repeat(131072);
   assert.deepEqual(compareTaskScopes(a, b, { leftImpact, rightImpact }).reasons, ["unbound_sibling_impact"]);
 });
+
+function crossDependencyFixture() {
+  const { a, b } = siblings();
+  a.task.paths = ["lib.ts"]; a.write = complete(a.task.paths); a.watch = complete(["consumer.ts"]);
+  b.task.paths = ["consumer.ts"]; b.write = complete(b.task.paths); b.watch = complete([]);
+  const libHash = "d".repeat(64), consumerHash = "c".repeat(64);
+  const provider = { id: "native.typescript", version: "4" };
+  const observerImpact = (snapshot, identifier) => {
+    const result = impact({ ...snapshot, task: { paths: ["lib.ts"] } }, libHash);
+    result.provider = provider;
+    result.targets[0].findingState = "evidence_found";
+    result.affectedFiles = [{ path: "consumer.ts", origins: [{
+      originPath: "lib.ts", minimumDistance: 1,
+      witness: { id: "impact_edge_" + identifier.repeat(64), provider, capability: "dependencies", relationshipKind: "imports",
+        basis: "structural", trust: "derived_analysis", source: { path: "consumer.ts", hash: consumerHash } }
+    }] }];
+    return result;
+  };
+  return { a, b, evidence: { leftImpact: observerImpact(a, "1"), rightImpact: impact(b, consumerHash),
+    rightPeerImpact: observerImpact(b, "2") } };
+}
+
+test("sibling WATCH evidence rejects stale, foreign, unbound and mismatched supplemental graph records", () => {
+  const valid = crossDependencyFixture();
+  assert.equal(compareTaskScopes(valid.a, valid.b, valid.evidence).severity, "warning");
+  for (const change of [
+    peer => { peer.snapshotToken = "e".repeat(64); },
+    peer => { peer.revision.commitSha = "e".repeat(40); },
+    peer => { peer.revision.repositoryId = "e".repeat(64); },
+    peer => { peer.revision.worktreeId = "e".repeat(64); },
+    peer => { peer.projectId = "PrJ_Foreign"; },
+    peer => { peer.project.relativePath = "another"; },
+    peer => { peer.targets[0].targetSource.hash = "f".repeat(64); },
+    peer => { peer.findingState = "no_evidence_found"; },
+    peer => { peer.targets[0].findingState = "no_evidence_found"; },
+    peer => { peer.affectedFiles[0].origins[0].witness.source.hash = "a".repeat(64); },
+    peer => { peer.affectedFiles[0].origins[0].witness.source.path = "another.ts"; },
+    peer => { peer.affectedFiles[0].origins[0].witness.provider = { id: "other", version: "1" }; },
+    peer => { peer.affectedFiles[0].origins[0].witness.id = "anonymous"; },
+    peer => { peer.affectedFiles[0].origins[0].minimumDistance = 0; },
+    peer => { peer.affectedFiles[0].origins[0].originPath = {}; },
+    peer => { peer.affectedFiles[0].origins[0].minimumDistance = {}; },
+    peer => { peer.affectedFiles[0].origins = []; }
+  ]) {
+    const { a, b, evidence } = crossDependencyFixture();
+    change(evidence.rightPeerImpact);
+    const result = compareTaskScopes(a, b, evidence);
+    assert.equal(result.status, "not_evaluated");
+    assert.equal(result.severity, null);
+    assert.deepEqual(result.overlaps, []);
+  }
+});
+
+test("new optional evidence fields cannot invoke accessors or proxy traps", () => {
+  for (const key of ["rightPeerImpact", "leftSymbolWitness"]) {
+    const { a, b, evidence } = crossDependencyFixture();
+    let calls = 0;
+    Object.defineProperty(evidence, key, { get() { calls++; throw new Error("trap invoked"); } });
+    assert.deepEqual(compareTaskScopes(a, b, evidence).overlaps, []);
+    assert.equal(calls, 0);
+  }
+});
