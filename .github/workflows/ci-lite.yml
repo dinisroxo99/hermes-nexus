@@ -1,16 +1,22 @@
-name: CI Lite
+name: CI Lite replay of main run 126
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    branches: [ ci/replay-main-126 ]
+
+permissions:
+  contents: read
 
 jobs:
   ci-lite:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: cfe6e0af08a29948b0dff7b8c87be044283f0dbb
+
+      - name: Verify the replay target
+        run: test "$(git rev-parse HEAD)" = "cfe6e0af08a29948b0dff7b8c87be044283f0dbb"
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
