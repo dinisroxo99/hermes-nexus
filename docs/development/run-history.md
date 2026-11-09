@@ -1,9 +1,91 @@
 # Validated run history
 
-Nexus imports one task at a time from a trusted, standalone Hermes Kanban SQLite snapshot. Its separate local SQLite
-store keeps minimized observations of that task’s attempts. An active observation establishes that Hermes recorded
+Nexus synchronizes a selected project from a trusted, standalone Hermes Kanban SQLite snapshot. Its separate local
+store keeps minimized observations of the project’s attempts. An operator can also import a single task explicitly. An active observation establishes that Hermes recorded
 a terminal completion and a successful PR acceptance at one exact GitHub commit. Code review, human approval,
 current branch status, and the token usage of that attempt require their own evidence.
+
+## Synchronize a project on publication
+
+```sh
+python3 -B -m scripts.nexus_run_history sync --kanban /data/published/board.sqlite \
+  --store /data/nexus/history.sqlite --project-id p_12345678
+```
+
+`sync` selects the named native project's tasks, runs and events. It opens one stable image,
+uses the single-task receipt validator and publishes the local store at most once per command.
+The source database is never opened for writing. The selected project's latest completely
+validated native event ID is the durable checkpoint. Each task also retains its own validated
+watermark and history prefix.
+
+- Completed identical publications return `unchanged_publication`. The importer fingerprints the
+  admitted standalone file and skips querying its rows on this path. A different image revalidates
+  the named project, including previously accepted prefixes, so an edit at an existing event ID
+  cannot silently substitute different evidence. It never selects another project's payloads.
+- Earlier event history returns `older_snapshot` without reactivating prior outcomes. New tasks,
+  subsequent attempts, and reopened or superseded completions are reflected after the next publication.
+- A malformed selected task returns a `partial` report and exit 2. Valid tasks from the same
+  publication commit together. The failed task is marked pending, its prior active evidence is
+  withheld from queries/export, and the complete project checkpoint stays put. Publish a corrected
+  snapshot and rerun. `inspect` preserves prior attempts and shows `syncPending`. The command
+  reports up to 32 task errors; the full failure count is in `failed`.
+- A source read, schema, capacity or transaction failure exits 1. Retry after addressing the
+  reported error. Abrupt interruption before publication leaves the previous store readable.
+  Successful synchronization exits 0.
+
+Project-wide limits are 2,000 tasks, 10,000 runs and 65,536 events per published image, in addition
+to the existing per-task limits. Capacity or SQL read-budget exhaustion refuses the batch.
+The store accepts exact schema versions 1 and 2. Reading or restoring version 1 preserves it.
+The next successful write migrates it transactionally to version 2, which adds the project
+checkpoint and pending-task records. Recovery validates the complete schema before accepting either version.
+
+### Drive the command from Hermes
+
+Hermes owns the events. Its ordinary task claim and PR completion paths must first commit the
+native `created`, `claimed`, `pr_acceptance` and `completed` evidence. Configure the native
+completion contract for the task's real PR. Publishing or synchronizing an image cannot generate
+an acceptance receipt, approve a PR, or validate a GitHub check.
+
+After the relevant native transaction commits, an operator-controlled publisher can use an
+already-open source SQLite connection to publish an immutable image and invoke the command. Run
+the following from the Nexus checkout with `conn` supplied by the publisher, a trusted private
+publication directory, and absolute paths. This example does not require a persistent watcher.
+
+```python
+import os
+from contextlib import closing
+from pathlib import Path
+import sqlite3
+import subprocess
+import sys
+import tempfile
+
+def publish(conn, publication, store, project_id):
+    publication = Path(publication)
+    fd, filename = tempfile.mkstemp(dir=publication.parent, prefix=".board-")
+    os.close(fd)
+    try:
+        with closing(sqlite3.connect(filename)) as output:
+            conn.backup(output)
+            output.execute("PRAGMA journal_mode=DELETE")
+        with open(filename, "rb") as stable:
+            os.fsync(stable.fileno())
+        os.replace(filename, publication)
+        parent = os.open(publication.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(parent)
+        finally:
+            os.close(parent)
+    finally:
+        Path(filename).unlink(missing_ok=True)
+    subprocess.run([sys.executable, "-B", "-m", "scripts.nexus_run_history", "sync",
+                    "--kanban", str(publication), "--store", str(store),
+                    "--project-id", project_id], check=True)
+```
+
+Use one invocation per selected project after publication. The publisher can also trigger a
+one-shot service when it atomically replaces the image. No scan, timer or loop runs while idle.
+Never copy only the main file of a live WAL database. An image with a journal or sidecar is refused.
 
 ## Import and retrieve
 
@@ -84,6 +166,9 @@ dependencies, supply a fresh output directory and optionally a known fixture com
 python3 -B tests/fixtures/make_hermes_run_history.py --hermes /checkout/hermes-agent \
   --output /tmp/new-hermes-history-proof
 ```
+
+Pass `--tasks 3 --other-project` to generate three selected tasks plus an unrelated task in a second
+project. Use the emitted `projectId` with `sync`; only the three selected outcomes should be available.
 
 The fixture creates an upstream session and project and calls Hermes create, claim and complete operations. It
 substitutes deterministic responses only for GitHub network transport and uses Hermes’s real acceptance

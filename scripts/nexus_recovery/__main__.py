@@ -46,15 +46,12 @@ def regular_bytes(path, limit):
 
 def verify_content(name, data):
     if name == STORE:
-        from scripts.nexus_run_history.store import APP_ID, DDL
+        from scripts.nexus_run_history.store import store_version
         with closing(sqlite3.connect(":memory:")) as db:
             db.deserialize(data)
             db.execute("PRAGMA trusted_schema=OFF")
             db.execute("PRAGMA query_only=ON")
-            schema = dict(db.execute("SELECT name, sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'"))
-            if (db.execute("PRAGMA application_id").fetchone()[0] != APP_ID
-                    or db.execute("PRAGMA user_version").fetchone()[0] != 1 or schema != DDL):
-                raise UsageError("unsupported_history_store")
+            store_version(db)
             if db.execute("PRAGMA quick_check(1)").fetchone() != ("ok",):
                 raise UsageError("history_integrity_check_failed")
     elif name in REGISTRIES:

@@ -31,7 +31,7 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, separators=(",", ":"), ensure_ascii=True, sort_keys=True).encode()).hexdigest()
 
 
-def _schema(db):
+def validate_schema(db):
     for name, required in SCHEMA.items():
         table = db.execute(f"PRAGMA main.table_list('{name}')").fetchone()
         require(table and table[:3] == ("main", name, "table"), "unsupported_kanban_schema")
@@ -84,18 +84,23 @@ def observe(snapshot, project, task):
     require(isinstance(project, str) and PROJECT.fullmatch(project) and isinstance(task, str) and PROJECT.fullmatch(task),
             "invalid_project_or_task")
     with open_snapshot(snapshot) as db:
-        _schema(db)
+        validate_schema(db)
         row = db.execute("SELECT project_id,status,session_id,completion_contract FROM main.tasks WHERE id=? COLLATE BINARY",
                          (task,)).fetchone()
         require(row and row[0] == project, "project_task_mismatch")
-        state, session, contract = row[1:]
-        require(state in TASK_STATES and (session is None or isinstance(session, str) and SESSION.fullmatch(session)),
-                "invalid_task_record")
         runs = db.execute("SELECT id,status,outcome,started_at,ended_at FROM main.task_runs WHERE task_id=? COLLATE BINARY "
                           "ORDER BY id LIMIT ?", (task, MAX_RUNS + 1)).fetchall()
         events = db.execute("SELECT id,run_id,kind,created_at,CASE WHEN kind IN ('created','pr_acceptance') "
                             "THEN payload END FROM main.task_events WHERE task_id=? COLLATE BINARY ORDER BY id LIMIT ?",
                             (task, MAX_EVENTS + 1)).fetchall()
+    return observe_rows(project, task, row, runs, events)
+
+
+def observe_rows(project, task, row, runs, events):
+    require(row and row[0] == project, "project_task_mismatch")
+    state, session, contract = row[1:]
+    require(state in TASK_STATES and (session is None or isinstance(session, str) and SESSION.fullmatch(session)),
+            "invalid_task_record")
     require(len(runs) <= MAX_RUNS and 0 < len(events) <= MAX_EVENTS, "task_history_incomplete")
     run_ids = {r[0] for r in runs}
     receipts, completions, claims, prefixes = {}, {}, {}, {}

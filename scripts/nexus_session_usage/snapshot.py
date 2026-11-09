@@ -93,7 +93,12 @@ def snapshot_bytes(path):
 
 @contextmanager
 def open_snapshot(path):
-    data = snapshot_bytes(path)
+    with open_snapshot_data(snapshot_bytes(path)) as db:
+        yield db
+
+
+@contextmanager
+def open_snapshot_data(data, *, instruction_budget=250000):
     db = sqlite3.connect(":memory:")
     try:
         if not hasattr(db, "deserialize"):
@@ -108,7 +113,7 @@ def open_snapshot(path):
         def bounded_query():
             nonlocal steps
             steps += 1
-            return steps > 2500
+            return steps * 100 > instruction_budget
 
         db.set_progress_handler(bounded_query, 100)
         yield db

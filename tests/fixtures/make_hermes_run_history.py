@@ -17,6 +17,8 @@ def main():
     parser.add_argument("--hermes", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--revision", default="1" * 40)
+    parser.add_argument("--tasks", type=int, choices=range(1, 9), default=1)
+    parser.add_argument("--other-project", action="store_true", help="also create one task in a second isolated project")
     args = parser.parse_args()
     if subprocess.check_output(["git", "-C", args.hermes, "rev-parse", "HEAD"], text=True).strip() != PIN:
         parser.error("unexpected Hermes source revision")
@@ -48,18 +50,23 @@ def main():
     sessions.close()
     with projects_db.connect_closing() as conn:
         project = projects_db.create_project(conn, name="History fixture", primary_path=str(root))
+        other = projects_db.create_project(conn, name="Second isolated project", primary_path=str(root / "other")) if args.other_project else None
+    targets = [project] * args.tasks + ([other] if other else [])
+    observed = []
     with kanban_db_connect.connect_closing(root / "native.db") as conn:
-        task = kb.create_task(conn, title="Synthetic check", assignee="tester", project_id=project,
-                              session_id=session_id, completion_contract=PR)
-        claimed = kb.claim_task(conn, task, claimer="fixture")
-        assert claimed and claimed.current_run_id
-        with patch.object(kanban_pr_acceptance, "_api", github):
-            assert kb.complete_task(conn, task, summary="private summary", expected_run_id=claimed.current_run_id,
-                                    fire_lifecycle_hook=False, metadata={"published_pr": PR})
+        for index, selected in enumerate(targets, 1):
+            task = kb.create_task(conn, title=f"Synthetic check {index}", assignee="tester", project_id=selected,
+                                  session_id=session_id, completion_contract=PR)
+            claimed = kb.claim_task(conn, task, claimer="fixture")
+            assert claimed and claimed.current_run_id
+            with patch.object(kanban_pr_acceptance, "_api", github):
+                assert kb.complete_task(conn, task, summary="private summary", expected_run_id=claimed.current_run_id,
+                                        fire_lifecycle_hook=False, metadata={"published_pr": PR})
+            observed.append({"projectId": selected, "taskId": task, "runId": claimed.current_run_id})
         with sqlite3.connect(root / "board.db") as backup:
             conn.backup(backup)
-    result = {"projectId": project, "taskId": task, "revision": revision, "originSessionId": session_id,
-              "runId": claimed.current_run_id, "sourcePin": PIN, "githubTransport": "simulated"}
+    result = {**observed[0], "revision": revision, "originSessionId": session_id,
+              "sourcePin": PIN, "githubTransport": "simulated", "tasks": observed}
     (root / "fixture.json").write_text(json.dumps(result), encoding="utf8")
     print(json.dumps(result))
 

@@ -11,7 +11,11 @@ from .source import OUTCOMES, PROJECT, PR, RUN_STATES, SESSION, SHA, SOURCE, dig
 APP_ID = 0x4E585248
 MAX_TASKS = 2000
 MAX_ROWS = 10000
-DDL = {
+PENDING_REASONS = {"project_task_mismatch", "invalid_task_record", "task_history_incomplete", "invalid_event",
+                   "invalid_event_payload", "invalid_receipt", "missing_task_creation", "invalid_run",
+                   "divergent_task_history", "project_repository_mismatch", "unexpected_historical_task",
+                   "previous_task_missing"}
+LEGACY_DDL = {
     "project_sources": "CREATE TABLE project_sources(project TEXT PRIMARY KEY,repository TEXT NOT NULL) WITHOUT ROWID",
     "task_heads": """CREATE TABLE task_heads(project TEXT NOT NULL,task TEXT NOT NULL,watermark INTEGER NOT NULL,
         prefix TEXT NOT NULL,rows_hash TEXT NOT NULL,PRIMARY KEY(project,task)) WITHOUT ROWID""",
@@ -19,6 +23,22 @@ DDL = {
         revision TEXT,status TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(project,task,run)) WITHOUT ROWID""",
     "observations_scope": "CREATE INDEX observations_scope ON observations(project,revision,status,task,run)",
 }
+
+
+SYNC_TABLE = """CREATE TABLE sync_projects(project TEXT PRIMARY KEY,watermark INTEGER NOT NULL,
+    publication TEXT NOT NULL) WITHOUT ROWID"""
+PENDING_TABLE = """CREATE TABLE sync_pending(project TEXT NOT NULL,task TEXT NOT NULL,watermark INTEGER NOT NULL,
+    reason TEXT NOT NULL,PRIMARY KEY(project,task)) WITHOUT ROWID"""
+DDL = {**LEGACY_DDL, "sync_projects": SYNC_TABLE, "sync_pending": PENDING_TABLE}
+
+
+def store_version(db):
+    app = db.execute("PRAGMA application_id").fetchone()[0]
+    version = db.execute("PRAGMA user_version").fetchone()[0]
+    schema = dict(db.execute("SELECT name,sql FROM sqlite_schema WHERE substr(name,1,7) != 'sqlite_'"))
+    require(app == APP_ID and version in (1, 2) and schema == (LEGACY_DDL if version == 1 else DDL),
+            "unsupported_history_store")
+    return version
 
 
 @contextmanager
@@ -35,22 +55,24 @@ def connect_store(filename, write=False):
             if not write:
                 db.execute("PRAGMA query_only=ON")
             db.execute("BEGIN")
+            version = 0
             if data is None:
                 for sql in DDL.values():
                     db.execute(sql)
                 db.execute(f"PRAGMA application_id={APP_ID}")
-                db.execute("PRAGMA user_version=1")
+                db.execute("PRAGMA user_version=2")
             else:
-                app = db.execute("PRAGMA application_id").fetchone()[0]
-                schema = dict(db.execute("SELECT name,sql FROM sqlite_schema WHERE substr(name,1,7) != 'sqlite_'"))
-                require(app == APP_ID and schema == DDL and db.execute("PRAGMA user_version").fetchone()[0] == 1,
-                        "unsupported_history_store")
+                version = store_version(db)
+                if write and version == 1:
+                    db.execute(SYNC_TABLE)
+                    db.execute(PENDING_TABLE)
+                    db.execute("PRAGMA user_version=2")
             if write:
                 page_size = db.execute("PRAGMA page_size").fetchone()[0]
                 db.execute(f"PRAGMA max_page_count={MAX_BYTES // page_size}")
             yield db
             db.commit()
-            if write and (data is None or db.total_changes):
+            if write and (data is None or version == 1 or db.total_changes):
                 publish(db.serialize())
     except (OSError, sqlite3.Error):
         raise UsageError("history_store_unavailable") from None
@@ -60,43 +82,55 @@ def connect_store(filename, write=False):
 
 
 def ingest(store, observation):
+    with connect_store(store, write=True) as db:
+        report = ingest_task(db, observation)
+        if db.total_changes:
+            db.execute("UPDATE sync_projects SET publication='' WHERE project=? AND publication!=''", (observation["project"],))
+        return report
+
+
+def ingest_task(db, observation):
     project, task, watermark = (observation[k] for k in ("project", "task", "watermark"))
     rows, prefixes = observation["rows"], observation["prefixes"]
-    with connect_store(store, write=True) as db:
-        previous = db.execute("SELECT watermark,prefix,rows_hash FROM task_heads WHERE project=? AND task=?",
-                              (project, task)).fetchone()
-        rows_hash = digest(rows)
-        action = "imported"
-        if previous is not None:
-            old_id, old_prefix, old_hash = previous
-            if watermark < old_id:
-                action = "older_snapshot"
-            else:
-                require(prefixes.get(old_id) == old_prefix, "divergent_task_history")
-                if watermark == old_id:
-                    require(rows_hash == old_hash, "divergent_task_history")
-                    action = "already_imported"
-        if action == "imported":
-            repositories = {r["repository"].lower() for r in rows if r["repository"] is not None}
-            require(len(repositories) <= 1, "project_repository_mismatch")
-            if repositories:
-                repository = repositories.pop()
-                db.execute("INSERT OR IGNORE INTO project_sources VALUES(?,?)", (project, repository))
-                bound = db.execute("SELECT repository FROM project_sources WHERE project=?", (project,)).fetchone()
-                require(bound[0] == repository, "project_repository_mismatch")
-            old_runs = {r[0] for r in db.execute("SELECT run FROM observations WHERE project=? AND task=?", (project, task))}
-            require(old_runs <= {row["runId"] for row in rows}, "divergent_task_history")
-            count = db.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
-            tasks = db.execute("SELECT COUNT(*) FROM task_heads").fetchone()[0]
-            require(count - len(old_runs) + len(rows) <= MAX_ROWS and tasks + int(previous is None) <= MAX_TASKS,
-                    "history_store_limit")
-            db.execute("INSERT OR REPLACE INTO task_heads VALUES(?,?,?,?,?)",
-                       (project, task, watermark, prefixes[watermark], rows_hash))
-            db.executemany("INSERT OR REPLACE INTO observations VALUES(?,?,?,?,?,?)", [
-                (project, task, row["runId"], row["revision"], row["status"], json.dumps(row, sort_keys=True)) for row in rows
-            ])
-        return {"schemaVersion": 1, "projectId": project, "taskId": task, "status": action,
-                "sourceWatermark": watermark, "observedAttempts": len(rows)}
+    previous = db.execute("SELECT watermark,prefix,rows_hash FROM task_heads WHERE project=? AND task=?",
+                          (project, task)).fetchone()
+    pending = db.execute("SELECT watermark FROM sync_pending WHERE project=? AND task=?", (project, task)).fetchone()
+    rows_hash = digest(rows)
+    action = "imported"
+    if pending and watermark < pending[0]:
+        action = "older_snapshot"
+    elif previous is not None:
+        old_id, old_prefix, old_hash = previous
+        if watermark < old_id:
+            action = "older_snapshot"
+        else:
+            require(prefixes.get(old_id) == old_prefix, "divergent_task_history")
+            if watermark == old_id:
+                require(rows_hash == old_hash, "divergent_task_history")
+                action = "already_imported"
+    if action == "imported":
+        repositories = {r["repository"].lower() for r in rows if r["repository"] is not None}
+        require(len(repositories) <= 1, "project_repository_mismatch")
+        if repositories:
+            repository = repositories.pop()
+            db.execute("INSERT OR IGNORE INTO project_sources VALUES(?,?)", (project, repository))
+            bound = db.execute("SELECT repository FROM project_sources WHERE project=?", (project,)).fetchone()
+            require(bound[0] == repository, "project_repository_mismatch")
+        old_runs = {r[0] for r in db.execute("SELECT run FROM observations WHERE project=? AND task=?", (project, task))}
+        require(old_runs <= {row["runId"] for row in rows}, "divergent_task_history")
+        count = db.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+        tasks = db.execute("SELECT COUNT(*) FROM task_heads").fetchone()[0]
+        require(count - len(old_runs) + len(rows) <= MAX_ROWS and tasks + int(previous is None) <= MAX_TASKS,
+                "history_store_limit")
+        db.execute("INSERT OR REPLACE INTO task_heads VALUES(?,?,?,?,?)",
+                   (project, task, watermark, prefixes[watermark], rows_hash))
+        db.executemany("INSERT OR REPLACE INTO observations VALUES(?,?,?,?,?,?)", [
+            (project, task, row["runId"], row["revision"], row["status"], json.dumps(row, sort_keys=True)) for row in rows
+        ])
+    if pending and action != "older_snapshot":
+        db.execute("DELETE FROM sync_pending WHERE project=? AND task=?", (project, task))
+    return {"schemaVersion": 1, "projectId": project, "taskId": task, "status": action,
+            "sourceWatermark": watermark, "observedAttempts": len(rows)}
 
 
 def _read_rows(rows, project):
@@ -151,6 +185,9 @@ def query(store, project, revision, task=None, limit=20, *, exporting=False):
         repository = bound[0] if bound else None
         require(repository is None or isinstance(repository, str) and PR.fullmatch(
             f"https://github.com/{repository}/pull/1"), "invalid_history_observation")
+        if db.execute("PRAGMA user_version").fetchone()[0] == 2:
+            clause += (" AND NOT EXISTS(SELECT 1 FROM sync_pending AS p WHERE p.project=observations.project"
+                       " AND p.task=observations.task)")
         found = db.execute("SELECT task,run,revision,status,data FROM observations WHERE project=? AND revision=? AND status='active'"
                            + clause + " ORDER BY task,run LIMIT ?", [*args, limit + 1]).fetchall()
     evidence = _read_rows(found[:limit], project)
@@ -164,9 +201,16 @@ def inspect_task(store, project, task):
             "invalid_project_or_task")
     with connect_store(store) as db:
         head = db.execute("SELECT watermark FROM task_heads WHERE project=? AND task=?", (project, task)).fetchone()
+        pending = None
+        if db.execute("PRAGMA user_version").fetchone()[0] == 2:
+            pending = db.execute("SELECT watermark,reason FROM sync_pending WHERE project=? AND task=?", (project, task)).fetchone()
+        if pending:
+            require(type(pending[0]) is int and pending[0] >= 0 and pending[1] in PENDING_REASONS,
+                    "invalid_history_observation")
         attempts = db.execute("SELECT task,run,revision,status,data FROM observations WHERE project=? AND task=? ORDER BY run", (project, task)).fetchall()
     return {"schemaVersion": 1, "projectId": project, "taskId": task, "sourceWatermark": head and head[0],
-            "attempts": _read_rows(attempts, project)}
+            "attempts": _read_rows(attempts, project),
+            **({"syncPending": {"watermark": pending[0], "reason": pending[1]}} if pending else {})}
 
 
 def correlate_session(store, project, revision, task, snapshot):
