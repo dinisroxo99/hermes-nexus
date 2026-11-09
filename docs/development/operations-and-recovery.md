@@ -58,3 +58,18 @@ In the native-history rehearsal, restoring `projects.json` and `history.sqlite` 
 and active receipt. Task `t_257a0147`, run 1, acceptance event 3 and completion event 4 survived the round trip.
 That fixture used the pinned Hermes lifecycle with simulated GitHub responses. A separate real-repository
 validation is required before promoting any production deployment.
+
+### Additional fleet observations
+
+Use `--components /operator/health-rules.json` to sample existing, read-only JSON readiness endpoints
+on the same host during the same window. For a llama.cpp server configured at port 8080, for example:
+
+```json
+{"inference":{"url":"http://127.0.0.1:8080/v1/models","field":["data",0,"id"],"equals":"local-qwen"}}
+```
+
+Configure each installed endpoint's actual port, field and expected value. Accepted component labels are
+`gateway`, `dispatcher`, `inference`, `memory` and `history`. Requests require a numeric loopback address
+and have a wall deadline. Redirects, credentials and query strings are excluded. Only failure counts are
+stored. A model listing checks availability without generating a completion. A successful component
+assertion is evidence for that endpoint; task recovery and model correctness have their own tests.

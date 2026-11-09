@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import sys
 from .soak import verify_service
+from .components import load_components
 
 
 def write_checkpoint(path, report):
@@ -28,10 +29,12 @@ def main():
     parser.add_argument("--project-id")
     parser.add_argument("--pid", type=int)
     parser.add_argument("--checkpoint", type=Path, help="atomically update this selected report after each sample")
+    parser.add_argument("--components", type=Path, help="optional JSON describing local component readiness assertions")
     args = parser.parse_args()
     try:
         report = verify_service(args.url, args.duration_seconds, args.interval_seconds, args.project_id, args.pid,
-                                (lambda record: write_checkpoint(args.checkpoint, record)) if args.checkpoint else None)
+                                (lambda record: write_checkpoint(args.checkpoint, record)) if args.checkpoint else None,
+                                load_components(args.components) if args.components else None)
     except (ValueError, OSError):
         print(json.dumps({"error": "invalid_probe_request"}), file=sys.stderr)
         return 1

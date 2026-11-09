@@ -15,6 +15,7 @@ import unittest
 from zipfile import ZipFile
 
 from scripts.nexus_operations.soak import get_json, verify_service
+from scripts.nexus_operations.components import load_components, sample_components
 from scripts.nexus_recovery.__main__ import create_backup, restore
 from scripts.nexus_session_usage.snapshot import UsageError
 
@@ -157,6 +158,30 @@ class OperationsTests(unittest.TestCase):
             self.assertIsNone(get_json(server.server_address, "/", timeout=0.15))
             self.assertLess(time.monotonic() - start, 1)
             worker.join(2)
+
+    def test_optional_component_samples_use_typed_assertions_and_only_return_state(self):
+        class Status(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"data":[{"id":"local-qwen"}],"private":"not exported"}')
+            def log_message(self, *args):
+                pass
+        with tempfile.TemporaryDirectory() as tmp, HTTPServer(("127.0.0.1", 0), Status) as server:
+            worker = threading.Thread(target=server.serve_forever, daemon=True)
+            worker.start()
+            try:
+                url = f"http://127.0.0.1:{server.server_port}/v1/models"
+                file = Path(tmp) / "components.json"
+                rule = {"url": url, "field": ["data", 0, "id"], "equals": "local-qwen"}
+                file.write_text(json.dumps({"inference": rule, "gateway": {**rule, "equals": "other"}}))
+                self.assertEqual(sample_components(load_components(file)), {"inference": True, "gateway": False})
+                file.write_text(json.dumps({"inference": {**rule, "url": "http://external.test/health"}}))
+                with self.assertRaises(ValueError):
+                    load_components(file)
+            finally:
+                server.shutdown()
+                worker.join(2)
 
     def test_forbids_remote_or_credential_bearing_probes(self):
         for url in ("http://example.org", "http://name@127.0.0.1:8770", "https://127.0.0.1", "http://127.0.0.1/path"):

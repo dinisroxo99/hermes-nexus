@@ -23,7 +23,7 @@ def endpoint(url):
     return parsed.hostname, parsed.port or 80
 
 
-def get_json(origin, path, body=None, timeout=5):
+def get_json(origin, path, body=None, timeout=5, *, envelope=True):
     connection = http.client.HTTPConnection(*origin, timeout=timeout)
     deadline = time.monotonic() + timeout
     timer = None
@@ -45,9 +45,11 @@ def get_json(origin, path, body=None, timeout=5):
         raw = response.read(MAX_RESPONSE + 1)
         if response.status != 200 or len(raw) > MAX_RESPONSE:
             return None
-        envelope = json.loads(raw)
-        if isinstance(envelope, dict) and envelope.get("ok") is True and isinstance(envelope.get("data"), dict):
-            return envelope["data"]
+        result = json.loads(raw)
+        if not envelope:
+            return result
+        if isinstance(result, dict) and result.get("ok") is True and isinstance(result.get("data"), dict):
+            return result["data"]
     except (OSError, ValueError, http.client.HTTPException, RecursionError):
         return None
     finally:
@@ -73,7 +75,7 @@ def now():
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
 
-def verify_service(url, seconds, interval, project_id=None, pid=None, checkpoint=None):
+def verify_service(url, seconds, interval, project_id=None, pid=None, checkpoint=None, components=None):
     if not 0 <= seconds <= 604800 or not 1 <= interval <= 3600:
         raise ValueError("invalid_observation_period")
     origin = endpoint(url)
@@ -90,6 +92,9 @@ def verify_service(url, seconds, interval, project_id=None, pid=None, checkpoint
               "samples": 0, "livenessFailures": 0, "readinessFailures": 0, "uptimeRestartsObserved": 0,
               "contextProbeFailures": 0 if project_id else None, "contextPartialSamples": 0 if project_id else None,
               "maxSamplingGapSeconds": 0}
+    if components:
+        from .components import sample_components
+        report["componentFailures"] = {name: 0 for name in components}
     while True:
         stamp = time.monotonic()
         if previous is not None:
@@ -116,6 +121,10 @@ def verify_service(url, seconds, interval, project_id=None, pid=None, checkpoint
                 report["contextProbeFailures"] += 1
             elif pack.get("observation", {}).get("incomplete") is True:
                 report["contextPartialSamples"] += 1
+        if components:
+            for component, healthy in sample_components(components).items():
+                if not healthy:
+                    report["componentFailures"][component] += 1
         sample = local_process_sample(pid)
         if sample:
             process_samples += 1
@@ -140,7 +149,8 @@ def verify_service(url, seconds, interval, project_id=None, pid=None, checkpoint
     report["status"] = "degraded" if (report["livenessFailures"] or report["readinessFailures"]
                                       or report["contextProbeFailures"] or report["uptimeRestartsObserved"]
                                       or report["maxSamplingGapSeconds"] > interval + 5
-                                      or (pid is not None and not complete_process)) else "healthy"
+                                      or (pid is not None and not complete_process)
+                                      or any(report.get("componentFailures", {}).values())) else "healthy"
     if checkpoint:
         checkpoint(report)
     return report
