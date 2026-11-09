@@ -130,3 +130,17 @@ node scripts/ask-project.mjs --project-id PrJ_Example --tests-for src/orders.ts 
 A CPU smoke on a registered Git fixture at commit `8c172499f3844e843e7d14b1da6f867671e22a6f` selected
 `tests/one.test.ts` as a candidate for `src/one.ts` with citation `[C1]`. A separate native Hermes Kanban
 fixture used simulated GitHub checks and a real acceptance/completion chain. These are fixture observations.
+
+## HTTP entry point
+
+`POST /api/intelligence/projects/:projectId/ask-project` accepts the same evidence questions. For example:
+
+```json
+{"question":"tests","subject":"src/orders.ts","synthesize":true}
+```
+
+Allowed question names are `symbol`, `tests`, `impact`, `history` and `validated-history`.
+For historical queries, `taskId` and `historyRevision` can narrow the result. Set `includeHistory` to combine
+a current-source question with a validated historical lookup. The registry, SQLite store and local model
+configuration belong to the server. The HTTP handler admits one model synthesis at a time and returns
+429 for another concurrent request. Deterministic questions continue to work while that slot is occupied.
