@@ -5,6 +5,8 @@ import ipaddress
 import json
 import math
 import os
+import socket
+import threading
 from pathlib import Path
 import time
 from urllib.parse import quote, urlsplit
@@ -21,9 +23,22 @@ def endpoint(url):
     return parsed.hostname, parsed.port or 80
 
 
-def get_json(origin, path, body=None):
-    connection = http.client.HTTPConnection(*origin, timeout=5)
+def get_json(origin, path, body=None, timeout=5):
+    connection = http.client.HTTPConnection(*origin, timeout=timeout)
+    deadline = time.monotonic() + timeout
+    timer = None
     try:
+        connection.connect()
+        sock = connection.sock
+        def expire():
+            # Abort the whole response even if the service trickles bytes within each socket timeout.
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        timer = threading.Timer(max(0, deadline - time.monotonic()), expire)
+        timer.daemon = True
+        timer.start()
         payload = json.dumps(body) if body is not None else None
         connection.request("POST" if payload else "GET", path, payload, {"Content-Type": "application/json"})
         response = connection.getresponse()
@@ -36,6 +51,8 @@ def get_json(origin, path, body=None):
     except (OSError, ValueError, http.client.HTTPException, RecursionError):
         return None
     finally:
+        if timer:
+            timer.cancel()
         connection.close()
     return None
 
@@ -116,12 +133,14 @@ def verify_service(url, seconds, interval, project_id=None, pid=None, checkpoint
             time.sleep(remaining)
     complete_process = process_samples == report["samples"] and consecutive_process
     report.update(endedAt=now(), elapsedSeconds=round(time.monotonic() - started, 2),
-                  processMetrics={"samples": process_samples, "peakRssBytes": rss_peak,
+                  processMetrics={"samples": process_samples, "complete": complete_process if pid is not None else None,
+                                  "peakRssBytes": rss_peak,
                                   "cpuSecondsBetweenSamples": round(process_last[1] - process_first[1], 3)
                                   if complete_process and process_samples > 1 else None})
     report["status"] = "degraded" if (report["livenessFailures"] or report["readinessFailures"]
                                       or report["contextProbeFailures"] or report["uptimeRestartsObserved"]
-                                      or report["maxSamplingGapSeconds"] > interval + 5) else "healthy"
+                                      or report["maxSamplingGapSeconds"] > interval + 5
+                                      or (pid is not None and not complete_process)) else "healthy"
     if checkpoint:
         checkpoint(report)
     return report

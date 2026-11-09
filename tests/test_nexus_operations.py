@@ -3,6 +3,9 @@ from contextlib import contextmanager
 from hashlib import sha256
 import json
 import os
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 import select
 import subprocess
@@ -11,7 +14,7 @@ import tempfile
 import unittest
 from zipfile import ZipFile
 
-from scripts.nexus_operations.soak import verify_service
+from scripts.nexus_operations.soak import get_json, verify_service
 from scripts.nexus_recovery.__main__ import create_backup, restore
 from scripts.nexus_session_usage.snapshot import UsageError
 
@@ -133,6 +136,27 @@ class OperationsTests(unittest.TestCase):
             self.assertFalse(destination.exists())
             restore(archive, pin, destination)
             self.assertEqual((destination / "projects.json").read_text(), "[]")
+
+    def test_trickling_service_cannot_extend_the_probe_deadline(self):
+        class Slow(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+                for _ in range(40):
+                    try:
+                        self.wfile.write(b" ")
+                    except OSError:
+                        return
+                    time.sleep(0.04)
+            def log_message(self, *args):
+                pass
+        with HTTPServer(("127.0.0.1", 0), Slow) as server:
+            worker = threading.Thread(target=server.handle_request, daemon=True)
+            worker.start()
+            start = time.monotonic()
+            self.assertIsNone(get_json(server.server_address, "/", timeout=0.15))
+            self.assertLess(time.monotonic() - start, 1)
+            worker.join(2)
 
     def test_forbids_remote_or_credential_bearing_probes(self):
         for url in ("http://example.org", "http://name@127.0.0.1:8770", "https://127.0.0.1", "http://127.0.0.1/path"):
