@@ -50,3 +50,11 @@ worktrees, stale observations and disjoint siblings cannot establish a shared-wr
 incomplete scope can still yield a positive overlap. Empty partial evidence gives no clearance to
 schedule tasks. The service returns at most 16 paths, highest severity first, plus the total and
 a truncation flag. Task scheduling and tool permissions belong to Hermes.
+
+## Repository example
+
+In a disposable registered clone of Hermes Nexus at `8f8aa98d1793b4270bdfcd1515f09bf8f0380791`,
+two task IDs targeted `src/lib/effective-task-scope-policy.js` in the same clean linked worktree.
+The comparison reported a high-severity WRITE/WRITE overlap there and an informational WATCH/WATCH
+overlap in `src/lib/effective-task-scope-adapter.js`. Its overall status was `incomplete`: the
+Context Pack and Impact both reported incomplete coverage, and RESERVED remained incomplete.
