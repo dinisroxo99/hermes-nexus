@@ -10,6 +10,7 @@ import { compareContextStrings, isContextPathAllowed } from "./project-context-f
 import { crossesNestedBoundary } from "./project-create-observation.js";
 
 export const OPERATION_TREE_LIMITS = Object.freeze({ files: 32, entries: 256, depth: 8, bytesPerFile: 131072 });
+export const isDirectoryTransfer = (kind) => kind === "rename_directory" || kind === "move_directory";
 export const refuse = (code) => { throw Object.assign(new Error(code), { code }); };
 const utf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 const proc = (fd) => `/proc/self/fd/${fd}`;
@@ -180,8 +181,8 @@ export function verifyDestinationDirectory(root, destination) {
 
 /** Compare the entire live bounded selection with regular Git blobs and admitted snapshot sources. */
 export function observeTrackedTree(binding, snapshot, operation) {
-  const directory = operation.kind === "expand_directory";
-  const target = directory ? operation.path : operation.oldPath;
+  const directory = operation.kind === "expand_directory" || isDirectoryTransfer(operation.kind);
+  const target = operation.kind === "expand_directory" ? operation.path : operation.oldPath;
   try {
     const tree = gitEntries(binding, target);
     verifySpelling(binding.root, target);

@@ -1,7 +1,7 @@
-# Observe a file move or expand a directory
+# Observe file and directory moves or expand a directory
 
-The read-only operator produces a bounded manifest for one proposed file rename, move, or directory
-expansion on a clean linked Git worktree. Its output identifies exact files and content hashes.
+The read-only operator produces a bounded manifest for a file or directory rename, a move, or an
+explicit directory expansion on a clean linked Git worktree. Its output identifies files and content hashes.
 The existing ETS HTTP request and response formats are unchanged.
 
 Use the Nexus registry environment (`DATA_DIR`, `PROJECTS_ROOTS`) and write the request outside the
@@ -22,8 +22,8 @@ node scripts/observe-project-operation.mjs < request.json
 
 Use `"kind": "rename"` with the same fields for a rename, or replace `operation` with
 `{"kind":"expand_directory","path":"src/parsing"}` to enumerate an existing directory. Paths
-are exact, project-relative, explicitly selected names. A move requires the destination parent to
-exist. Both source passes require the existing create classifier to establish destination absence
+are exact, project-relative, explicitly selected names. A file move requires the destination parent
+to exist. Both source passes require the existing create classifier to establish destination absence
 on the same snapshot. The manifest binds the selected regular source's relative path, byte length,
 file mode, SHA-256 and committed
 Git blob ID. Source and destination must use distinct names under the create witness's name policy.
@@ -36,6 +36,35 @@ file, empty directory, special file, symlink, nested repository, registered chil
 boundary, unreadable member or unrepresented source causes refusal of the entire manifest. The
 operator checks for registered child paths even when they are missing in one checkout. It never
 returns a partial set as a complete expansion.
+
+## Transfer a whole directory
+
+For example, use the following operation in the same request envelope to move `src/parsing` under
+an existing `modules` directory. Use `rename_directory` for a directory rename.
+
+```json
+{ "kind": "move_directory", "oldPath": "src/parsing", "newPath": "modules/parsing" }
+```
+
+The entire source directory must pass the expansion checks. Neither root may be equal to, below,
+or above the other under the portable name rules. Registered child projects below either root
+are reserved even if their paths do not exist in the current checkout. Every mapped member must
+have a representable, bounded destination path outside protected names.
+
+The producer checks the proposed destination root before and after the two source observations.
+Each check runs the directory-entry absence witness against the same revision and snapshot.
+The parent directory must exist. Both validated witnesses must report absence and have the same
+digest, including the parent listing evidence. A changed parent witness yields
+`operation_destination_changed`, even if the name is still free. The public manifest exposes the
+digest and verdict. Parent directory listings stay internal.
+
+`mapping.directories` pairs each directory with its proposed new path, including the selected root.
+`mapping.files` pairs each regular file with its proposed path, byte length and SHA-256. The digest
+and bytes describe the verified **source** content for the proposed unchanged transfer. The
+destination is absent, so the report includes no observed destination bytes. A stale commit, stale
+evidence digest or any unavailable member refuses the whole proposal.
+
+## Bounds and re-observation
 
 The ceiling is 32 files, 256 directory entries and eight levels below the requested directory.
 Individual files are capped at 128 KiB. Verification of a selected path segment stops at 1,024
