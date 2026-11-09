@@ -1,6 +1,12 @@
 name: CI Lite
 
 on:
+  workflow_dispatch:
+    inputs:
+      main_commit:
+        description: Optional full SHA on main to replay
+        required: false
+        type: string
   push:
     branches: [ main ]
   pull_request:
@@ -11,6 +17,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && inputs.main_commit != '' && '0' || '1' }}
+          persist-credentials: false
+
+      - name: Select exact main revision for manual replay
+        if: github.event_name == 'workflow_dispatch' && inputs.main_commit != ''
+        env:
+          REPLAY_SHA: ${{ inputs.main_commit }}
+        run: |
+          [[ "$GITHUB_REF" == refs/heads/main && "$REPLAY_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          git merge-base --is-ancestor "$REPLAY_SHA" HEAD
+          git checkout --detach "$REPLAY_SHA"
+          test "$(git rev-parse HEAD)" = "$REPLAY_SHA"
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
