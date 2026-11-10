@@ -1,6 +1,12 @@
 name: CI Lite
 
 on:
+  workflow_dispatch:
+    inputs:
+      main_commit:
+        description: Optional full SHA on main to replay
+        required: false
+        type: string
   push:
     branches: [ main ]
   pull_request:
@@ -11,6 +17,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && inputs.main_commit != '' && '0' || '1' }}
+          persist-credentials: false
+
+      - name: Select exact main revision for manual replay
+        if: github.event_name == 'workflow_dispatch' && inputs.main_commit != ''
+        env:
+          REPLAY_SHA: ${{ inputs.main_commit }}
+        run: |
+          [[ "$GITHUB_REF" == refs/heads/main && "$REPLAY_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          git merge-base --is-ancestor "$REPLAY_SHA" HEAD
+          git checkout --detach "$REPLAY_SHA"
+          test "$(git rev-parse HEAD)" = "$REPLAY_SHA"
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -19,6 +38,16 @@ jobs:
 
       - name: Install pinned Python deps
         run: pip install --disable-pip-version-check httpx==0.28.1 httpcore==1.0.9
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: npm ci
+        run: npm ci
 
       - name: Run plugin unittests (discover filtered, exclude host-hermes tests)
         run: |
@@ -86,15 +115,10 @@ jobs:
       - name: Run Guard compatibility probe unit tests
         run: python -B -m unittest discover -s tests -p 'test_hermes_guard_probe.py'
 
-      - name: Set up Node 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: package-lock.json
-
-      - name: npm ci
-        run: npm ci
+      - name: Check operational recovery and paired evaluation
+        run: |
+          python -B -m unittest discover -s tests -p test_nexus_operations.py
+          python -B -m unittest discover -s tests -p test_paired_hermes_benchmark.py
 
       - name: Run npm test (Serena/Docker tests must stay skipped)
         env:

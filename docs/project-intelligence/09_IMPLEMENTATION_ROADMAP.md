@@ -4,6 +4,12 @@
 > Companion review: `reviews/09_IMPLEMENTATION_ROADMAP_ROUNDTABLE.md`
 
 
+## Implementation and acceptance
+
+The [current delivery table](../CURRENT_STATUS.md#development-checkpoint-2026-11-09) maps active-plan
+steps 4–9 to their entry points, tests, actual Hermes/model experiments and outstanding host verification.
+The phase numbering below is the original design order.
+
 ## Guiding rule
 
 Do not start by building more orchestration.

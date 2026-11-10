@@ -14,6 +14,12 @@
 | Where is a symbol, or which tests might be affected? | [Project questions](development/project-symbol-location.md) |
 | Which paths changed, or is a proposed destination absent? | [Diff audit](development/task-diff-audit.md) · [Create observation](development/create-observation.md) |
 | What can I measure from actual sessions and logs? | [Session usage](development/session-usage.md) · [Log comparison](development/log-inspector.md) |
+| How do I propose an isolated edit or a directory move? | [Guarded worker](development/hermes-guarded-worker.md) · [Scope operations](development/project-operation-observation.md) |
+| How are accepted runs and service recovery verified? | [Run history](development/run-history.md) · [Operations](development/operations-and-recovery.md) |
+| How do I get a compact task summary? | [Task brief](development/task-brief.md) |
+| How do I observe individual worker requests? | [Worker usage](development/worker-usage-observer.md) |
+| How much did the measured model use? | [Paired benchmark](development/paired-hermes-benchmark.md) |
+| Can I export verified learning examples? | [Validated datasets](development/validated-datasets.md) |
 | How is question retrieval evaluated? | [Frozen question suite](development/project-question-evaluation.md) |
 | What defects remain open or deferred? | [Known issues and deferred technical debt](KNOWN_ISSUES.md) |
 | How do I run it or call the API? | [Service reference](SERVICE_REFERENCE.md) |

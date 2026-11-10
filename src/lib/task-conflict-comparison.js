@@ -8,7 +8,9 @@ import { IMPACT_LIMITS_TARGETS_MAX } from "./impact-policy.js";
 import { validateProjectId } from "./project-registry.js";
 import { validateRelativeProjectPath } from "./project-roots.js";
 
-const VERSION = "task-conflict-comparison-v1";
+import { boundImpact, declarationEvidence, dependencyEvidence, sharedDeclarations } from "./task-conflict-impact.js";
+
+const VERSION = "task-conflict-comparison-v2";
 const CATEGORIES = ["write", "reserved", "watch", "impact"];
 const SEVERITIES = ["high", "warning", "info"];
 const MAX_OVERLAPS = 16;
@@ -23,7 +25,9 @@ function emptyResult() {
   return {
     schemaVersion: 1, analysisVersion: VERSION, status: "not_evaluated", findingState: "not_evaluated",
     severity: null, recommendedAction: "reobserve", taskIds: [], binding: null, scopeBindings: [],
-    overlaps: [], totalOverlaps: 0, truncated: false, reasons: []
+    overlaps: [], totalOverlaps: 0, truncated: false, reasons: [],
+    revalidation: { required: true, distinctCommits: null },
+    dimensions: { files: "not_evaluated", dependencies: "not_evaluated", declarations: "not_evaluated" }
   };
 }
 
@@ -53,13 +57,14 @@ function pairProblem(a, b) {
   if (a.projectId !== b.projectId) return "different_projects";
   if (a.task.id === b.task.id) return "same_task";
   if (a.revisionBinding.repositoryId !== b.revisionBinding.repositoryId) return "different_repositories";
-  if (a.revisionBinding.commitSha !== b.revisionBinding.commitSha) return "different_revisions";
   const distinctLocator = a.project.rootId !== b.project.rootId || a.project.relativePath !== b.project.relativePath;
   if (a.revisionBinding.worktreeId !== b.revisionBinding.worktreeId) {
     return distinctLocator ? "different_worktrees" : "worktree_locator_mismatch";
   }
   if (distinctLocator) return "worktree_locator_mismatch";
-  if (a.revisionBinding.branch !== b.revisionBinding.branch) return "different_revisions";
+  if (a.revisionBinding.branch !== b.revisionBinding.branch || a.revisionBinding.commitSha !== b.revisionBinding.commitSha) {
+    return "different_revisions";
+  }
   if (a.sourceBinding.contextSnapshotToken !== b.sourceBinding.contextSnapshotToken
       || a.sourceBinding.contextSourceDigest !== b.sourceBinding.contextSourceDigest) return "different_snapshots";
   return null;
@@ -115,70 +120,71 @@ function observationBinding(scope) {
   };
 }
 
-// Sibling worktree evidence must be local to its own scope. Scope v2 does not retain the target byte hashes.
-function explicitTargetHashes(rawImpact, scope) {
-  let impact;
-  try { impact = materializeBoundedJsonData(rawImpact); } catch { return null; }
-  if (Buffer.byteLength(JSON.stringify(impact), "utf8") > MAX_COMPACT_OUTPUT
-      || impact?.schemaVersion !== 1 || impact.analysisVersion !== "impact-v2"
-      || impact.projectId !== scope.projectId || impact.project?.rootId !== scope.project.rootId
-      || impact.project.relativePath !== scope.project.relativePath
-      || impact.snapshotToken !== scope.sourceBinding.impactSnapshotToken
-      || !Object.keys(observationBinding(scope).revision).every((key) => impact.revision?.[key] === scope.revisionBinding[key])
-      || !["available", "partial"].includes(impact.status)
-      || !["evidence_found", "no_evidence_found"].includes(impact.findingState)
-      || Object.hasOwn(impact, "originPath") || !Array.isArray(impact.targets)
-      || scope.task.paths.length !== impact.targets.length) return null;
-  const requested = new Set(scope.task.paths);
-  const hashes = new Map();
-  for (const target of impact.targets) {
-    if (!requested.delete(target?.originPath)) return null;
-    const source = target.targetSource;
-    if (source && source.path === target.originPath && isHash(source.hash)
-        && ["available", "partial"].includes(target.status)
-        && ["evidence_found", "no_evidence_found"].includes(target.findingState)) {
-      hashes.set(target.originPath, source.hash);
-    }
-  }
-  return hashes;
-}
-
-// Inspect the wrapper without reading accessors; each original envelope has its own materialization budget.
-function siblingImpactInputs(evidence) {
-  if (evidence === null || typeof evidence !== "object" || utilTypes.isProxy(evidence)) return null;
+// Inspect the wrapper without reading accessors. Materialize each envelope independently.
+function comparisonInputs(evidence, reversed) {
+  if (!evidence || typeof evidence !== "object" || utilTypes.isProxy(evidence)) return null;
   const prototype = Object.getPrototypeOf(evidence);
   if (prototype !== Object.prototype && prototype !== null) return null;
-  const impacts = [];
-  for (const key of ["leftImpact", "rightImpact"]) {
-    const descriptor = Object.getOwnPropertyDescriptor(evidence, key);
-    if (!descriptor?.enumerable || !Object.hasOwn(descriptor, "value")) return null;
-    impacts.push(descriptor.value);
+  const sides = [];
+  for (const side of ["left", "right"]) {
+    const inputs = {};
+    for (const field of ["Impact", "PeerImpact", "SymbolWitness"]) {
+      const descriptor = Object.getOwnPropertyDescriptor(evidence, side + field);
+      if (!descriptor && field !== "Impact") continue;
+      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, "value")) return null;
+      inputs[field] = descriptor.value;
+    }
+    sides.push(inputs);
   }
-  return impacts;
+  return reversed ? sides.reverse() : sides;
 }
 
-function siblingOverlaps(scopes, indexes, impacts, reasons) {
-  const hashes = scopes.map((scope, i) => explicitTargetHashes(impacts[i], scope));
-  if (hashes.some((hash) => !hash)) return null;
-  const overlaps = [];
-  reasons.add("sibling_write_evidence_only");
-  for (const [path, category] of indexes[0]) {
-    if (category !== "write" || indexes[1].get(path) !== "write") continue;
-    const hash = hashes[0].get(path);
-    if (hash && hash === hashes[1].get(path)) {
-      overlaps.push({ path, categories: ["write", "write"], severity: "high", sourceHash: hash });
-    } else {
-      reasons.add("unverified_shared_write");
+function annotatedOverlap(path, categories, observations, sameSnapshot) {
+  const [a, b] = categories;
+  const { own, peers, symbols } = observations;
+  const row = { path, categories, severity: overlapSeverity(a, b) };
+  if (a === "write" && b === "write") {
+    const hash = own[0]?.hashes.get(path);
+    const secondHash = own[1]?.hashes.get(path);
+    if (!sameSnapshot) {
+      if (!hash || !secondHash) return null;
+      if (hash !== secondHash) {
+        if (!observations.distinctCommits) return null;
+        return { ...row, severity: "warning", basis: "same_path_distinct_content", sourceHashes: [hash, secondHash] };
+      }
+      row.sourceHash = hash;
     }
+    const declarations = sharedDeclarations(path, symbols, sameSnapshot);
+    if (declarations.length) row.declarations = declarations;
+  } else if (categories.includes("write") && (categories.includes("watch") || categories.includes("impact"))) {
+    const writer = a === "write" ? 0 : 1;
+    const dependency = dependencyEvidence(path, own[writer], own[1 - writer], peers[writer], sameSnapshot);
+    if (dependency) row.dependency = dependency;
+    else if (!sameSnapshot) return null;
+  } else if (!sameSnapshot) return null;
+  return row;
+}
+
+function siblingOverlaps(indexes, observations, reasons) {
+  const overlaps = [];
+  const checkedPeer = observations.peers.some(Boolean);
+  reasons.add(checkedPeer ? "sibling_dependency_evidence_bounded" : "sibling_write_evidence_only");
+  for (const [path, category] of indexes[0]) {
+    const peer = indexes[1].get(path);
+    if (!peer) continue;
+    const row = annotatedOverlap(path, [category, peer], observations, false);
+    if (row) overlaps.push(row);
+    else if (category === "write" && peer === "write") reasons.add("unverified_shared_write");
+    else if ([category, peer].includes("write")) reasons.add("unverified_dependency_overlap");
   }
   return overlaps;
 }
 
-function sharedSnapshotOverlaps(first, second) {
+function sharedSnapshotOverlaps(first, second, observations) {
   const overlaps = [];
   for (const [path, category] of first) {
     const peer = second.get(path);
-    if (peer) overlaps.push({ path, categories: [category, peer], severity: overlapSeverity(category, peer) });
+    if (peer) overlaps.push(annotatedOverlap(path, [category, peer], observations, true));
   }
   return overlaps;
 }
@@ -203,29 +209,38 @@ export function compareTaskScopes(leftScope, rightScope, evidence = {}) {
   const scopes = sides.map((side) => side.scope).sort((a, b) => compareStrings(a.task.id, b.task.id));
   const [a, b] = scopes;
   result.taskIds = scopes.map((scope) => scope.task.id);
+  const distinctCommits = a.revisionBinding.commitSha !== b.revisionBinding.commitSha;
   const problem = pairProblem(a, b);
   const siblings = problem === "different_worktrees";
   if (problem && !siblings) return { ...result, reasons: [problem] };
+  result.revalidation = { required: true, distinctCommits };
+  result.dimensions.declarations = scopes.some(scope => scope.task.symbols?.length) ? "not_established" : "not_requested";
 
   const reasons = new Set();
   const indexes = scopes.map((scope) => indexClassifications(scope, reasons));
   if (indexes.includes(null)) return { ...result, reasons: ["invalid_classification"] };
 
+  const inputs = comparisonInputs(evidence, a !== sides[0].scope);
+  const own = scopes.map((scope, i) => boundImpact(inputs?.[i].Impact, scope));
+  const peers = scopes.map((scope, i) => boundImpact(inputs?.[i].PeerImpact, scope, scopes[1 - i].task.paths));
+  const symbols = scopes.map((scope, i) => declarationEvidence(inputs?.[i].SymbolWitness, scope, own[i]));
+  const observations = { own, peers, symbols, distinctCommits };
   let overlaps;
   if (siblings) {
     result.scopeBindings = scopes.map((scope) => ({ taskId: scope.task.id, ...observationBinding(scope) }));
     if (a.sourceBinding.contextSnapshotToken === b.sourceBinding.contextSnapshotToken) {
       return { ...result, reasons: ["inconsistent_sibling_snapshots"] };
     }
-    const impacts = siblingImpactInputs(evidence);
-    if (!impacts) return { ...result, reasons: ["unbound_sibling_impact"] };
-    if (a !== sides[0].scope) impacts.reverse();
-    overlaps = siblingOverlaps(scopes, indexes, impacts, reasons);
-    if (!overlaps) return { ...result, reasons: ["unbound_sibling_impact"] };
-    if (!overlaps.length) return { ...result, reasons: [...reasons, "no_verified_shared_write"].sort(compareStrings) };
+    if (own.some(item => !item)) return { ...result, reasons: ["unbound_sibling_impact"] };
+    if (distinctCommits) reasons.add("distinct_commits_revalidation_required");
+    overlaps = siblingOverlaps(indexes, observations, reasons);
+    if (!overlaps.length) {
+      const reason = peers.some(Boolean) ? "no_verified_cross_snapshot_overlap" : "no_verified_shared_write";
+      return { ...result, reasons: [...reasons, reason].sort(compareStrings) };
+    }
   } else {
     result.binding = observationBinding(a);
-    overlaps = sharedSnapshotOverlaps(...indexes);
+    overlaps = sharedSnapshotOverlaps(...indexes, observations);
   }
   overlaps.sort((x, y) => SEVERITIES.indexOf(x.severity) - SEVERITIES.indexOf(y.severity) || compareStrings(x.path, y.path));
   const truncated = overlaps.length > MAX_OVERLAPS;
@@ -237,6 +252,12 @@ export function compareTaskScopes(leftScope, rightScope, evidence = {}) {
     status: incomplete ? "incomplete" : "available",
     findingState: overlaps.length ? "overlap_observed" : "no_overlap_observed",
     severity, recommendedAction: recommendation(severity, incomplete),
+    revalidation: { required: distinctCommits || incomplete || severity === "warning" || severity === "high", distinctCommits },
+    dimensions: {
+      files: overlaps.length ? "overlap_observed" : "no_overlap_observed",
+      dependencies: overlaps.some(row => row.dependency) ? "evidence_found" : "not_established",
+      declarations: overlaps.some(row => row.declarations?.length) ? "evidence_found" : result.dimensions.declarations
+    },
     overlaps: overlaps.slice(0, MAX_OVERLAPS), totalOverlaps: overlaps.length, truncated,
     reasons: [...reasons].sort(compareStrings)
   };

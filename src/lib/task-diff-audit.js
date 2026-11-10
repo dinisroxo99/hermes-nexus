@@ -68,7 +68,7 @@ function filterOverrides(directory, names, index) {
   return overrides;
 }
 
-function preflightGit(directory) {
+export function preflightGit(directory) {
   // git config only reads configuration. Check system/global/local/worktree settings and includes before status.
   const names = readGit(directory, ["config", "--includes", "--null", "--name-only", "--list"], 262144)
     .toString("latin1").split("\0");

@@ -150,11 +150,18 @@ POST /api/intelligence/projects/:projectId/task-context
 POST /api/intelligence/projects/:projectId/impact
 POST /api/intelligence/projects/:projectId/effective-task-scope
 POST /api/intelligence/projects/:projectId/task-conflicts
+POST /api/intelligence/projects/:projectId/ask-project
+POST /api/intelligence/projects/:projectId/task-brief
+POST /api/intelligence/projects/:projectId/operation-observation
 ```
 
 ICM discovery and Context Pack construction use bounded project evidence. Impact v2 exposes the
 project's change evidence. The [scope route](effective-task-scope-http-route.md) classifies one task.
 The [task-conflicts route](development/task-conflicts.md) compares two tasks using fresh scope observations.
+
+The [task brief](development/task-brief.md) accepts an explicit list of task paths and renders the verified
+Context Pack and Impact evidence in one bounded text field. The response identifies the source revision,
+provider and projection limits separately.
 
 ### Task Context Pack
 
@@ -434,6 +441,15 @@ Retrieve the full graph:
 ```bash
 curl "http://localhost:8770/api/explore/faturas-backend/full?nodeLimit=500&edgeLimit=1200"
 ```
+
+## Readiness and replay
+
+`GET /api/ready` verifies local roots, registry validity and native provider registration. The
+[operational verification guide](development/operations-and-recovery.md) describes health sampling,
+corrupt-state handling and the tested restore procedure.
+
+The **CI Lite** workflow can replay a previous commit from `main` through a manual dispatch on `main`.
+Set `main_commit` to its full SHA. The runner checks mainline ancestry and its exact checkout before tests.
 
 ## Development
 

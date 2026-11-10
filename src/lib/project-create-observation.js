@@ -30,7 +30,7 @@ function normalizeInput(raw) {
     worktree, expectedCommitSha: input.expectedCommitSha };
 }
 
-function readBinding(input, registry) {
+export function readObservationBinding(input, registry) {
   const parent = getProjectByIdForIntelligence(input.projectId, registry);
   const forwarded = parent.rootId !== input.worktree.rootId || parent.relativePath !== input.worktree.relativePath;
   const project = forwarded ? resolveProjectWorktree(input.projectId, input.worktree, registry) : parent;
@@ -46,7 +46,7 @@ function readBinding(input, registry) {
 
 // A registered root is reserved even if its directory disappeared in this revision. The
 // absence producer walks ancestors, so this also protects the root basename itself and aliases.
-function crossesNestedBoundary(target, boundaries) {
+export function crossesNestedBoundary(target, boundaries) {
   const parts = target.split("/");
   return boundaries.some((boundary) => {
     const prefix = boundary.split("/");
@@ -57,7 +57,7 @@ function crossesNestedBoundary(target, boundaries) {
 /** Read-only classification of explicitly proposed file creations on a registered project/worktree. */
 export function observeProjectCreate(raw, registry = {}) {
   const input = normalizeInput(raw);
-  const binding = readBinding(input, registry);
+  const binding = readObservationBinding(input, registry);
   if (input.expectedCommitSha && input.expectedCommitSha !== binding.revision.commitSha) {
     throw error("create_observation_stale");
   }
@@ -87,6 +87,6 @@ export function observeProjectCreate(raw, registry = {}) {
     scope = composeEffectiveTaskScopeFromEnvelopes(request, { ...envelopes, createDestinationAbsenceWitness: { ok: true, data: witness } });
     observations = witness.targets.map(({ newPath, verdict, complete, incompleteReason }) => ({ newPath, verdict, complete, incompleteReason }));
   }
-  if (JSON.stringify(binding) !== JSON.stringify(readBinding(input, registry))) throw error("create_observation_changed");
+  if (JSON.stringify(binding) !== JSON.stringify(readObservationBinding(input, registry))) throw error("create_observation_changed");
   return { projectId, worktree, commitSha: revision.commitSha, snapshotToken: pack.analysis.snapshotToken, observations, scope };
 }

@@ -70,18 +70,26 @@ WRITE / RESERVED / WATCH / IMPACT · Conflict Intelligence · Project Expert.
 
 ## Current status
 
-For a registered project, you can now:
+For a registered project, the service can:
 
-- Compare two proposed tasks and inspect file overlaps, including confirmed shared writes in sibling worktrees.
-  [Task conflict requests](docs/development/task-conflicts.md)
-- Observe proposed file creates and audit the final Git diff against a captured task scope.
-  [Create observation](docs/development/create-observation.md) · [Diff audit](docs/development/task-diff-audit.md)
-- Ask which symbols, dependent files and candidate tests the current checkout exposes, or which commits touched a file.
-  [Ask about a project](docs/development/project-symbol-location.md)
-- Compare two collect-forward logs or read measured token counters from an explicit Hermes session database snapshot.
-  [Capture comparison](docs/development/log-inspector.md) · [Native session usage](docs/development/session-usage.md)
-
-Run `node scripts/evaluate-project-questions.mjs` to score project questions against fixed expectations in disposable Git projects. [Evaluation guide](docs/development/project-question-evaluation.md)
+- Observe file creates, moves and complete directory transfers using real source and destination evidence.
+  [Scope operations](docs/development/project-operation-observation.md)
+- Compare proposed tasks across revisions and report corroborated dependencies and declaration overlaps.
+  [Task conflicts](docs/development/task-conflicts.md)
+- Produce a reviewable patch in an isolated Hermes worker using explicit operator grants intersected with
+  fresh scope results. An independent oracle verified a real locally selected edit.
+  [Guarded worker](docs/development/hermes-guarded-worker.md)
+- Answer project questions through the CLI or HTTP, optionally combining current evidence with validated
+  historical receipts and local-model citation selection.
+  [Project questions](docs/development/project-symbol-location.md) · [Run history](docs/development/run-history.md)
+- Request a bounded list of relevant symbols, affected files and candidate tests in one compact response.
+  [Task brief](docs/development/task-brief.md)
+- Sync a project's validated run history and observe API usage on selected Kanban workers.
+  [Run history](docs/development/run-history.md) · [Worker usage](docs/development/worker-usage-observer.md)
+- Reproduce measured baseline/Nexus experiments and score deterministic questions against a frozen corpus.
+  [Paired benchmark](docs/development/paired-hermes-benchmark.md) · [Frozen evaluation](docs/development/project-question-evaluation.md) · [Verified dataset export](docs/development/validated-datasets.md)
+- Check service readiness, monitor an observation window, and back up and restore the project registry and
+  validated history. [Operations and recovery](docs/development/operations-and-recovery.md)
 
 The [current development checkpoint](docs/CURRENT_STATUS.md#development-checkpoint-2026-11-09) records the
 remaining product and runtime dependencies. Historical installation records follow.
@@ -120,7 +128,7 @@ plugin Python; Step 4 enforcement is not started.
 Operator-authorized implementer, tester, and reviewer SOUL hashes and inspect live proofs for ETS profile exposure are recorded in [ETS profile exposure](docs/ETS_PROFILE_EXPOSURE.md).
 - **In development:** ETS exposes bound task classifications and a read-only comparison of two scopes.
   The operator can retrieve source evidence, audit a Git diff and inspect offline telemetry. Runtime
-  confinement and validated historical outcomes remain open. [Development checkpoint](docs/CURRENT_STATUS.md#development-checkpoint-2026-11-09)
+  confinement across the ordinary gateway and continuous deployment of history collection remain open. [Development checkpoint](docs/CURRENT_STATUS.md#development-checkpoint-2026-11-09)
 
 Native C#/.NET, TypeScript, JavaScript/JSX and Node.js analysis is **structural**,
 not compiler-grade semantic analysis. Node.js remains classified as `nodejs`, but
@@ -186,10 +194,9 @@ Development verification: `npm test` and `npm run check`.
 COMPLETE: Project foundation → Project Identity / Revision
           → Task Context Pack → Analyzer Provider Layer
           → Impact v2
-IMPLEMENTED IN PART: Effective Task Scope → file-level conflict evidence
-                     → guard verification and final-diff audit
-                     → offline telemetry and current-project retrieval
-OPEN: Runtime enforcement, validated run history and matched outcome evaluation
+IMPLEMENTED: Bounded scope operations → conflict comparisons → isolated guarded changes
+             → native history ingestion → cited local Project Expert → paired evaluations
+OPEN: Full host/fleet operational acceptance and generalization of benchmark outcomes
 ```
 
 This follows the [active implementation plan](.hermes/plans/2026-09-17_002050-project-intelligence-service-active.md),

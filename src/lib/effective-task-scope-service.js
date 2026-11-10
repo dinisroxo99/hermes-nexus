@@ -66,6 +66,7 @@ export function createEffectiveTaskScopeBuilder(dependencies = {}) {
 
     let canonicalImpact;
     let scope;
+    let acceptedSymbolWitness = null;
     try {
       canonicalImpact = canonicalImpactOriginForm(request, impact);
       const envelopes = {
@@ -78,12 +79,22 @@ export function createEffectiveTaskScopeBuilder(dependencies = {}) {
         const witness = symbolEvidence.buildWitness(request, pack, canonicalImpact);
         if (witness) {
           scope = compose(request, { ...envelopes, symbolTargetCompletenessWitness: { ok: true, data: witness } });
+          if (["available", "incomplete"].includes(scope.status)) acceptedSymbolWitness = { taskId: request.task.id, witness };
         }
       }
     } catch (error) {
       throw sourced(error, "compose");
     }
-    return { scope, impact: canonicalImpact };
+    // Only task comparison uses this internal lookup. Its caller verifies the new observation
+    // against this scope's revision and snapshot before attributing an edge to the other task.
+    const impactForPaths = (paths) => {
+      const peerRequest = { paths, includeTests: false, ...(locator ? { worktree: locator } : {}) };
+      try {
+        const peer = buildImpact(request.projectId, peerRequest, options);
+        return canonicalImpactOriginForm({ task: { paths } }, peer);
+      } catch (error) { throw sourced(error, "impact"); }
+    };
+    return { scope, impact: canonicalImpact, acceptedSymbolWitness, impactForPaths };
   };
 }
 

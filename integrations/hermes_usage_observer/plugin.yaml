@@ -1,0 +1,5 @@
+name: nexus-usage-observer
+version: "1.0.0"
+description: "Observe bounded API usage for explicitly enabled Hermes Kanban workers."
+provides_hooks:
+  - post_api_request

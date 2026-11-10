@@ -1,6 +1,6 @@
 import { createEffectiveTaskScopeBuilder } from "../lib/effective-task-scope-service.js";
 import { validateProjectId } from "../lib/project-registry.js";
-import { compareTaskScopes } from "../lib/task-conflict-comparison.js";
+import { compareObservedTaskEvidence } from "../lib/compare-observed-tasks.js";
 import { readJsonBody } from "../utils/request-body.js";
 import { sendOk, sendError } from "../utils/response.js";
 import { classifyEffectiveTaskScopeError, normalizeScopeBody } from "./effective-task-scope.routes.js";
@@ -22,7 +22,7 @@ export function createTaskConflictsHandler(dependencies = {}) {
 
       const first = buildEvidence(left);
       const second = buildEvidence(right);
-      const result = compareTaskScopes(first.scope, second.scope, { leftImpact: first.impact, rightImpact: second.impact });
+      const result = compareObservedTaskEvidence(first, second);
       sendOk(res, 200, result, "Task scopes compared.");
     } catch (error) {
       const { status, code } = classifyEffectiveTaskScopeError(error);
