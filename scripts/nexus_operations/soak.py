@@ -74,6 +74,13 @@ def now():
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
 
+def observation_clock():
+    # Linux CLOCK_MONOTONIC excludes host suspend, during which no probes can run.
+    if hasattr(time, "CLOCK_BOOTTIME"):
+        return time.clock_gettime(time.CLOCK_BOOTTIME)
+    return time.monotonic()
+
+
 def verify_service(url, seconds, interval, project_id=None, pid=None, checkpoint=None, components=None):
     if not 0 <= seconds <= 604800 or not 1 <= interval <= 3600:
         raise ValueError("invalid_observation_period")
@@ -82,7 +89,7 @@ def verify_service(url, seconds, interval, project_id=None, pid=None, checkpoint
         raise ValueError("invalid_project_id")
     if pid is not None and pid <= 0:
         raise ValueError("invalid_pid")
-    started = time.monotonic()
+    started = observation_clock()
     until = started + seconds
     previous = previous_start = process_first = process_last = rss_peak = None
     consecutive_process = True
@@ -90,12 +97,12 @@ def verify_service(url, seconds, interval, project_id=None, pid=None, checkpoint
     report = {"schemaVersion": 1, "startedAt": now(), "requestedSeconds": seconds, "intervalSeconds": interval,
               "samples": 0, "livenessFailures": 0, "readinessFailures": 0, "uptimeRestartsObserved": 0,
               "contextProbeFailures": 0 if project_id else None, "contextPartialSamples": 0 if project_id else None,
-              "maxSamplingGapSeconds": 0}
+              "maxSamplingGapSeconds": 0, "maxSampleDurationSeconds": 0}
     if components:
         from .components import sample_components
         report["componentFailures"] = {name: 0 for name in components}
     while True:
-        stamp = time.monotonic()
+        stamp = observation_clock()
         if previous is not None:
             report["maxSamplingGapSeconds"] = max(report["maxSamplingGapSeconds"], round(stamp - previous, 2))
         previous = stamp
@@ -134,15 +141,17 @@ def verify_service(url, seconds, interval, project_id=None, pid=None, checkpoint
             consecutive_process &= process_first[0] == sample[0]
             process_last = sample
             rss_peak = max(rss_peak or 0, sample[2])
+        finished = observation_clock()
+        report["maxSampleDurationSeconds"] = max(report["maxSampleDurationSeconds"], round(finished - stamp, 2))
         if checkpoint:
-            checkpoint({**report, "status": "in_progress", "sampledAt": now(), "elapsedSeconds": round(time.monotonic() - started, 2)})
+            checkpoint({**report, "status": "in_progress", "sampledAt": now(), "elapsedSeconds": round(finished - started, 2)})
         if stamp >= until:
             break
-        remaining = min(stamp + interval, until) - time.monotonic()
+        remaining = min(stamp + interval, until) - observation_clock()
         if remaining > 0:
             time.sleep(remaining)
     complete_process = process_samples == report["samples"] and consecutive_process
-    report.update(endedAt=now(), elapsedSeconds=round(time.monotonic() - started, 2),
+    report.update(endedAt=now(), elapsedSeconds=round(observation_clock() - started, 2),
                   processMetrics={"samples": process_samples, "complete": complete_process if pid is not None else None,
                                   "peakRssBytes": rss_peak,
                                   "cpuSecondsBetweenSamples": round(process_last[1] - process_first[1], 3)
@@ -150,6 +159,7 @@ def verify_service(url, seconds, interval, project_id=None, pid=None, checkpoint
     report["status"] = "degraded" if (report["livenessFailures"] or report["readinessFailures"]
                                       or report["contextProbeFailures"] or report["uptimeRestartsObserved"]
                                       or report["maxSamplingGapSeconds"] > interval + 5
+                                      or (seconds and report["maxSampleDurationSeconds"] > interval + 5)
                                       or (pid is not None and not complete_process)
                                       or any(report.get("componentFailures", {}).values())) else "healthy"
     if checkpoint:

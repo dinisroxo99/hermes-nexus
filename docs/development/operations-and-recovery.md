@@ -23,6 +23,39 @@ Partial Context Packs have their own count. The checkpoint shows `in_progress` u
 elapses; `healthy` or `degraded` describes only the probed Nexus service and interval. The result does not
 measure Hermes gateway, Kanban workers, GPU queues or Honcho uptime unless a separate service observation is configured.
 
+On Linux with `CLOCK_BOOTTIME`, the collector includes time spent suspended in the observation
+window, the maximum gap between sample starts and the longest individual sample. During a timed
+run, either measurement exceeding the interval by more than five seconds degrades the report. Process uptime comparisons use a separate clock so a suspension alone does
+not count as a service restart. On systems without this clock, suspend coverage is unverified.
+
+### Collect a full window on a persistent Linux host
+
+Use an already-running isolated Nexus service on the same persistent host, with its registered
+test project. Set `NEXUS_URL`, `NEXUS_PID` and `NEXUS_PROJECT_ID` to that instance's numeric
+loopback origin, Node process ID and project ID. Run from the checkout containing this collector.
+The user systemd manager and the service must remain available after the shell disconnects.
+
+```bash
+(
+  set -eu
+  : "${NEXUS_URL:?}" "${NEXUS_PID:?}" "${NEXUS_PROJECT_ID:?}"
+  attempt=$(mktemp -d -- "${PWD}/../nexus-soak.XXXXXXXX")
+  systemd-run --user --collect --unit=nexus-isolated-soak --property=Type=exec \
+    --working-directory="$PWD" "$(command -v python3)" -B -m scripts.nexus_operations \
+    --url "$NEXUS_URL" --pid "$NEXUS_PID" --project-id "$NEXUS_PROJECT_ID" \
+    --duration-seconds 86400 --interval-seconds 300 --checkpoint "$attempt/checkpoint.json"
+  echo "$attempt/checkpoint.json"
+)
+```
+
+The fixed unit name rejects a second launch while the collector is running. Each new attempt
+gets its own directory. Retain the service revision and project ID with that attempt. Inspect
+the terminal checkpoint for `status`, `startedAt`, `endedAt`, `elapsedSeconds`, sample count,
+maximum gap, longest sample and failure counters. For the command above, a healthy full window needs at least
+86,400 elapsed seconds, at most 305 seconds for each gap and sample, complete PID coverage and successful
+probes. An `in_progress` checkpoint after the unit stops is an interrupted observation. Start
+a fresh window on an available host.
+
 A 180-second rehearsal on a disposable registered clone of Nexus issued seven project probes. All seven
 resolved the project and returned partial packs, with zero liveness/readiness failures or uptime resets.
 The observed peak RSS was 603,815,936 bytes and the selected process used 13.88 CPU-seconds between samples.

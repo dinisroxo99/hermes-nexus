@@ -146,6 +146,59 @@ class OperationsTests(unittest.TestCase):
             report = verify_service("http://127.0.0.1:8770", 0, 60, "PrJ_Proof")
         self.assertEqual((report["status"], report["livenessFailures"], report["contextProbeFailures"]), ("degraded", 1, 1))
 
+    @unittest.skipUnless(hasattr(time, "CLOCK_BOOTTIME"), "requires a suspend-aware Linux clock")
+    def test_suspended_host_leaves_a_sampling_gap_without_counting_a_service_restart(self):
+        awake = 0
+        suspended = 0
+
+        def sleep(seconds):
+            nonlocal awake, suspended
+            awake += seconds
+            suspended = 90
+
+        def boot_time(clock):
+            self.assertEqual(clock, time.CLOCK_BOOTTIME)
+            return awake + suspended
+
+        def probe(_origin, path):
+            return {"status": "ok", "uptime": awake} if path == "/api/health" else {"ready": True}
+
+        with (patch.object(time, "monotonic", side_effect=lambda: awake),
+              patch.object(time, "clock_gettime", side_effect=boot_time),
+              patch.object(time, "sleep", side_effect=sleep),
+              patch("scripts.nexus_operations.soak.get_json", side_effect=probe)):
+            report = verify_service("http://127.0.0.1", 60, 10)
+
+        self.assertEqual(report["status"], "degraded")
+        self.assertEqual(report["elapsedSeconds"], 100)
+        self.assertEqual(report["maxSamplingGapSeconds"], 100)
+        self.assertEqual(report["uptimeRestartsObserved"], 0)
+        self.assertEqual(report["samples"], 2)
+
+    def test_gap_during_last_probe_degrades_even_without_a_subsequent_sample(self):
+        clock = 0
+
+        def sleep(seconds):
+            nonlocal clock
+            clock += seconds
+
+        def probe(_origin, path):
+            nonlocal clock
+            if path == "/api/health":
+                return {"status": "ok", "uptime": 1}
+            if clock == 10:
+                clock += 90
+            return {"ready": True}
+
+        with (patch("scripts.nexus_operations.soak.observation_clock", side_effect=lambda: clock),
+              patch.object(time, "sleep", side_effect=sleep),
+              patch("scripts.nexus_operations.soak.get_json", side_effect=probe)):
+            report = verify_service("http://127.0.0.1", 10, 10)
+
+        self.assertEqual(report["status"], "degraded")
+        self.assertEqual(report["maxSamplingGapSeconds"], 10)
+        self.assertEqual(report["maxSampleDurationSeconds"], 90)
+
     def test_trickling_service_cannot_extend_the_probe_deadline(self):
         class Slow(BaseHTTPRequestHandler):
             def do_GET(self):

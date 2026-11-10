@@ -51,7 +51,9 @@ TypeScript source to its consumers and candidate tests. [Analyzer contract](type
 
 The [operational rehearsal](development/operations-and-recovery.md) verified readiness, service restart and restore
 of an active history receipt in isolation. A longer Nexus-only soak began at **2026-11-09 18:57:53 UTC**.
-Its target is 24 hours. A terminal report is required before treating that interval as observed. The collector also verified the model identity reported by a real local llama.cpp inference endpoint in a separate single-sample check. Fleet-level
+Its terminal report was unavailable on 2026-11-10. Two separate attempts on a disposable host
+stopped updating after two samples (20:52 UTC start) and one sample (21:40 UTC start) on November 9.
+The 24-hour service observation remains outstanding. The collector also verified the model identity reported by a real local llama.cpp inference endpoint in a separate single-sample check. Fleet-level
 availability on the operator's actual gateway, hardware, dispatcher and inference services is still pending.
 
 The original [CI run on the PR #78 merge](https://github.com/dinisroxo99/hermes-nexus/actions/runs/42671194245)
